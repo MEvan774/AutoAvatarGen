@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
@@ -8,7 +8,6 @@ public class HybridAvatarSystem : MonoBehaviour
     [Header("Components")]
     public AudioSource voiceAudio;
     public SpriteRenderer avatarRenderer;
-
     public GameObject pivot;
 
     [Header("Emotion Sprites")]
@@ -18,31 +17,48 @@ public class HybridAvatarSystem : MonoBehaviour
     public Sprite sadSprite;
     public Sprite concernedSprite;
 
-    [Header("Audio Settings")]
-    [Range(0.01f, 0.1f)]
-    public float silenceThreshold = 0.02f;
-
-    [Range(0.1f, 0.5f)]
-    public float minWordDuration = 0.15f;
+    [Header("Timing Adjustment")]
+    [Range(-2f, 2f)]
+    [Tooltip("Adjust if emotions trigger too early (negative) or too late (positive)")]
+    public float timingOffset = 0f;
 
     private float animationDuration = 0.15f;
-    private float squashAmount = 1.6f; // How much to squash/stretch
+    private float squashAmount = 1.6f;
 
     private Coroutine currentAnimation;
 
     private Dictionary<string, Sprite> emotionMap;
     private string cleanScript;
-    private string[] words;
-    private List<MarkerData> markers;
-    private int currentWordIndex = 0;
+    private List<TimeMarkerData> timeMarkers; // Changed to time-based
+    private int lastTriggeredMarker = -1;
 
     [Header("Recording")]
-    public LinuxTransparentRecorder recorder;
+    public CrossPlatformRecorder recorder;
     public bool autoRecord = true;
+
+    [Header("Idle Sway Settings")]
+    public bool enableIdleSway = true;
+    [Range(0.1f, 2f)]
+    public float swaySpeed = 0.5f;
+    [Range(0.01f, 0.5f)]
+    public float swayAmountX = 0.1f;
+    [Range(0.01f, 0.5f)]
+    public float swayAmountY = 0.15f;
+    [Range(0f, 10f)]
+    public float rotationAmount = 3f;
+
+    private Vector3 originalPosition;
+    private Quaternion originalRotation;
+    private float noiseOffsetX;
+    private float noiseOffsetY;
+    private float noiseOffsetRotation;
+
+    private Vector3 swayBasePosition;
+    private Quaternion swayBaseRotation;
+    private bool useSwayBase = false;
 
     void Awake()
     {
-        // Setup emotion mapping
         emotionMap = new Dictionary<string, Sprite>()
         {
             {"Neutral", neutralSprite},
@@ -52,74 +68,104 @@ public class HybridAvatarSystem : MonoBehaviour
             {"Concerned", concernedSprite}
         };
 
-        // Start with neutral
         avatarRenderer.sprite = neutralSprite;
+
+        if (pivot != null)
+        {
+            originalPosition = pivot.transform.localPosition;
+            originalRotation = pivot.transform.localRotation;
+
+            // Initialize sway base to world position
+            swayBasePosition = pivot.transform.position;
+            swayBaseRotation = pivot.transform.rotation;
+            useSwayBase = false; // Start with local sway
+        }
+
+        noiseOffsetX = Random.Range(0f, 100f);
+        noiseOffsetY = Random.Range(0f, 100f);
+        noiseOffsetRotation = Random.Range(0f, 100f);
     }
 
-    // Call this with your script and pre-generated audio
+    void Update()
+    {
+        if (enableIdleSway && pivot != null && currentAnimation == null)
+        {
+            ApplyIdleSway();
+        }
+    }
+
+    public void SetSwayBase(Vector3 basePosition, Quaternion baseRotation)
+    {
+        swayBasePosition = basePosition;
+        swayBaseRotation = baseRotation;
+        useSwayBase = true;
+
+        Debug.Log($"Sway base set to: {basePosition}");
+    }
+
+    // NEW: Method to return to local sway mode
+    public void ReturnToLocalSway()
+    {
+        useSwayBase = false;
+        pivot.transform.localPosition = originalPosition;
+        pivot.transform.localRotation = originalRotation;
+
+        Debug.Log("Returned to local sway mode");
+    }
+
+    void ApplyIdleSway()
+    {
+        float time = Time.time * swaySpeed;
+
+        float noiseX = (Mathf.PerlinNoise(time + noiseOffsetX, 0f) - 0.5f) * 2f;
+        float noiseY = (Mathf.PerlinNoise(time + noiseOffsetY, 1f) - 0.5f) * 2f;
+        float noiseRotation = (Mathf.PerlinNoise(time + noiseOffsetRotation, 2f) - 0.5f) * 2f;
+
+        Vector3 swayPosition = originalPosition + new Vector3(
+            noiseX * swayAmountX,
+            noiseY * swayAmountY,
+            0f
+        );
+
+        pivot.transform.localPosition = swayPosition;
+
+        Quaternion swayRotation = originalRotation * Quaternion.Euler(0f, 0f, noiseRotation * rotationAmount);
+        pivot.transform.localRotation = swayRotation;
+    }
+
+    // NEW: Time-based processing
     public void ProcessWithExistingAudio(string scriptWithMarkers, AudioClip audio)
     {
-        (cleanScript, markers) = ParseScriptWithMarkers(scriptWithMarkers);
-        words = cleanScript.Split(new char[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+        (cleanScript, timeMarkers) = ParseScriptWithTimeMarkers(scriptWithMarkers, audio.length);
 
         voiceAudio.clip = audio;
 
-        // Start recording if enabled
         if (autoRecord && recorder != null)
         {
             recorder.StartRecordingWithAudio();
         }
 
         voiceAudio.Play();
-        StartCoroutine(TrackSpeechHybrid());
+        StartCoroutine(TrackEmotionsByTime());
     }
 
-    IEnumerator TrackSpeechHybrid()
+    // SIMPLIFIED: Pure time-based tracking
+    IEnumerator TrackEmotionsByTime()
     {
-        float[] samples = new float[1024];
-        float lastAmplitude = 0f;
-        float timeSinceLastWord = 0f;
-        int wordsDetectedByAudio = 0;
-        int lastTriggeredMarker = -1;
+        lastTriggeredMarker = -1;
 
         while (voiceAudio.isPlaying)
         {
-            // METHOD 1: Analyze audio amplitude for word detection
-            voiceAudio.GetOutputData(samples, 0);
-            float currentAmplitude = CalculateRMS(samples);
+            float currentTime = voiceAudio.time + timingOffset;
 
-            timeSinceLastWord += Time.deltaTime;
-
-            // Detect word boundary (silence to speech transition)
-            if (currentAmplitude > silenceThreshold &&
-                currentAmplitude > lastAmplitude * 1.3f &&
-                timeSinceLastWord > minWordDuration)
+            // Check each marker
+            for (int i = lastTriggeredMarker + 1; i < timeMarkers.Count; i++)
             {
-                wordsDetectedByAudio++;
-                timeSinceLastWord = 0f;
-            }
-
-            // METHOD 2: Proportional progress as backup/correction
-            float audioProgress = voiceAudio.time / voiceAudio.clip.length;
-            int expectedWordIndex = Mathf.RoundToInt(audioProgress * words.Length);
-
-            // Hybrid: Use average of both methods, weighted toward proportion
-            currentWordIndex = Mathf.RoundToInt(
-                (wordsDetectedByAudio * 0.3f) + (expectedWordIndex * 0.7f)
-            );
-
-            // Clamp to valid range
-            currentWordIndex = Mathf.Clamp(currentWordIndex, 0, words.Length - 1);
-
-            // Check if we should trigger an emotion change
-            for (int i = lastTriggeredMarker + 1; i < markers.Count; i++)
-            {
-                if (currentWordIndex >= markers[i].wordIndex)
+                if (currentTime >= timeMarkers[i].triggerTime)
                 {
-                    Debug.Log($"Triggering emotion {markers[i].emotion} at word index {currentWordIndex}");
-                    ChangeEmotion(markers[i].emotion);
+                    Debug.Log($"Triggering emotion {timeMarkers[i].emotion} at {currentTime:F2}s");
+                    ChangeEmotion(timeMarkers[i].emotion);
                     lastTriggeredMarker = i;
-                    Debug.Log($"Emotion changed to {markers[i].emotion} at word {currentWordIndex}");
                 }
                 else
                 {
@@ -127,36 +173,17 @@ public class HybridAvatarSystem : MonoBehaviour
                 }
             }
 
-            lastAmplitude = currentAmplitude;
             yield return null;
         }
 
         Debug.Log("Audio finished playing");
-        recorder.StopRecording();
-    }
-
-    float CalculateRMS(float[] samples)
-    {
-        float sum = 0f;
-        foreach (float sample in samples)
-        {
-            sum += sample * sample;
-        }
-        return Mathf.Sqrt(sum / samples.Length);
     }
 
     void ChangeEmotion(string emotion)
     {
-        // Safety checks
-        if (emotionMap == null)
+        if (emotionMap == null || string.IsNullOrEmpty(emotion))
         {
-            Debug.LogError("emotionMap is null! Make sure Awake() ran before processing.");
-            return;
-        }
-
-        if (string.IsNullOrEmpty(emotion))
-        {
-            Debug.LogError("Emotion string is null or empty!");
+            Debug.LogError("Invalid emotion or emotionMap!");
             return;
         }
 
@@ -164,25 +191,18 @@ public class HybridAvatarSystem : MonoBehaviour
         {
             if (avatarRenderer != null)
             {
-                // Stop previous animation if running
                 if (currentAnimation != null)
                 {
                     StopCoroutine(currentAnimation);
                 }
 
-                // Start squash & stretch animation
                 currentAnimation = StartCoroutine(SquashStretchAnimation(emotionMap[emotion]));
-
                 Debug.Log($"Changed emotion to: {emotion}");
-            }
-            else
-            {
-                Debug.LogError("avatarRenderer is null!");
             }
         }
         else
         {
-            Debug.LogWarning($"Emotion '{emotion}' not found in emotion map! Available emotions: {string.Join(", ", emotionMap.Keys)}");
+            Debug.LogWarning($"Emotion '{emotion}' not found!");
         }
     }
 
@@ -192,16 +212,14 @@ public class HybridAvatarSystem : MonoBehaviour
         Vector3 originalScale = avatarTransform.localScale;
 
         float elapsed = 0f;
-        float phaseDuration = animationDuration / 3f; // Divide into 3 phases
+        float phaseDuration = animationDuration / 3f;
 
-        // Phase 1: Squash down (compress vertically, stretch horizontally)
+        // Phase 1: Squash down
         while (elapsed < phaseDuration)
         {
             elapsed += Time.deltaTime;
             float t = elapsed / phaseDuration;
-
-            // Ease in for smoother start
-            t = t * t; // quadratic ease in
+            t = t * t;
 
             float scaleY = Mathf.Lerp(1f, 1f / squashAmount, t);
             float scaleX = Mathf.Lerp(1f, squashAmount, t);
@@ -215,19 +233,16 @@ public class HybridAvatarSystem : MonoBehaviour
             yield return null;
         }
 
-        // Switch sprite at the peak of squash
         avatarRenderer.sprite = newSprite;
 
         elapsed = 0f;
 
-        // Phase 2: Stretch up (compress horizontally, stretch vertically - overshoot)
+        // Phase 2: Stretch up
         while (elapsed < phaseDuration)
         {
             elapsed += Time.deltaTime;
             float t = elapsed / phaseDuration;
-
-            // Fast snap for cartoon effect
-            t = 1f - (1f - t) * (1f - t); // quadratic ease out
+            t = 1f - (1f - t) * (1f - t);
 
             float scaleY = Mathf.Lerp(1f / squashAmount, squashAmount, t);
             float scaleX = Mathf.Lerp(squashAmount, 1f / squashAmount, t);
@@ -243,14 +258,12 @@ public class HybridAvatarSystem : MonoBehaviour
 
         elapsed = 0f;
 
-        // Phase 3: Settle back to normal (with slight bounce)
+        // Phase 3: Settle back
         while (elapsed < phaseDuration)
         {
             elapsed += Time.deltaTime;
             float t = elapsed / phaseDuration;
-
-            // Ease out with slight overshoot
-            t = t * t * t; // cubic ease for smooth settle
+            t = t * t * t;
 
             float scaleY = Mathf.Lerp(squashAmount, 1f, t);
             float scaleX = Mathf.Lerp(1f / squashAmount, 1f, t);
@@ -264,33 +277,42 @@ public class HybridAvatarSystem : MonoBehaviour
             yield return null;
         }
 
-        // Ensure we end at exactly original scale
         avatarTransform.localScale = originalScale;
+
+        currentAnimation = null;
     }
 
-    (string, List<MarkerData>) ParseScriptWithMarkers(string script)
+    // NEW: Calculate time-based markers
+    (string, List<TimeMarkerData>) ParseScriptWithTimeMarkers(string script, float audioDuration)
     {
-        List<MarkerData> markerList = new List<MarkerData>();
+        List<TimeMarkerData> markerList = new List<TimeMarkerData>();
         string clean = script;
 
         // Find all {Emotion} markers
         Regex regex = new Regex(@"\{(\w+)\}");
         MatchCollection matches = regex.Matches(script);
 
-        int wordOffset = 0;
+        // Count total characters (excluding markers)
+        string scriptWithoutMarkers = regex.Replace(script, "");
+        int totalChars = scriptWithoutMarkers.Length;
 
         foreach (Match match in matches)
         {
-            // Count words before this marker
+            // Count characters before this marker (excluding previous markers)
             string textBeforeMarker = script.Substring(0, match.Index);
-            int wordsBeforeMarker = textBeforeMarker.Split(new char[] { ' ' },
-                System.StringSplitOptions.RemoveEmptyEntries).Length;
+            string cleanTextBefore = regex.Replace(textBeforeMarker, "");
+            int charsBeforeMarker = cleanTextBefore.Length;
 
-            markerList.Add(new MarkerData
+            // Calculate proportional time
+            float markerTime = (charsBeforeMarker / (float)totalChars) * audioDuration;
+
+            markerList.Add(new TimeMarkerData
             {
-                wordIndex = wordsBeforeMarker - wordOffset,
+                triggerTime = markerTime,
                 emotion = match.Groups[1].Value
             });
+
+            Debug.Log($"Marker '{match.Groups[1].Value}' will trigger at {markerTime:F2}s");
 
             // Remove marker from script
             clean = clean.Replace(match.Value, "");
@@ -301,9 +323,8 @@ public class HybridAvatarSystem : MonoBehaviour
 }
 
 [System.Serializable]
-public class MarkerData
+public class TimeMarkerData
 {
-    public int wordIndex;
+    public float triggerTime; // Time in seconds when emotion should trigger
     public string emotion;
-    public bool triggered = false;
 }
