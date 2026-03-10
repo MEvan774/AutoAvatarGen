@@ -139,13 +139,13 @@ public class HybridAvatarSystem : MonoBehaviour
         (cleanScript, timeMarkers) = ParseScriptWithTimeMarkers(scriptWithMarkers, audio.length);
 
         voiceAudio.clip = audio;
+        voiceAudio.Play();  // Always play audio, recording or not
 
         if (autoRecord && recorder != null)
         {
-            recorder.StartRecordingWithAudio();
+            recorder.StartRecordingWithAudio();  // Will re-play audio, that's fine
         }
 
-        voiceAudio.Play();
         StartCoroutine(TrackEmotionsByTime());
     }
 
