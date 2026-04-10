@@ -22,8 +22,16 @@ public class HybridAvatarSystem : MonoBehaviour
     [Tooltip("Adjust if emotions trigger too early (negative) or too late (positive)")]
     public float timingOffset = 0f;
 
+    [Header("Transition Style")]
+    [Tooltip("Use crossfade between emotions instead of squash-stretch")]
+    public bool useCrossfade = false;
+    [Range(0.1f, 1.5f)]
+    [Tooltip("Duration of the crossfade transition in seconds")]
+    public float crossfadeDuration = 0.3f;
+
     private float animationDuration = 0.15f;
     private float squashAmount = 1.6f;
+    private SpriteRenderer crossfadeRenderer;
 
     private Coroutine currentAnimation;
 
@@ -70,6 +78,17 @@ public class HybridAvatarSystem : MonoBehaviour
 
         avatarRenderer.sprite = neutralSprite;
 
+        // Create a second SpriteRenderer for crossfade transitions
+        GameObject crossfadeObj = new GameObject("CrossfadeRenderer");
+        crossfadeObj.transform.SetParent(avatarRenderer.transform, false);
+        crossfadeObj.transform.localPosition = Vector3.zero;
+        crossfadeObj.transform.localRotation = Quaternion.identity;
+        crossfadeObj.transform.localScale = Vector3.one;
+        crossfadeRenderer = crossfadeObj.AddComponent<SpriteRenderer>();
+        crossfadeRenderer.sortingLayerID = avatarRenderer.sortingLayerID;
+        crossfadeRenderer.sortingOrder = avatarRenderer.sortingOrder + 1;
+        crossfadeRenderer.color = new Color(1f, 1f, 1f, 0f);
+
         if (pivot != null)
         {
             originalPosition = pivot.transform.localPosition;
@@ -91,6 +110,12 @@ public class HybridAvatarSystem : MonoBehaviour
         if (enableIdleSway && pivot != null && currentAnimation == null)
         {
             ApplyIdleSway();
+        }
+
+        // Keep crossfade renderer flip in sync with main renderer
+        if (crossfadeRenderer != null)
+        {
+            crossfadeRenderer.flipX = avatarRenderer.flipX;
         }
     }
 
@@ -196,7 +221,10 @@ public class HybridAvatarSystem : MonoBehaviour
                     StopCoroutine(currentAnimation);
                 }
 
-                currentAnimation = StartCoroutine(SquashStretchAnimation(emotionMap[emotion]));
+                if (useCrossfade)
+                    currentAnimation = StartCoroutine(CrossfadeAnimation(emotionMap[emotion]));
+                else
+                    currentAnimation = StartCoroutine(SquashStretchAnimation(emotionMap[emotion]));
                 Debug.Log($"Changed emotion to: {emotion}");
             }
         }
@@ -278,6 +306,33 @@ public class HybridAvatarSystem : MonoBehaviour
         }
 
         avatarTransform.localScale = originalScale;
+
+        currentAnimation = null;
+    }
+
+    IEnumerator CrossfadeAnimation(Sprite newSprite)
+    {
+        // Place the new sprite on the overlay renderer and fade it in
+        // while the old sprite remains fully visible underneath
+        crossfadeRenderer.sprite = newSprite;
+        crossfadeRenderer.flipX = avatarRenderer.flipX;
+
+        float elapsed = 0f;
+        while (elapsed < crossfadeDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / crossfadeDuration);
+            // Smooth step for a nicer blend
+            t = t * t * (3f - 2f * t);
+
+            crossfadeRenderer.color = new Color(1f, 1f, 1f, t);
+            yield return null;
+        }
+
+        // Swap: the main renderer takes over the new sprite, overlay goes invisible
+        avatarRenderer.sprite = newSprite;
+        crossfadeRenderer.color = new Color(1f, 1f, 1f, 0f);
+        crossfadeRenderer.sprite = null;
 
         currentAnimation = null;
     }
