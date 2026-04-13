@@ -72,6 +72,10 @@ public class MediaPresentationSystem : MonoBehaviour
     [Range(1.01f, 1.25f)]
     public float zoomInMultiplier = 1.12f;
 
+    [Header("Content Cards")]
+    [Tooltip("Content zone card system — displays branded text cards alongside media.")]
+    public ContentZoneController contentZoneController;
+
     [Header("Media Settings")]
     public string mediaFolderPath = "Media";
 
@@ -137,18 +141,27 @@ public class MediaPresentationSystem : MonoBehaviour
         string scriptAfterZoom = zoomResult.Item1;
         zoomMarkers = zoomResult.Item2;
 
+        // Parse content card tags (strips {Headline:...}, {Quote:...}, etc.)
+        var cardResult = ContentZoneTagParser.ParseContentTags(scriptAfterZoom, audio.length);
+        string scriptAfterCards = cardResult.Item1;
+        if (contentZoneController != null)
+            contentZoneController.SetTimeline(cardResult.Item2, voiceAudio);
+
         // Then parse media markers (strips {Image:X} and {Video:X})
-        var mediaResult = ParseMediaMarkers(scriptAfterZoom, audio.length);
+        var mediaResult = ParseMediaMarkers(scriptAfterCards, audio.length);
         string cleanScript = mediaResult.Item1;
         mediaMarkers = mediaResult.Item2;
 
         // Forward to avatar system for emotion processing (unchanged)
         avatarSystem.ProcessWithExistingAudio(cleanScript, audio);
 
-        // Track media, positions, and zoom against audio time
+        // Track media, positions, zoom, and content cards against audio time
         StartCoroutine(TrackMediaByTime());
         StartCoroutine(TrackPositionsByTime());
         StartCoroutine(TrackZoomByTime());
+
+        if (contentZoneController != null)
+            StartCoroutine(contentZoneController.TrackCardsByTime());
     }
 
     // -----------------------------------------------------------------------
@@ -220,6 +233,15 @@ public class MediaPresentationSystem : MonoBehaviour
 
         currentPosition = targetPosition;
         UpdateFacing(targetPosition);
+
+        // Pause/resume content cards based on character position
+        if (contentZoneController != null)
+        {
+            if (targetPosition == CharacterPosition.Center)
+                contentZoneController.PauseTimeline();
+            else
+                contentZoneController.ResumeTimeline();
+        }
     }
 
     /// <summary>
@@ -396,6 +418,13 @@ public class MediaPresentationSystem : MonoBehaviour
         {
             if (!isShowingMedia)
             {
+                // Skip media if a content card is currently active
+                if (contentZoneController != null && contentZoneController.IsCardActive)
+                {
+                    yield return null;
+                    continue;
+                }
+
                 float currentTime = voiceAudio.time;
 
                 for (int i = lastTriggeredMediaMarker + 1; i < mediaMarkers.Count; i++)
