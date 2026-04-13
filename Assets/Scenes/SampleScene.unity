@@ -441,6 +441,8 @@ MonoBehaviour:
   sadSprite: {fileID: 3740009398500155495, guid: 912c1aedbd9eb7c9e957b377f115bd46, type: 3}
   concernedSprite: {fileID: 6217520884255543542, guid: d1fefeddf982f13e481bcdae7c2a63a9, type: 3}
   timingOffset: 0
+  useCrossfade: 1
+  crossfadeDuration: 0.8
   recorder: {fileID: 519420033}
   autoRecord: 1
   enableIdleSway: 1
@@ -514,7 +516,7 @@ MonoBehaviour:
   mediaCanvas: {fileID: 88322326}
   mediaDisplay: {fileID: 1586520767}
   videoPlayer: {fileID: 519420035}
-  transitionDuration: 0.5
+  transitionDuration: 1.5
   useHardCuts: 0
   mainCamera: {fileID: 0}
   zoomDuration: 2.5
