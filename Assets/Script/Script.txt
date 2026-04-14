@@ -1,8 +1,8 @@
 {Concerned} Over a TRILLION dollars...
 [pause]
-That's how much money is flowing into AI {Neutral} {Position:Right,Smooth} {Image:ArticleTemp,3} infrastructure right now. {Serious} But here's the catch: most {Concerned} {Position:Center} companies are LOSING MONEY on every single transaction.
-OpenAI? Four billion in revenue... but THIRTEEN BILLION in losses. {Position:Left,Cut}
+That's how much money is flowing into AI {Neutral} {Position:Right,Smooth} {Stat:"$1T","AI Infrastructure Spend","\u2191 Record High",4} infrastructure right now. {Serious} But here's the catch: most {Concerned} {Position:Center} companies are LOSING MONEY on every single transaction.
+OpenAI? {Position:Left,Cut} {Headline:"OpenAI Loses $13B Despite $4B Revenue","The Information",5} Four billion in revenue... but THIRTEEN BILLION in losses.
 [pause]
-{Excited} And NOW... the man who predicted the 2008 financial crisis... is betting OVER A BILLION DOLLARS... that AI stocks are about to CRASH.
+{Excited} {Position:Right,Smooth} {Logo:openai,3} And NOW... {Quote:"The AI bubble is worse than dot-com","Michael Burry","Hedge Fund Manager",5} the man who predicted the 2008 financial crisis... is betting {Stat:"$1.1B","Short Position vs AI","\u2191 2x Previous Bet",4} OVER A BILLION DOLLARS... that AI stocks are about to CRASH.
 [dramatic pause]
-{Serious} Is this the next BIG bubble? Or are we witnessing the birth of something... REVOLUTIONARY?
+{Serious} {Position:Left,Cut} {Excerpt:"Analysts warn that AI spending is growing at twice the rate of revenue, echoing the unsustainable dynamics of the late 1990s tech bubble","twice the rate of revenue","Bloomberg",6} Is this the next BIG bubble? {BRoll:server_rack_lights,4} Or are we witnessing the birth of something... REVOLUTIONARY?
