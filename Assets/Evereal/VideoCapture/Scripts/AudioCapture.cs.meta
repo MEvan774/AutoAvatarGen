@@ -1,7 +1,7 @@
 fileFormatVersion: 2
 guid: 09b8eea8a3034409cbc00e6f0f6d3362
 timeCreated: 1581138431
-licenseType: Free
+licenseType: Store
 MonoImporter:
   externalObjects: {}
   serializedVersion: 2
@@ -11,3 +11,10 @@ MonoImporter:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Scripts/AudioCapture.cs
+  uploadId: 436072

@@ -1,85 +1,80 @@
 using UnityEngine;
-using UnityEngine.UI;
 using TMPro;
-using DG.Tweening;
 using System.Collections;
 
 /// <summary>
 /// Displays excerpt text with a highlighted phrase that wipes in.
 /// Tag: {Excerpt:"full text","highlighted phrase","source name",duration}
 ///
-/// Prefab hierarchy:
-///   ExcerptCard [RectTransform + CanvasGroup + ExcerptCard]
-///     Background [Image: 9-slice, rgba(15,15,20,0.85)]
-///       ExcerptText [TMP: white, 28-34px, auto-size 24-34, max 3 lines]
-///       HighlightBar [Image: #E85D4A at 40% alpha, initially width=0]
-///       SourceContainer [bottom-left]
-///         SourceLogo [Image: optional]
-///         SourceText [TMP: #FFFFFF99, 18-22px]
+/// The highlighted phrase is emphasized with a brand-color background wipe
+/// using TMP's native <mark> rich text tag, revealing character-by-character
+/// left-to-right. Works correctly even when the phrase wraps across lines.
 /// </summary>
 public class ExcerptCard : ContentCard
 {
-    [Header("UI References")]
-    public TextMeshProUGUI excerptText;
-    public RectTransform highlightBar;
-    public TextMeshProUGUI sourceText;
-    public Image sourceLogo;
-
     [Header("Highlight Settings")]
     public float highlightWipeDuration = 0.4f;
     public float autoHighlightDelay = 1.5f;
 
+    [Tooltip("Hex color (no #) used behind the highlighted phrase. Alpha is animated.")]
+    public string highlightColorRGB = "E85D4A";
+    [Range(0, 255)]
+    public int highlightFinalAlpha = 170; // 0xAA = ~66% opacity
+
+    private TextMeshProUGUI excerptText;
+    private TextMeshProUGUI sourceText;
+
+    private string fullText;
     private string highlightPhrase;
     private bool highlightTriggered = false;
     private Coroutine autoHighlightCoroutine;
 
+    protected override void BuildUI()
+    {
+        ContentCardUIBuilder.CreateBackground(rectTransform);
+
+        // Excerpt text
+        excerptText = ContentCardUIBuilder.CreateText(
+            rectTransform, "ExcerptText",
+            ContentCardUIBuilder.TextPrimary,
+            32f, TextAlignmentOptions.Center);
+        ContentCardUIBuilder.SetStretch(excerptText.rectTransform, 32f, 32f, 32f, 80f);
+        excerptText.enableAutoSizing = true;
+        excerptText.fontSizeMin = 24f;
+        excerptText.fontSizeMax = 34f;
+        excerptText.maxVisibleLines = 3;
+        excerptText.overflowMode = TextOverflowModes.Ellipsis;
+        excerptText.richText = true;
+
+        // Source text at bottom
+        sourceText = ContentCardUIBuilder.CreateText(
+            rectTransform, "SourceText",
+            ContentCardUIBuilder.TextTertiary,
+            20f, TextAlignmentOptions.MidlineLeft);
+        sourceText.rectTransform.anchorMin = new Vector2(0f, 0f);
+        sourceText.rectTransform.anchorMax = new Vector2(1f, 0f);
+        sourceText.rectTransform.pivot = new Vector2(0f, 0f);
+        sourceText.rectTransform.anchoredPosition = new Vector2(24f, 24f);
+        sourceText.rectTransform.sizeDelta = new Vector2(-48f, 32f);
+    }
+
     public override void Initialize(ContentCardEvent data, ContentCardAssets assets)
     {
+        fullText = data.primaryText;
         highlightPhrase = data.secondaryText;
-
-        if (excerptText != null)
-        {
-            excerptText.text = data.primaryText;
-            excerptText.enableAutoSizing = true;
-            excerptText.fontSizeMin = 24f;
-            excerptText.fontSizeMax = 34f;
-            excerptText.maxVisibleLines = 3;
-            excerptText.overflowMode = TextOverflowModes.Ellipsis;
-        }
-
-        if (sourceText != null)
-            sourceText.text = data.tertiaryText;
-
-        if (sourceLogo != null)
-        {
-            Sprite logo = assets != null ? assets.GetLogo(data.tertiaryText) : null;
-            if (logo != null)
-            {
-                sourceLogo.sprite = logo;
-                sourceLogo.gameObject.SetActive(true);
-            }
-            else
-            {
-                sourceLogo.gameObject.SetActive(false);
-            }
-        }
-
-        // Start invisible
-        if (highlightBar != null)
-            highlightBar.sizeDelta = new Vector2(0f, highlightBar.sizeDelta.y);
+        excerptText.text = fullText; // plain text, no highlight yet
+        sourceText.text = data.tertiaryText;
     }
 
     public override void Show()
     {
         base.Show();
-
-        // Start auto-highlight fallback timer
         autoHighlightCoroutine = StartCoroutine(AutoHighlightFallback());
     }
 
     /// <summary>
-    /// Call this manually to trigger the highlight wipe, timed to the narrator's voice.
-    /// If not called, auto-triggers after autoHighlightDelay seconds.
+    /// Trigger the highlight wipe. Can be called manually to sync with the narrator's voice.
+    /// Auto-triggers after autoHighlightDelay seconds if not called manually.
     /// </summary>
     public void TriggerHighlight()
     {
@@ -92,69 +87,55 @@ public class ExcerptCard : ContentCard
             autoHighlightCoroutine = null;
         }
 
-        StartCoroutine(PositionAndWipeHighlight());
+        StartCoroutine(WipeHighlight());
     }
 
     private IEnumerator AutoHighlightFallback()
     {
         yield return new WaitForSeconds(autoHighlightDelay);
-
         if (!highlightTriggered)
             TriggerHighlight();
     }
 
-    private IEnumerator PositionAndWipeHighlight()
+    private IEnumerator WipeHighlight()
     {
-        if (excerptText == null || highlightBar == null || string.IsNullOrEmpty(highlightPhrase))
+        if (string.IsNullOrEmpty(highlightPhrase))
             yield break;
 
-        // Force mesh update so TMP_TextInfo is populated
-        excerptText.ForceMeshUpdate();
-        yield return null;
-
-        TMP_TextInfo textInfo = excerptText.textInfo;
-        string fullText = excerptText.text;
-
-        int startIndex = fullText.IndexOf(highlightPhrase);
-        if (startIndex < 0)
+        int startIdx = fullText.IndexOf(highlightPhrase);
+        if (startIdx < 0)
         {
-            Debug.LogWarning($"ExcerptCard: Highlight phrase \"{highlightPhrase}\" not found in text");
+            Debug.LogWarning($"ExcerptCard: highlight phrase \"{highlightPhrase}\" not found in excerpt");
             yield break;
         }
 
-        int endIndex = startIndex + highlightPhrase.Length - 1;
+        int phraseLen = highlightPhrase.Length;
+        int endIdx = startIdx + phraseLen;
+        string alphaHex = highlightFinalAlpha.ToString("X2");
+        string markOpen = $"<mark=#{highlightColorRGB}{alphaHex}>";
+        const string markClose = "</mark>";
 
-        // Clamp to valid character range
-        if (endIndex >= textInfo.characterCount)
-            endIndex = textInfo.characterCount - 1;
-        if (startIndex >= textInfo.characterCount)
-            yield break;
+        string before = fullText.Substring(0, startIdx);
+        string phrase = fullText.Substring(startIdx, phraseLen);
+        string after = fullText.Substring(endIdx);
 
-        // Get bounds of the highlight region
-        TMP_CharacterInfo startCharInfo = textInfo.characterInfo[startIndex];
-        TMP_CharacterInfo endCharInfo = textInfo.characterInfo[endIndex];
+        float elapsed = 0f;
+        while (elapsed < highlightWipeDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / highlightWipeDuration);
+            // Ease-out
+            t = 1f - (1f - t) * (1f - t);
 
-        // Get the first visible character's bottom-left and last character's top-right
-        Vector3 bottomLeft = excerptText.transform.TransformPoint(startCharInfo.bottomLeft);
-        Vector3 topRight = excerptText.transform.TransformPoint(endCharInfo.topRight);
+            int revealedChars = Mathf.Clamp(Mathf.RoundToInt(t * phraseLen), 0, phraseLen);
+            string markedPart = phrase.Substring(0, revealedChars);
+            string plainPart = phrase.Substring(revealedChars);
 
-        // Convert to local space of the highlight bar's parent
-        Vector3 localBL = highlightBar.parent.InverseTransformPoint(bottomLeft);
-        Vector3 localTR = highlightBar.parent.InverseTransformPoint(topRight);
+            excerptText.text = before + markOpen + markedPart + markClose + plainPart + after;
+            yield return null;
+        }
 
-        float targetWidth = localTR.x - localBL.x;
-        float height = localTR.y - localBL.y;
-
-        // Position the highlight bar at the start of the phrase
-        highlightBar.anchoredPosition = new Vector2(localBL.x, localBL.y);
-        highlightBar.sizeDelta = new Vector2(0f, height + 4f); // Slight padding
-        highlightBar.pivot = new Vector2(0f, 0f); // Anchor left edge
-
-        // Wipe from left to right
-        highlightBar.DOSizeDelta(
-            new Vector2(targetWidth, height + 4f),
-            highlightWipeDuration
-        ).SetEase(Ease.OutQuad);
+        excerptText.text = before + markOpen + phrase + markClose + after;
     }
 
     protected override void OnDestroy()

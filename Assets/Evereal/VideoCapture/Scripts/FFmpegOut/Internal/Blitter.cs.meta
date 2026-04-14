@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: db0ea6bfe1bd50b46b22cd66aa907a22
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Scripts/FFmpegOut/Internal/Blitter.cs
+  uploadId: 436072

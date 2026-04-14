@@ -1,10 +1,16 @@
 fileFormatVersion: 2
-guid: ffc18ace178c8432ea37827ca0e456b0
-timeCreated: 1581135639
-licenseType: Free
+guid: 7e7f0a4b50d284240b3d653734e857e2
+timeCreated: 1613279722
+licenseType: Store
 ShaderImporter:
-  externalObjects: {}
   defaultTextures: []
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Resources/Shaders/CubemapToEquirect.shader
+  uploadId: 436072

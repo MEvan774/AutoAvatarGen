@@ -1,9 +1,16 @@
 fileFormatVersion: 2
 guid: 11ac814586ac44fdca81cd94da4214ff
 timeCreated: 1581573125
-licenseType: Free
+licenseType: Store
 DefaultImporter:
   externalObjects: {}
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Demos/Scenes/Demo_03_FromTexture.unity
+  uploadId: 436072

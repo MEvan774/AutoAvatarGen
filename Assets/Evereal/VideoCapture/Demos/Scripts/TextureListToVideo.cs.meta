@@ -1,0 +1,19 @@
+fileFormatVersion: 2
+guid: ed77379f70ba88a43b2065ed3c0525b2
+timeCreated: 1597883786
+licenseType: Store
+MonoImporter:
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Demos/Scripts/TextureListToVideo.cs
+  uploadId: 436072

@@ -33,6 +33,6 @@ public class FloatingShape : MonoBehaviour
             Mathf.Sin(t * bobFrequency * 0.7f) * bobAmplitude,
             Mathf.Sin(t * bobFrequency) * bobAmplitude,
             0);
-        transform.Rotate(0, 0, rotateSpeed * Time.deltaTime);
+        transform.Rotate(0, 0, Random.Range(-rotateSpeed, rotateSpeed) * Time.deltaTime);
     }
 }

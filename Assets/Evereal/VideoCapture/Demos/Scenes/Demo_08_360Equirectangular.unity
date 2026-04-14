@@ -791,6 +791,11 @@ Prefab:
       propertyPath: resolutionPreset
       value: 4
       objectReference: {fileID: 0}
+    - target: {fileID: 114708477723034198, guid: 8fa59c0c9387c3d428a0a4989b7d1cb3,
+        type: 2}
+      propertyPath: gpuEncoding
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_ParentPrefab: {fileID: 100100000, guid: 8fa59c0c9387c3d428a0a4989b7d1cb3, type: 2}
   m_IsPrefabParent: 0

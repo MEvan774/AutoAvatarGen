@@ -79,7 +79,8 @@ namespace Evereal.VideoCapture
       CreateStereoTextures();
 
       // Create a blitter object to keep frames presented on the screen
-      CreateBlitterInstance();
+      if (screenBlitter)
+        CreateBlitterInstance();
 
       status = CaptureStatus.STARTED;
 
@@ -125,7 +126,8 @@ namespace Evereal.VideoCapture
       }
 
       // Restore screen render.
-      ClearBlitterInstance();
+      if (screenBlitter)
+        ClearBlitterInstance();
 
       // Reset camera settings.
       ResetCameraSettings();

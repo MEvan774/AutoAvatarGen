@@ -145,6 +145,9 @@ namespace Evereal.VideoCapture
       UNSUPPORTED_OS_PROCESSOR,
     }
 
+    // Encoding preset for ffmpeg
+    public EncoderPreset encoderPreset { get; set; }
+
     // Event delegate callback for complete.
     public delegate void OnCompleteEvent(string savePath);
     // Event delegate callback for error.
@@ -185,6 +188,8 @@ namespace Evereal.VideoCapture
     // You can get test live stream key on "https://www.facebook.com/live/create".
     // ex. rtmp://rtmp-api-dev.facebook.com:80/rtmp/xxStreamKeyxx
     public string liveStreamUrl { get; set; }
+    // User custom video file name
+    public string customFileName { get; set; }
     // Save path for recorded video including file name (c://xxx.mp4)
     public string videoSavePath { get; set; }
     // Save path for screenshot including file name (c://xxx.jpg)

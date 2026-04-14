@@ -18,9 +18,24 @@ namespace Evereal.VideoCapture
     private static extern IntPtr FFmpegEncoder_StartMuxingProcess(
       EncoderPreset preset,
       int bitrate,
+      bool verticalFlip,
+      bool horizontalFlip,
       string mediaPath,
       string videoPath,
       string audioPpath,
+      string ffmpegPath,
+      bool isLive);
+
+    [DllImport("FFmpegEncoder")]
+    private static extern IntPtr FFmpegEncoder_StartMuxingProcess2(
+      EncoderPreset preset,
+      int bitrate,
+      bool verticalFlip,
+      bool horizontalFlip,
+      string mediaPath,
+      string videoPath,
+      string audioPpath,
+      string audioPpath2,
       string ffmpegPath,
       bool isLive);
 
@@ -47,6 +62,7 @@ namespace Evereal.VideoCapture
 
     // The audio file will mux with.
     private string audioFile;
+    private string audioFile2;
     // The video files is ready to mux.
     private Queue<string> videoFiles;
 
@@ -58,6 +74,9 @@ namespace Evereal.VideoCapture
 
     AutoResetEvent muxReady = new AutoResetEvent(false);
 
+    public bool verticalFlip { get; set; }
+    public bool horizontalFlip { get; set; }
+    public string customFileName { get; set; }
     public string saveFolderFullPath { get; set; }
     public string ffmpegFullPath { get; set; }
 
@@ -71,7 +90,13 @@ namespace Evereal.VideoCapture
     public void SetAudioFile(string file)
     {
       audioFile = file;
-      muxReady.Set();
+      //muxReady.Set();
+    }
+
+    public void SetAudioFile2(string file)
+    {
+      audioFile2 = file;
+      //muxReady.Set();
     }
 
     public void EnqueueVideoFile(string file)
@@ -112,13 +137,15 @@ namespace Evereal.VideoCapture
       muxingThread.Priority = System.Threading.ThreadPriority.Highest;
       muxingThread.Start();
 
+      muxInitiated = true;
+
       //StartCoroutine(MuxingProcessDebug());
 
       return true;
     }
 
     /// <summary>
-    /// Media muxing the thread function.
+    /// Media muxing thread function.
     /// </summary>
     private void MuxingProcess()
     {
@@ -136,7 +163,7 @@ namespace Evereal.VideoCapture
           for (int i = 0; i < videoCaptures.Count; i++)
           {
             // Check if match with attached VideoCapture
-            if (videoCaptures[i].GetFFmpegEncoder().videoSavePath == videoFile)
+            if (videoCaptures[i].GetEncoder().videoSavePath == videoFile)
             {
               videoCapture = videoCaptures[i];
               lock (videoCaptures)
@@ -171,6 +198,11 @@ namespace Evereal.VideoCapture
         File.Delete(audioFile);
         audioFile = null;
       }
+      if (File.Exists(audioFile2))
+      {
+        File.Delete(audioFile2);
+        audioFile2 = null;
+      }
 
       muxInitiated = false;
     }
@@ -178,27 +210,54 @@ namespace Evereal.VideoCapture
     // Start video/audio muxing process, this is blocking function
     private bool StartMux(IVideoCapture videoCapture)
     {
-      FFmpegEncoder encoder = videoCapture.GetFFmpegEncoder();
+      EncoderBase encoder = videoCapture.GetEncoder();
       string videoSavePath = string.Format("{0}capture_{1}x{2}_{3}_{4}.{5}",
-        saveFolderFullPath,
-        encoder.outputFrameWidth, encoder.outputFrameHeight,
-        Utils.GetTimeString(),
-        Utils.GetRandomString(5),
-        Utils.GetEncoderPresetExt(encoder.encoderPreset));
+          saveFolderFullPath,
+          encoder.outputFrameWidth, encoder.outputFrameHeight,
+          Utils.GetTimeString(),
+          Utils.GetRandomString(5),
+          Utils.GetEncoderPresetExt(encoder.encoderPreset));
+      if (customFileName != null)
+      {
+        videoSavePath = string.Format("{0}{1}.{2}",
+          saveFolderFullPath,
+          customFileName,
+          Utils.GetEncoderPresetExt(encoder.encoderPreset));
+      }
 
       // Make sure generated the merge file
       int waitCount = 0;
       while (!File.Exists(videoSavePath) && waitCount++ < 10)
       {
         Thread.Sleep(1000);
-        IntPtr nativeAPI = FFmpegEncoder_StartMuxingProcess(
-          encoder.encoderPreset,
-          encoder.bitrate,
-          videoSavePath,
-          encoder.videoSavePath,
-          audioFile,
-          ffmpegFullPath,
-          false);
+        IntPtr nativeAPI = IntPtr.Zero;
+        if (audioFile2 != null)
+        {
+          nativeAPI = FFmpegEncoder_StartMuxingProcess2(
+           encoder.encoderPreset,
+           encoder.bitrate,
+           verticalFlip,
+           horizontalFlip,
+           videoSavePath,
+           encoder.videoSavePath,
+           audioFile,
+           audioFile2,
+           ffmpegFullPath,
+           false);
+        }
+        else
+        {
+          nativeAPI = FFmpegEncoder_StartMuxingProcess(
+            encoder.encoderPreset,
+            encoder.bitrate,
+            verticalFlip,
+            horizontalFlip,
+            videoSavePath,
+            encoder.videoSavePath,
+            audioFile,
+            ffmpegFullPath,
+            false);
+        }
 
         if (nativeAPI == IntPtr.Zero)
         {
@@ -229,6 +288,10 @@ namespace Evereal.VideoCapture
 
       return true;
     }
+
+    #endregion
+
+    #region Unity Life Cycle
 
     private void MuxerErrorLog(EncoderErrorCode error)
     {

@@ -1,7 +1,7 @@
 fileFormatVersion: 2
 guid: ba11d7632866d4a0e88726538ac03582
 timeCreated: 1581135753
-licenseType: Free
+licenseType: Store
 TextureImporter:
   fileIDToRecycleName: {}
   externalObjects: {}
@@ -76,3 +76,10 @@ TextureImporter:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Textures/Logo.png
+  uploadId: 436072

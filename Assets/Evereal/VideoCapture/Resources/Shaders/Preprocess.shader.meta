@@ -1,0 +1,16 @@
+fileFormatVersion: 2
+guid: 04b0e0a5f113c174c8b3b8bc49ac911e
+ShaderImporter:
+  externalObjects: {}
+  defaultTextures: []
+  nonModifiableTextures: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Resources/Shaders/Preprocess.shader
+  uploadId: 436072

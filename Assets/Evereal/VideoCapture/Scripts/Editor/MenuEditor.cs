@@ -72,7 +72,7 @@ namespace Evereal.VideoCapture
     [MenuItem("Tools/Evereal/VideoCapture/FFmpeg/Download Windows Build (32 bit)")]
     private static void DownloadFFmpeg32ForWindows()
     {
-      FFmpeg.CheckFolder();
+      FFmpegConfig.CheckFolder();
 
       if (downloadFFmpegThread != null)
       {
@@ -80,7 +80,7 @@ namespace Evereal.VideoCapture
           downloadFFmpegThread.Abort();
         downloadFFmpegThread = null;
       }
-      string windowsFFmpegPath = FFmpeg.windows32Path;
+      string windowsFFmpegPath = FFmpegConfig.windows32Path;
       downloadFFmpegThread = new Thread(
         () => DownloadFFmpegThreadFunction(WINDOWS_FFMPEG_32_DOWNLOAD_URL, windowsFFmpegPath));
       downloadFFmpegThread.Priority = System.Threading.ThreadPriority.Lowest;
@@ -91,7 +91,7 @@ namespace Evereal.VideoCapture
     [MenuItem("Tools/Evereal/VideoCapture/FFmpeg/Download Windows Build (64 bit)")]
     private static void DownloadFFmpeg64ForWindows()
     {
-      FFmpeg.CheckFolder();
+      FFmpegConfig.CheckFolder();
 
       if (downloadFFmpegThread != null)
       {
@@ -99,7 +99,7 @@ namespace Evereal.VideoCapture
           downloadFFmpegThread.Abort();
         downloadFFmpegThread = null;
       }
-      string windowsFFmpegPath = FFmpeg.windows64Path;
+      string windowsFFmpegPath = FFmpegConfig.windows64Path;
       downloadFFmpegThread = new Thread(
         () => DownloadFFmpegThreadFunction(WINDOWS_FFMPEG_64_DOWNLOAD_URL, windowsFFmpegPath));
       downloadFFmpegThread.Priority = System.Threading.ThreadPriority.Lowest;
@@ -110,7 +110,7 @@ namespace Evereal.VideoCapture
     [MenuItem("Tools/Evereal/VideoCapture/FFmpeg/Download macOS Build (64 bit)")]
     private static void DownloadFFmpegForOSX()
     {
-      FFmpeg.CheckFolder();
+      FFmpegConfig.CheckFolder();
 
       if (downloadFFmpegThread != null)
       {
@@ -118,7 +118,7 @@ namespace Evereal.VideoCapture
           downloadFFmpegThread.Abort();
         downloadFFmpegThread = null;
       }
-      string macOSFFmpegPath = FFmpeg.macOSPath;
+      string macOSFFmpegPath = FFmpegConfig.macOSPath;
       downloadFFmpegThread = new Thread(
         () => DownloadFFmpegThreadFunction(OSX_FFMPEG_DOWNLOAD_URL, macOSFFmpegPath));
       downloadFFmpegThread.Priority = System.Threading.ThreadPriority.Lowest;
@@ -130,8 +130,8 @@ namespace Evereal.VideoCapture
     private static void GrantFFmpegPermissionForOSX()
     {
 #if UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
-      Command.Run("chmod", "a+x " + "\"" + FFmpeg.macOSPath + "\"");
-      UnityEngine.Debug.Log("Grant permission for: " + FFmpeg.macOSPath);
+      Command.Run("chmod", "a+x " + "\"" + FFmpegConfig.macOSPath + "\"");
+      UnityEngine.Debug.Log("Grant permission for: " + FFmpegConfig.macOSPath);
 #endif
     }
 

@@ -1,7 +1,7 @@
 fileFormatVersion: 2
 guid: 3770cbe47fbf37441b0df96149944eee
 timeCreated: 1593798875
-licenseType: Free
+licenseType: Store
 AudioImporter:
   serializedVersion: 6
   defaultSettings:
@@ -20,3 +20,10 @@ AudioImporter:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Demos/Audios/Sample2.wav
+  uploadId: 436072

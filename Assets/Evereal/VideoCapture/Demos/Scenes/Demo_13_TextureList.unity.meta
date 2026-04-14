@@ -1,0 +1,15 @@
+fileFormatVersion: 2
+guid: a27e0640645553849a62dce54e0e0819
+timeCreated: 1597883625
+licenseType: Store
+DefaultImporter:
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Demos/Scenes/Demo_13_TextureList.unity
+  uploadId: 436072

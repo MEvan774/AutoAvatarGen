@@ -27,6 +27,22 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
+--- !u!1 &1420922844975746
+GameObject:
+  m_ObjectHideFlags: 0
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 100100000}
+  serializedVersion: 5
+  m_Component:
+  - component: {fileID: 4359790350564584}
+  - component: {fileID: 114509171112569752}
+  m_Layer: 0
+  m_Name: NvidiaEncoder
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
 --- !u!1 &1431136571262118
 GameObject:
   m_ObjectHideFlags: 0
@@ -117,7 +133,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 4618479025953142}
-  m_RootOrder: 3
+  m_RootOrder: 4
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &4333819658586234
 Transform:
@@ -132,6 +148,19 @@ Transform:
   m_Father: {fileID: 4618479025953142}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!4 &4359790350564584
+Transform:
+  m_ObjectHideFlags: 1
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 100100000}
+  m_GameObject: {fileID: 1420922844975746}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_Children: []
+  m_Father: {fileID: 4618479025953142}
+  m_RootOrder: 3
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &4618479025953142
 Transform:
   m_ObjectHideFlags: 1
@@ -145,6 +174,7 @@ Transform:
   - {fileID: 4085399649604922}
   - {fileID: 4896513643286584}
   - {fileID: 4333819658586234}
+  - {fileID: 4359790350564584}
   - {fileID: 4234827425810850}
   m_Father: {fileID: 0}
   m_RootOrder: 0
@@ -193,11 +223,11 @@ Camera:
   m_TargetEye: 3
   m_HDR: 1
   m_AllowMSAA: 1
-  m_AllowDynamicResolution: 0
   m_ForceIntoRT: 0
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
+  m_StereoMirrorMode: 0
 --- !u!20 &20352866475624060
 Camera:
   m_ObjectHideFlags: 1
@@ -229,11 +259,11 @@ Camera:
   m_TargetEye: 3
   m_HDR: 1
   m_AllowMSAA: 1
-  m_AllowDynamicResolution: 0
   m_ForceIntoRT: 0
   m_OcclusionCulling: 1
   m_StereoConvergence: 10
   m_StereoSeparation: 0.022
+  m_StereoMirrorMode: 0
 --- !u!114 &114268870323414682
 MonoBehaviour:
   m_ObjectHideFlags: 1
@@ -271,6 +301,36 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d099739249bf40e19c92cdc26c7fd3b, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+--- !u!114 &114509171112569752
+MonoBehaviour:
+  m_ObjectHideFlags: 1
+  m_PrefabParentObject: {fileID: 0}
+  m_PrefabInternal: {fileID: 100100000}
+  m_GameObject: {fileID: 1420922844975746}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dcca82de1bc319d4cbb428483be47b6a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  nvidiaEncoder:
+    format: 28
+    onEncoded:
+      m_PersistentCalls:
+        m_Calls:
+        - m_Target: {fileID: 114509171112569752}
+          m_MethodName: OnEncoded
+          m_Mode: 0
+          m_Arguments:
+            m_ObjectArgument: {fileID: 0}
+            m_ObjectArgumentAssemblyTypeName: UnityEngine.Object, UnityEngine
+            m_IntArgument: 0
+            m_FloatArgument: 0
+            m_StringArgument: 
+            m_BoolArgument: 0
+          m_CallState: 2
+      m_TypeName: uNvEncoder.Encoder+EncodedCallback, Assembly-CSharp, Version=0.0.0.0,
+        Culture=neutral, PublicKeyToken=null
+  forceIdrFrame: 1
 --- !u!114 &114708477723034198
 MonoBehaviour:
   m_ObjectHideFlags: 1
@@ -299,11 +359,13 @@ MonoBehaviour:
   captureAudio: 1
   captureMicrophone: 0
   deviceIndex: 0
+  transparent: 0
   offlineRender: 0
-  resolutionPreset: 0
+  screenBlitter: 0
+  resolutionPreset: 3
   cubemapFaceSize: 1
-  frameWidth: 1280
-  frameHeight: 720
+  frameWidth: 1920
+  frameHeight: 1080
   bitrate: 2000
   frameRate: 30
   antiAliasing: 0
@@ -313,6 +375,7 @@ MonoBehaviour:
   enableInternalSettings: 0
   gpuEncoding: 0
   ffmpegEncoder: {fileID: 114508200559336302}
+  nvidiaEncoder: {fileID: 114509171112569752}
   gpuEncoder: {fileID: 114836839238961546}
 --- !u!114 &114836839238961546
 MonoBehaviour:

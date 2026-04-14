@@ -76,10 +76,19 @@ namespace Evereal.VideoCapture
     // Support transparent capture
     [SerializeField]
     public bool transparent = false;
+    // Flip video vertical
+    [SerializeField]
+    public bool verticalFlip = false;
+    // Flip video horizontal
+    [SerializeField]
+    public bool horizontalFlip = false;
     // Setup Time.captureFramerate to avoiding nasty stuttering.
     // https://docs.unity3d.com/ScriptReference/Time-maximumDeltaTime.html
     [SerializeField]
     public bool offlineRender = false;
+    // Enable screen blitter
+    [SerializeField]
+    public bool screenBlitter = true;
 
     /// <summary>
     /// Capture setting variables for video capture.
@@ -129,6 +138,7 @@ namespace Evereal.VideoCapture
     /// Encoder settings for video encoding.
     /// </summary>
     [Header("Encoder Settings")]
+    [SerializeField]
     public EncoderPreset encoderPreset = EncoderPreset.H264_MP4;
 
     [SerializeField]
@@ -168,6 +178,8 @@ namespace Evereal.VideoCapture
 
     // The audio recorder
     protected IRecorder audioRecorder;
+    // The microphone recorder
+    protected IRecorder microphoneRecorder;
 
     // The last video save file
     protected string lastVideoFile;
@@ -177,6 +189,9 @@ namespace Evereal.VideoCapture
 
     // The save folder full path
     protected string saveFolderFullPath = "";
+
+    // The custom video file name
+    protected string customFileName = null;
 
     // Log message format template
     protected string LOG_FORMAT = "[VideoCapture] {0}";
@@ -224,6 +239,11 @@ namespace Evereal.VideoCapture
 
     #region Capture Base
 
+    public void SetCustomFileName(string fileName)
+    {
+      customFileName = fileName;
+    }
+
     /// <summary>
     /// Start capture session.
     /// </summary>
@@ -263,7 +283,7 @@ namespace Evereal.VideoCapture
         return false;
       }
 
-      if (!FFmpeg.IsExist())
+      if (!FFmpegConfig.IsExist())
       {
         Debug.LogErrorFormat(LOG_FORMAT,
           "FFmpeg not found, please follow document and add ffmpeg executable before start capture!");
@@ -384,7 +404,7 @@ namespace Evereal.VideoCapture
         TransparentCameraSettings();
       }
 
-      ffmpegFullPath = FFmpeg.path;
+      ffmpegFullPath = FFmpegConfig.path;
       saveFolderFullPath = Utils.CreateFolder(saveFolder);
       lastVideoFile = "";
 
@@ -407,6 +427,14 @@ namespace Evereal.VideoCapture
       else if (cubemapFaceSize == CubemapFaceSize._2048)
       {
         cubemapSize = 2048;
+      }
+      else if (cubemapFaceSize == CubemapFaceSize._4096)
+      {
+        cubemapSize = 4096;
+      }
+      else if (cubemapFaceSize == CubemapFaceSize._8192)
+      {
+        cubemapSize = 8192;
       }
     }
 

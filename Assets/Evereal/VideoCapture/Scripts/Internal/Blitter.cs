@@ -22,6 +22,7 @@ namespace Evereal.VideoCapture
       var camera = go.GetComponent<Camera>();
       camera.cullingMask = 1 << UILayer;
       camera.targetDisplay = source.targetDisplay;
+      camera.depth = source.depth;
 
       var blitter = go.GetComponent<Blitter>();
       blitter._sourceTexture = source.targetTexture;

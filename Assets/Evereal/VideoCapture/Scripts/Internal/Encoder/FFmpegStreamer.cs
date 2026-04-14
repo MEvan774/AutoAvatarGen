@@ -18,6 +18,8 @@ namespace Evereal.VideoCapture
     private static extern IntPtr FFmpegEncoder_StartMuxingProcess(
       EncoderPreset preset,
       int bitrate,
+      bool verticalFlip,
+      bool horizontalFlip,
       string mediaPath,
       string videoPath,
       string audioPath,
@@ -215,6 +217,8 @@ namespace Evereal.VideoCapture
             IntPtr muxingAPI = FFmpegEncoder_StartMuxingProcess(
               EncoderPreset.H264_MP4,
               bitrate,
+              false,
+              false,
               liveSlice,
               videoSlice,
               audioSlice,

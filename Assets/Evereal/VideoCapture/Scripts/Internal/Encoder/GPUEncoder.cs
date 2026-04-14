@@ -403,11 +403,20 @@ namespace Evereal.VideoCapture
       EncoderStatus status = EncoderStatus.OK;
 
       // If we haven't set the save path, we want to use project folder and timestamped file name by default
-      videoSavePath = string.Format("{0}capture_{1}x{2}_{3}_{4}.mp4",
-        saveFolderFullPath,
-        outputFrameWidth, outputFrameHeight,
-        Utils.GetTimeString(),
-        Utils.GetRandomString(5));
+      if (customFileName != null)
+      {
+        videoSavePath = string.Format("{0}{1}.mp4",
+          saveFolderFullPath,
+          customFileName);
+      }
+      else
+      {
+        videoSavePath = string.Format("{0}capture_{1}x{2}_{3}_{4}.mp4",
+          saveFolderFullPath,
+          outputFrameWidth, outputFrameHeight,
+          Utils.GetTimeString(),
+          Utils.GetRandomString(5));
+      }
 
       // Video Encoding Configuration Settings
       status = GPUEncoder_SetVodCaptureSettings(
@@ -594,6 +603,11 @@ namespace Evereal.VideoCapture
     /// <returns></returns>
     public bool IsSupported()
     {
+      if (SystemInfo.graphicsDeviceVendor == "NVIDIA" && SystemInfo.graphicsDeviceName.Contains("RTX"))
+      {
+        return false;
+      }
+
       EncoderStatus status = GPUEncoder_GetCaptureCapability();
       // Check GPU capability for video encoding
       if (status != EncoderStatus.OK)

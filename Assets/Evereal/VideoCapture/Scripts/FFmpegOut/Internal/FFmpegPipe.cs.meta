@@ -1,0 +1,18 @@
+fileFormatVersion: 2
+guid: 99bf835a80f14ab4ca751ae6b0d3183f
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences: []
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Scripts/FFmpegOut/Internal/FFmpegPipe.cs
+  uploadId: 436072

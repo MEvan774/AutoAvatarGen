@@ -1,8 +1,15 @@
 fileFormatVersion: 2
 guid: ec800b44f92513941a18301b8a7cbe21
 timeCreated: 1593802628
-licenseType: Free
+licenseType: Store
 TextScriptImporter:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Readme.txt
+  uploadId: 436072

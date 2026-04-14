@@ -1,9 +1,16 @@
 fileFormatVersion: 2
 guid: 0bdac370ab14f4a33b91fd5bfdc5d1b0
 timeCreated: 1581199429
-licenseType: Free
+licenseType: Store
 DefaultImporter:
   externalObjects: {}
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Demos/Scenes/Demo_07_StereoLeftRight.unity
+  uploadId: 436072

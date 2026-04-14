@@ -107,6 +107,14 @@ public class MediaPresentationSystem : MonoBehaviour
             videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
             videoPlayer.gameObject.SetActive(false);
         }
+
+        // Auto-find ContentZoneController if not assigned
+        if (contentZoneController == null)
+        {
+            contentZoneController = GetComponent<ContentZoneController>();
+            if (contentZoneController == null)
+                contentZoneController = FindObjectOfType<ContentZoneController>();
+        }
     }
 
     void Start()

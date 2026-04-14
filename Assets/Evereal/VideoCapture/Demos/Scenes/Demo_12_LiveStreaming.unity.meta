@@ -1,9 +1,16 @@
 fileFormatVersion: 2
 guid: 6a34220e31ce60e4c95593a164ed05c1
 timeCreated: 1586899007
-licenseType: Free
+licenseType: Store
 DefaultImporter:
   externalObjects: {}
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Demos/Scenes/Demo_12_LiveStreaming.unity
+  uploadId: 436072

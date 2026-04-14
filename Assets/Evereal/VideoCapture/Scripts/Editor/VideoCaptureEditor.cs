@@ -18,6 +18,7 @@ namespace Evereal.VideoCapture
     SerializedProperty inputTexture;
     SerializedProperty cursorImage;
     SerializedProperty ffmpegEncoder;
+    SerializedProperty nvidiaEncoder;
     SerializedProperty gpuEncoder;
 
     public void OnEnable()
@@ -31,6 +32,7 @@ namespace Evereal.VideoCapture
       cursorImage = serializedObject.FindProperty("cursorImage");
 
       ffmpegEncoder = serializedObject.FindProperty("ffmpegEncoder");
+      nvidiaEncoder = serializedObject.FindProperty("nvidiaEncoder");
       gpuEncoder = serializedObject.FindProperty("gpuEncoder");
     }
 
@@ -122,6 +124,7 @@ namespace Evereal.VideoCapture
         }
       }
       videoCapture.offlineRender = EditorGUILayout.Toggle("Offline Render", videoCapture.offlineRender);
+      videoCapture.screenBlitter = EditorGUILayout.Toggle("Screen Blitter", videoCapture.screenBlitter);
 
       // Capture Options Section
       GUILayout.Label("Video Settings", EditorStyles.boldLabel);
@@ -136,8 +139,14 @@ namespace Evereal.VideoCapture
           videoCapture.bitrate = EditorGUILayout.IntField("Bitrate (Kbps)", videoCapture.bitrate);
         }
       }
+      else
+      {
+        videoCapture.bitrate = EditorGUILayout.IntField("Bitrate (Kbps)", videoCapture.bitrate);
+      }
 
       videoCapture.frameRate = (System.Int16)EditorGUILayout.IntField("Frame Rate", videoCapture.frameRate);
+      videoCapture.verticalFlip = EditorGUILayout.Toggle("Vertical Flip", videoCapture.verticalFlip);
+      videoCapture.horizontalFlip = EditorGUILayout.Toggle("Horizontal Flip", videoCapture.horizontalFlip);
       if (videoCapture.captureMode == CaptureMode._360)
       {
         videoCapture.cubemapFaceSize = (CubemapFaceSize)EditorGUILayout.EnumPopup("Cubemap Face Size", videoCapture.cubemapFaceSize);
@@ -152,14 +161,15 @@ namespace Evereal.VideoCapture
       // Capture Options Section
       GUILayout.Label("Encoder Settings", EditorStyles.boldLabel);
 
-      if (videoCapture.captureType == CaptureType.VOD && !videoCapture.gpuEncoding)
-      {
-        videoCapture.encoderPreset = (EncoderPreset)EditorGUILayout.EnumPopup("Encoder Preset", videoCapture.encoderPreset);
-      }
+      videoCapture.encoderPreset = (EncoderPreset)EditorGUILayout.EnumPopup("Encoder Preset", videoCapture.encoderPreset);
 #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
       if (!FreeTrial.Check())
       {
         videoCapture.gpuEncoding = EditorGUILayout.Toggle("GPU Encoding", videoCapture.gpuEncoding);
+      }
+      if (videoCapture.gpuEncoding)
+      {
+        videoCapture.legacyGpuEncoding = EditorGUILayout.Toggle("Legacy GPU Encoding", videoCapture.legacyGpuEncoding);
       }
 #endif
 
@@ -173,6 +183,7 @@ namespace Evereal.VideoCapture
         GUILayout.Label("Capture Encoders", EditorStyles.boldLabel);
 
         EditorGUILayout.PropertyField(ffmpegEncoder, new GUIContent("FFmpeg Encoder"), true);
+        EditorGUILayout.PropertyField(nvidiaEncoder, new GUIContent("Nvidia Encoder"), true);
         EditorGUILayout.PropertyField(gpuEncoder, new GUIContent("GPU Encoder"), true);
       }
 

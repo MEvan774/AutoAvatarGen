@@ -1,10 +1,17 @@
 fileFormatVersion: 2
 guid: bec8609901feb4a1a8beb997657bd2f9
 timeCreated: 1581135639
-licenseType: Free
+licenseType: Store
 ShaderImporter:
   externalObjects: {}
   defaultTextures: []
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Resources/Shaders/CubemapToCylinder.shader
+  uploadId: 436072

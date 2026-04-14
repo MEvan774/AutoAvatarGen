@@ -78,6 +78,8 @@ namespace Evereal.VideoCapture
     CAPTURE_ALREADY_IN_PROGRESS,
     MUXING_FAILED_TO_START,
     MUXING_FAILED,
+    TRANSCODE_FAILED_TO_START,
+    TRANSCODE_FAILED,
     CAMERA_SET_FAILED,
     MIC_DEVICE_NOT_FOUND,
   }
@@ -224,6 +226,8 @@ namespace Evereal.VideoCapture
     _512,
     _1024,
     _2048,
+    _4096,
+    _8192,
   }
 
   [System.Serializable]

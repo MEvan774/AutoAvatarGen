@@ -1,5 +1,12 @@
 fileFormatVersion: 2
 guid: ec25e105855e04042a0c86325d0daf1c
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Textures/Readme.png
+  uploadId: 436072
 TextureImporter:
   internalIDToNameTable: []
   externalObjects: {}

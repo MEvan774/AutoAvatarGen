@@ -29,9 +29,17 @@ public class HybridAvatarSystem : MonoBehaviour
     [Tooltip("Duration of the crossfade transition in seconds")]
     public float crossfadeDuration = 0.3f;
 
+    [Header("Sprite Size Normalization")]
+    [Tooltip("If true, all emotion sprites render at the same size as the neutral sprite, regardless of source image dimensions.")]
+    public bool normalizeSpriteSize = true;
+
     private float animationDuration = 0.15f;
     private float squashAmount = 1.6f;
     private SpriteRenderer crossfadeRenderer;
+
+    // Captured at Awake — used as the reference size for all emotion swaps.
+    private Vector3 initialAvatarScale;
+    private float baselineSpriteHeight;
 
     private Coroutine currentAnimation;
 
@@ -76,14 +84,23 @@ public class HybridAvatarSystem : MonoBehaviour
             {"Concerned", concernedSprite}
         };
 
-        avatarRenderer.sprite = neutralSprite;
+        // Capture baseline BEFORE setting the sprite — this preserves the scale the
+        // user configured in the Inspector. The baseline sprite height is whatever
+        // the neutral sprite's world-space height is.
+        initialAvatarScale = avatarRenderer.transform.localScale;
+        baselineSpriteHeight = (neutralSprite != null) ? neutralSprite.bounds.size.y : 1f;
 
-        // Create a second SpriteRenderer for crossfade transitions
+        avatarRenderer.sprite = neutralSprite;
+        NormalizeSpriteSize(avatarRenderer);
+
+        // Create a second SpriteRenderer for crossfade transitions.
+        // It's a SIBLING of avatarRenderer (not a child) so we can scale each one
+        // independently based on its current sprite's dimensions.
         GameObject crossfadeObj = new GameObject("CrossfadeRenderer");
-        crossfadeObj.transform.SetParent(avatarRenderer.transform, false);
-        crossfadeObj.transform.localPosition = Vector3.zero;
-        crossfadeObj.transform.localRotation = Quaternion.identity;
-        crossfadeObj.transform.localScale = Vector3.one;
+        crossfadeObj.transform.SetParent(avatarRenderer.transform.parent, false);
+        crossfadeObj.transform.localPosition = avatarRenderer.transform.localPosition;
+        crossfadeObj.transform.localRotation = avatarRenderer.transform.localRotation;
+        crossfadeObj.transform.localScale = initialAvatarScale;
         crossfadeRenderer = crossfadeObj.AddComponent<SpriteRenderer>();
         crossfadeRenderer.sortingLayerID = avatarRenderer.sortingLayerID;
         crossfadeRenderer.sortingOrder = avatarRenderer.sortingOrder + 1;
@@ -262,6 +279,7 @@ public class HybridAvatarSystem : MonoBehaviour
         }
 
         avatarRenderer.sprite = newSprite;
+        NormalizeSpriteSize(avatarRenderer);
 
         elapsed = 0f;
 
@@ -316,6 +334,7 @@ public class HybridAvatarSystem : MonoBehaviour
         // while the old sprite remains fully visible underneath
         crossfadeRenderer.sprite = newSprite;
         crossfadeRenderer.flipX = avatarRenderer.flipX;
+        NormalizeSpriteSize(crossfadeRenderer);
 
         float elapsed = 0f;
         while (elapsed < crossfadeDuration)
@@ -331,10 +350,30 @@ public class HybridAvatarSystem : MonoBehaviour
 
         // Swap: the main renderer takes over the new sprite, overlay goes invisible
         avatarRenderer.sprite = newSprite;
+        NormalizeSpriteSize(avatarRenderer);
         crossfadeRenderer.color = new Color(1f, 1f, 1f, 0f);
         crossfadeRenderer.sprite = null;
 
         currentAnimation = null;
+    }
+
+    /// <summary>
+    /// Rescales the given renderer's transform so its sprite renders at the same
+    /// world-space height as the baseline (neutral) sprite — regardless of the
+    /// source image's pixel dimensions. Preserves the scale the user configured
+    /// on avatarRenderer in the Inspector by applying a multiplicative ratio.
+    /// </summary>
+    void NormalizeSpriteSize(SpriteRenderer renderer)
+    {
+        if (!normalizeSpriteSize) return;
+        if (renderer == null || renderer.sprite == null) return;
+        if (baselineSpriteHeight <= 0f) return;
+
+        float currentHeight = renderer.sprite.bounds.size.y;
+        if (currentHeight <= 0f) return;
+
+        float ratio = baselineSpriteHeight / currentHeight;
+        renderer.transform.localScale = initialAvatarScale * ratio;
     }
 
     // NEW: Calculate time-based markers

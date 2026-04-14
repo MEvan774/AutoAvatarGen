@@ -5,28 +5,21 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Manages content card timeline playback in the content zone.
-/// Instantiates card prefabs, handles one-card-at-a-time transitions,
-/// and pauses/resumes when the character moves to/from center.
+/// Self-building: creates card GameObjects programmatically — no prefabs needed.
+/// Auto-setup: if contentZone is unassigned, falls back to mediaDisplay's RectTransform.
 /// </summary>
 public class ContentZoneController : MonoBehaviour
 {
     [Header("Content Zone")]
-    [Tooltip("RectTransform where cards are instantiated as children.")]
+    [Tooltip("RectTransform where cards appear. If left empty, falls back to mediaDisplay's RectTransform.")]
     public RectTransform contentZone;
 
-    [Header("Card Prefabs")]
-    public GameObject headlineCardPrefab;
-    public GameObject excerptCardPrefab;
-    public GameObject quoteCardPrefab;
-    public GameObject statCardPrefab;
-    public GameObject logoDisplayPrefab;
-    public GameObject bRollDisplayPrefab;
-
     [Header("Assets")]
+    [Tooltip("Optional — maps company names to logos, and b-roll descriptions to video clips.")]
     public ContentCardAssets cardAssets;
 
     [Header("Media Coexistence")]
-    [Tooltip("Reference to the existing media display — hidden while a card is active.")]
+    [Tooltip("Reference to the existing media display — hidden while a card is active. If left empty, auto-finds from MediaPresentationSystem.")]
     public RawImage mediaDisplay;
 
     // Timeline state
@@ -40,15 +33,58 @@ public class ContentZoneController : MonoBehaviour
     private Coroutine durationCoroutine;
     private Coroutine hideAndShowCoroutine;
 
-    /// <summary>
-    /// True when a content card is currently visible (used by MediaPresentationSystem
-    /// to avoid showing media while a card is active).
-    /// </summary>
+    /// <summary>True when a content card is currently visible.</summary>
     public bool IsCardActive => activeCard != null;
 
+    void Awake()
+    {
+        // Auto-wire mediaDisplay from MediaPresentationSystem if not set
+        if (mediaDisplay == null)
+        {
+            MediaPresentationSystem mps = GetComponent<MediaPresentationSystem>();
+            if (mps == null)
+                mps = FindObjectOfType<MediaPresentationSystem>();
+            if (mps != null && mps.mediaDisplay != null)
+            {
+                mediaDisplay = mps.mediaDisplay;
+                Debug.Log("ContentZoneController: auto-wired mediaDisplay from MediaPresentationSystem");
+            }
+        }
+
+        // If no content zone assigned, create one as a SIBLING of the media display
+        // (same parent, same size/position — but always active, independent of media display state)
+        if (contentZone == null && mediaDisplay != null)
+        {
+            GameObject zoneGO = new GameObject("ContentZone_Cards", typeof(RectTransform));
+            zoneGO.transform.SetParent(mediaDisplay.transform.parent, false);
+
+            RectTransform zoneRT = zoneGO.GetComponent<RectTransform>();
+            RectTransform mediaRT = mediaDisplay.rectTransform;
+
+            // Copy layout from the media display
+            zoneRT.anchorMin = mediaRT.anchorMin;
+            zoneRT.anchorMax = mediaRT.anchorMax;
+            zoneRT.pivot = mediaRT.pivot;
+            zoneRT.anchoredPosition = mediaRT.anchoredPosition;
+            zoneRT.sizeDelta = mediaRT.sizeDelta;
+            zoneRT.localScale = mediaRT.localScale;
+
+            // Render cards above the media display
+            zoneGO.transform.SetSiblingIndex(mediaDisplay.transform.GetSiblingIndex() + 1);
+
+            contentZone = zoneRT;
+            Debug.Log("ContentZoneController: created content zone as sibling of mediaDisplay");
+        }
+
+        if (contentZone == null)
+        {
+            Debug.LogError("ContentZoneController: no contentZone assigned and no mediaDisplay to fall back to. Cards will not appear!");
+        }
+    }
+
     /// <summary>
-    /// Called by MediaPresentationSystem after parsing content card tags.
     /// Stores the timeline and audio reference for time-based tracking.
+    /// Called by MediaPresentationSystem after parsing.
     /// </summary>
     public void SetTimeline(List<ContentCardEvent> events, AudioSource audio)
     {
@@ -62,7 +98,6 @@ public class ContentZoneController : MonoBehaviour
 
     /// <summary>
     /// Coroutine that checks voiceAudio.time each frame and triggers cards.
-    /// Same pattern as TrackMediaByTime in MediaPresentationSystem.
     /// </summary>
     public IEnumerator TrackCardsByTime()
     {
@@ -98,6 +133,12 @@ public class ContentZoneController : MonoBehaviour
     /// </summary>
     public void ShowCard(ContentCardEvent evt)
     {
+        if (contentZone == null)
+        {
+            Debug.LogError("ContentZoneController: Cannot show card, contentZone is not set!");
+            return;
+        }
+
         if (hideAndShowCoroutine != null)
             StopCoroutine(hideAndShowCoroutine);
 
@@ -119,7 +160,6 @@ public class ContentZoneController : MonoBehaviour
             activeCard.OnHideComplete = () => hideComplete = true;
             activeCard.Hide(fast: true);
 
-            // Wait for fast hide (0.15s)
             while (!hideComplete)
                 yield return null;
 
@@ -130,34 +170,36 @@ public class ContentZoneController : MonoBehaviour
             }
         }
 
-        // Hide existing media display while card is showing
-        if (mediaDisplay != null)
-            mediaDisplay.gameObject.SetActive(false);
+        // Create a GameObject and add the appropriate card component
+        GameObject cardObj = new GameObject(
+            evt.cardType + "Card",
+            typeof(RectTransform),
+            typeof(CanvasGroup));
+        cardObj.transform.SetParent(contentZone, false);
 
-        // Instantiate the correct prefab
-        GameObject prefab = GetPrefabForType(evt.cardType);
-        if (prefab == null)
+        // Counter any mirror in the parent hierarchy so text reads left-to-right.
+        // Compute the 2D determinant of the XY-plane portion of the parent's
+        // localToWorld matrix — if it's negative, the parent chain contains a
+        // reflection (from a negative scale OR a 180° Y-rotation), and we flip
+        // the card's X scale to counter it.
+        Matrix4x4 parentMatrix = contentZone.localToWorldMatrix;
+        float det2D = parentMatrix.m00 * parentMatrix.m11 - parentMatrix.m01 * parentMatrix.m10;
+        float xSign = det2D < 0f ? -1f : 1f;
+        cardObj.transform.localScale = new Vector3(xSign, 1f, 1f);
+
+        switch (evt.cardType)
         {
-            Debug.LogWarning($"No prefab assigned for card type: {evt.cardType}");
-            yield break;
+            case ContentCardType.Headline: activeCard = cardObj.AddComponent<HeadlineCard>(); break;
+            case ContentCardType.Excerpt: activeCard = cardObj.AddComponent<ExcerptCard>(); break;
+            case ContentCardType.Quote: activeCard = cardObj.AddComponent<QuoteCard>(); break;
+            case ContentCardType.Stat: activeCard = cardObj.AddComponent<StatCard>(); break;
+            case ContentCardType.Logo: activeCard = cardObj.AddComponent<LogoDisplay>(); break;
+            case ContentCardType.BRoll: activeCard = cardObj.AddComponent<BRollDisplay>(); break;
+            default:
+                Debug.LogWarning($"Unknown card type: {evt.cardType}");
+                Destroy(cardObj);
+                yield break;
         }
-
-        GameObject cardObj = Instantiate(prefab, contentZone);
-        activeCard = cardObj.GetComponent<ContentCard>();
-
-        if (activeCard == null)
-        {
-            Debug.LogError($"Prefab for {evt.cardType} is missing a ContentCard component!");
-            Destroy(cardObj);
-            yield break;
-        }
-
-        // Stretch to fill content zone
-        RectTransform cardRect = cardObj.GetComponent<RectTransform>();
-        cardRect.anchorMin = Vector2.zero;
-        cardRect.anchorMax = Vector2.one;
-        cardRect.offsetMin = Vector2.zero;
-        cardRect.offsetMax = Vector2.zero;
 
         activeCard.Initialize(evt, cardAssets);
         activeCard.Show();
@@ -172,9 +214,7 @@ public class ContentZoneController : MonoBehaviour
         HideCurrentCard();
     }
 
-    /// <summary>
-    /// Fade out the currently active card and destroy it.
-    /// </summary>
+    /// <summary>Fade out the currently active card and destroy it.</summary>
     public void HideCurrentCard()
     {
         if (activeCard == null) return;
@@ -192,19 +232,12 @@ public class ContentZoneController : MonoBehaviour
                 Destroy(activeCard.gameObject);
                 activeCard = null;
             }
-
-            // Re-enable media display when card is gone
-            if (mediaDisplay != null)
-                mediaDisplay.gameObject.SetActive(true);
         };
 
         activeCard.Hide(fast: false);
     }
 
-    /// <summary>
-    /// Pause the card timeline and hide the active card.
-    /// Called when character moves to center position.
-    /// </summary>
+    /// <summary>Pause the card timeline and hide the active card.</summary>
     public void PauseTimeline()
     {
         isPaused = true;
@@ -232,27 +265,10 @@ public class ContentZoneController : MonoBehaviour
         Debug.Log("ContentZoneController: Timeline paused (character centered)");
     }
 
-    /// <summary>
-    /// Resume the card timeline.
-    /// Called when character moves to a side position.
-    /// </summary>
+    /// <summary>Resume the card timeline.</summary>
     public void ResumeTimeline()
     {
         isPaused = false;
         Debug.Log("ContentZoneController: Timeline resumed");
-    }
-
-    private GameObject GetPrefabForType(ContentCardType type)
-    {
-        switch (type)
-        {
-            case ContentCardType.Headline: return headlineCardPrefab;
-            case ContentCardType.Excerpt: return excerptCardPrefab;
-            case ContentCardType.Quote: return quoteCardPrefab;
-            case ContentCardType.Stat: return statCardPrefab;
-            case ContentCardType.Logo: return logoDisplayPrefab;
-            case ContentCardType.BRoll: return bRollDisplayPrefab;
-            default: return null;
-        }
     }
 }

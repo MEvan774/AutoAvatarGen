@@ -1,9 +1,16 @@
 fileFormatVersion: 2
 guid: 5575cd3c17cad164c8b84dd837ae3259
 timeCreated: 1581627328
-licenseType: Free
+licenseType: Store
 DefaultImporter:
   externalObjects: {}
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Demos/Scenes/Legacy/Demo_Legacy_ScreenShot.unity
+  uploadId: 436072

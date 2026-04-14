@@ -10,10 +10,10 @@ namespace Evereal.VideoCapture
     // When audio muxing complete
     void OnMuxerComplete(string path);
 
-    // Get ffmpeg encoder instance
-    FFmpegEncoder GetFFmpegEncoder();
+    // When transcode complete
+    void OnTranscodeComplete(string path);
 
-    // Get GPU encoder instance
-    GPUEncoder GetGPUEncoder();
+    // Get encoder instance
+    EncoderBase GetEncoder();
   }
 }

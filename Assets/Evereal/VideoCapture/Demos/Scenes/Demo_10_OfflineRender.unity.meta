@@ -1,9 +1,16 @@
 fileFormatVersion: 2
 guid: 9d3e36f2f05bc4018b9d3886c0e2b728
 timeCreated: 1581199346
-licenseType: Free
+licenseType: Store
 DefaultImporter:
   externalObjects: {}
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Demos/Scenes/Demo_10_OfflineRender.unity
+  uploadId: 436072

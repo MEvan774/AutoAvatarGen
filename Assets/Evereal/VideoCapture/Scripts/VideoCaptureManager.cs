@@ -62,6 +62,7 @@ namespace Evereal.VideoCapture
     [SerializeField]
     public bool gpuEncoding = false;
     public EncoderPreset encoderPreset = EncoderPreset.H264_MP4;
+    public bool legacyGpuEncoding = false;
 
     /// <summary>
     /// Encoding setting variables for video capture.
@@ -121,7 +122,7 @@ namespace Evereal.VideoCapture
         return false;
       }
 
-      if (!FFmpeg.IsExist())
+      if (!FFmpegConfig.IsExist())
       {
         Debug.LogErrorFormat(LOG_FORMAT,
           "FFmpeg not found, please follow document and add ffmpeg executable before start capture!");
@@ -181,6 +182,7 @@ namespace Evereal.VideoCapture
         videoCapture.antiAliasing = antiAliasing;
         videoCapture.gpuEncoding = gpuEncoding;
         videoCapture.encoderPreset = encoderPreset;
+        videoCapture.legacyGpuEncoding = legacyGpuEncoding;
 
         videoCapture.StartCapture();
       }

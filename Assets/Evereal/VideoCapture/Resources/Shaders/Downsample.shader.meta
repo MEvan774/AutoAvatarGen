@@ -1,10 +1,17 @@
 fileFormatVersion: 2
 guid: c35edb737b05c4a76ac559fd048cf41a
 timeCreated: 1581135639
-licenseType: Free
+licenseType: Store
 ShaderImporter:
   externalObjects: {}
   defaultTextures: []
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Resources/Shaders/Downsample.shader
+  uploadId: 436072

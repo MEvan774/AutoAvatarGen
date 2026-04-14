@@ -953,6 +953,11 @@ Prefab:
       propertyPath: inputTexture
       value: 
       objectReference: {fileID: 8400000, guid: e6462aca8afc6455698cbd3137991672, type: 2}
+    - target: {fileID: 114708477723034198, guid: 8fa59c0c9387c3d428a0a4989b7d1cb3,
+        type: 2}
+      propertyPath: gpuEncoding
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_ParentPrefab: {fileID: 100100000, guid: 8fa59c0c9387c3d428a0a4989b7d1cb3, type: 2}
   m_IsPrefabParent: 0

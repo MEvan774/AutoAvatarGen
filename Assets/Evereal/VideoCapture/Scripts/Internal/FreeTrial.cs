@@ -10,7 +10,7 @@ namespace Evereal.VideoCapture
     // Check free trial version
     public static bool Check()
     {
-      return true;
+      return false;
     }
   }
 }

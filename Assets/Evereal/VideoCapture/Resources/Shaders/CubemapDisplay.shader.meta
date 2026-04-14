@@ -1,10 +1,16 @@
 fileFormatVersion: 2
-guid: 7a357fa2327ef4bc780c3759aaaf37e5
-timeCreated: 1581135639
-licenseType: Free
+guid: 498bcf4ce9ccd944d8bec0ce8cf01ebe
+timeCreated: 1613280077
+licenseType: Store
 ShaderImporter:
-  externalObjects: {}
   defaultTextures: []
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Resources/Shaders/CubemapDisplay.shader
+  uploadId: 436072

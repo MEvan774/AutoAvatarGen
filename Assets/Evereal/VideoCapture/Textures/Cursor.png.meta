@@ -1,7 +1,7 @@
 fileFormatVersion: 2
 guid: 993e5a8168ce14e14bb1d48ad91cba87
 timeCreated: 1581241397
-licenseType: Free
+licenseType: Store
 TextureImporter:
   fileIDToRecycleName: {}
   externalObjects: {}
@@ -106,3 +106,10 @@ TextureImporter:
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Textures/Cursor.png
+  uploadId: 436072

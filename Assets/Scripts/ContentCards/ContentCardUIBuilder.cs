@@ -1,0 +1,153 @@
+using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
+
+/// <summary>
+/// Static helper for building content card UI elements consistently.
+/// Encapsulates brand colors, font sizes, and layout defaults.
+/// </summary>
+public static class ContentCardUIBuilder
+{
+    // Brand colors
+    public static readonly Color BackgroundColor = new Color(15f / 255f, 15f / 255f, 20f / 255f, 0.85f);
+    public static readonly Color AccentColor = new Color(0xE8 / 255f, 0x5D / 255f, 0x4A / 255f, 1f);
+    public static readonly Color AccentColor40 = new Color(0xE8 / 255f, 0x5D / 255f, 0x4A / 255f, 0.4f);
+    public static readonly Color TextPrimary = Color.white;
+    public static readonly Color TextSecondary = new Color(1f, 1f, 1f, 0.7f);
+    public static readonly Color TextTertiary = new Color(1f, 1f, 1f, 0.6f);
+    public static readonly Color PositiveGreen = new Color(0x4C / 255f, 0xAF / 255f, 0x50 / 255f, 1f);
+
+    public const float CardPadding = 24f;
+
+    /// <summary>Creates a child RectTransform filling its parent.</summary>
+    public static RectTransform CreateChild(RectTransform parent, string name)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        return rt;
+    }
+
+    /// <summary>Creates the dark semi-transparent card background filling the parent.</summary>
+    public static Image CreateBackground(RectTransform parent)
+    {
+        RectTransform rt = CreateChild(parent, "Background");
+        Image img = rt.gameObject.AddComponent<Image>();
+        img.color = BackgroundColor;
+        img.raycastTarget = false;
+        return img;
+    }
+
+    /// <summary>Creates a thin accent bar anchored to the top of the parent.</summary>
+    public static Image CreateAccentBar(RectTransform parent, float heightPx = 4f)
+    {
+        GameObject go = new GameObject("AccentBar", typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = Vector2.zero;
+        rt.sizeDelta = new Vector2(0f, heightPx);
+
+        Image img = go.AddComponent<Image>();
+        img.color = AccentColor;
+        img.raycastTarget = false;
+        return img;
+    }
+
+    /// <summary>Creates a TMP text element as a child of the parent.</summary>
+    public static TextMeshProUGUI CreateText(RectTransform parent, string name, Color color, float fontSize, TextAlignmentOptions alignment = TextAlignmentOptions.Center, FontStyles style = FontStyles.Normal)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+
+        TextMeshProUGUI tmp = go.AddComponent<TextMeshProUGUI>();
+        tmp.color = color;
+        tmp.fontSize = fontSize;
+        tmp.fontStyle = style;
+        tmp.alignment = alignment;
+        tmp.raycastTarget = false;
+
+        return tmp;
+    }
+
+    /// <summary>Creates an Image child.</summary>
+    public static Image CreateImage(RectTransform parent, string name, Color color)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+
+        Image img = go.AddComponent<Image>();
+        img.color = color;
+        img.raycastTarget = false;
+        return img;
+    }
+
+    /// <summary>Anchors and positions a RectTransform with explicit offsets.</summary>
+    public static void SetStretch(RectTransform rt, float left, float top, float right, float bottom)
+    {
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = new Vector2(left, bottom);
+        rt.offsetMax = new Vector2(-right, -top);
+    }
+
+    // Cached arrow sprite (generated once, shared across all StatCards)
+    private static Sprite s_ArrowSprite;
+
+    /// <summary>
+    /// Returns a procedurally-generated arrow sprite matching the silhouette of the
+    /// icon-icons.com download arrow: ~43% wide shaft on top, full-width triangular
+    /// head pointing down. Flip vertically (localScale.y = -1) for an up arrow.
+    /// The texture is generated once and cached.
+    /// </summary>
+    public static Sprite GetArrowSprite(int size = 128)
+    {
+        if (s_ArrowSprite != null) return s_ArrowSprite;
+
+        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode = TextureWrapMode.Clamp;
+
+        Color[] pixels = new Color[size * size];
+        for (int i = 0; i < pixels.Length; i++) pixels[i] = Color.clear;
+
+        // Shaft: 12/28 wide, centered horizontally, occupying top half of texture
+        float shaftHalfWNorm = 6f / 28f;
+        int shaftL = Mathf.RoundToInt((0.5f - shaftHalfWNorm) * size);
+        int shaftR = Mathf.RoundToInt((0.5f + shaftHalfWNorm) * size);
+        int shaftBotY = Mathf.RoundToInt(size * 14f / 28f); // middle of texture
+
+        for (int y = shaftBotY; y < size; y++)
+        {
+            for (int x = shaftL; x < shaftR; x++)
+                pixels[y * size + x] = Color.white;
+        }
+
+        // Arrowhead: full width at base (y=shaftBotY), narrowing to apex at y=0 (bottom)
+        for (int y = 0; y < shaftBotY; y++)
+        {
+            float t = (float)y / Mathf.Max(1, shaftBotY - 1); // 0 at apex, 1 at base
+            float halfW = size * 0.5f * t;
+            int xMin = Mathf.RoundToInt(size * 0.5f - halfW);
+            int xMax = Mathf.RoundToInt(size * 0.5f + halfW);
+            for (int x = xMin; x < xMax; x++)
+            {
+                if (x >= 0 && x < size)
+                    pixels[y * size + x] = Color.white;
+            }
+        }
+
+        tex.SetPixels(pixels);
+        tex.Apply();
+
+        s_ArrowSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        s_ArrowSprite.name = "GeneratedArrowSprite";
+        return s_ArrowSprite;
+    }
+}

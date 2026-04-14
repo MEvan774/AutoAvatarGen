@@ -1,6 +1,7 @@
-{Concerned} Over a TRILLION dollars...
+﻿{Concerned} Over a TRILLION dollars...
 [pause]
-That's how much money is flowing into AI {Neutral} {Position:Right,Smooth} {Stat:"$1T","AI Infrastructure Spend","\u2191 Record High",4} infrastructure right now. {Serious} But here's the catch: most {Concerned} {Position:Center} companies are LOSING MONEY on every single transaction.
+That's how much money is flowing into AI {Neutral} {Position:Right,Smooth} {Stat:"-$13B","OpenAI 2024 Losses","↓ Widening Deficit",4}
+ infrastructure right now. {Serious} But here's the catch: most {Concerned} {Position:Center} companies are LOSING MONEY on every single transaction.
 OpenAI? {Position:Left,Cut} {Headline:"OpenAI Loses $13B Despite $4B Revenue","The Information",5} Four billion in revenue... but THIRTEEN BILLION in losses.
 [pause]
 {Excited} {Position:Right,Smooth} {Logo:openai,3} And NOW... {Quote:"The AI bubble is worse than dot-com","Michael Burry","Hedge Fund Manager",5} the man who predicted the 2008 financial crisis... is betting {Stat:"$1.1B","Short Position vs AI","\u2191 2x Previous Bet",4} OVER A BILLION DOLLARS... that AI stocks are about to CRASH.

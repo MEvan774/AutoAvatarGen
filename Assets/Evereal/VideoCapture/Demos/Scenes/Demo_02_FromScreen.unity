@@ -256,6 +256,11 @@ Prefab:
       propertyPath: cursorImage
       value: 
       objectReference: {fileID: 2800000, guid: 993e5a8168ce14e14bb1d48ad91cba87, type: 3}
+    - target: {fileID: 114708477723034198, guid: 8fa59c0c9387c3d428a0a4989b7d1cb3,
+        type: 2}
+      propertyPath: gpuEncoding
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_ParentPrefab: {fileID: 100100000, guid: 8fa59c0c9387c3d428a0a4989b7d1cb3, type: 2}
   m_IsPrefabParent: 0

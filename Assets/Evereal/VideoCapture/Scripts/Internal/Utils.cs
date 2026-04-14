@@ -245,7 +245,7 @@ namespace Evereal.VideoCapture
       }
       Debug.Log("Start encode video " + videoFile + " to 4K");
       string ext = System.IO.Path.GetExtension(videoFile);
-      Process.Start(FFmpeg.path, " -i \"" + videoFile + "\" -s 4096x2160  \"" + videoFile.Replace(ext, "_4K" + ext) + "\"");
+      Process.Start(FFmpegConfig.path, " -i \"" + videoFile + "\" -s 4096x2160  \"" + videoFile.Replace(ext, "_4K" + ext) + "\"");
     }
 
     public static void EncodeVideo8K(string videoFile)
@@ -261,7 +261,7 @@ namespace Evereal.VideoCapture
       }
       Debug.Log("Start encode video " + videoFile + " to 8K");
       string ext = System.IO.Path.GetExtension(videoFile);
-      Process.Start(FFmpeg.path, " -i \"" + videoFile + "\" -s 7680x4320  \"" + videoFile.Replace(ext, "_8K" + ext) + "\"");
+      Process.Start(FFmpegConfig.path, " -i \"" + videoFile + "\" -s 7680x4320  \"" + videoFile.Replace(ext, "_8K" + ext) + "\"");
     }
 
     public static void ConvertVideoWmv(string videoFile)
@@ -277,7 +277,7 @@ namespace Evereal.VideoCapture
       }
       Debug.Log("Start convert video " + videoFile + " to WMV");
       string ext = System.IO.Path.GetExtension(videoFile);
-      Process.Start(FFmpeg.path, " -i \"" + videoFile + "\" -qscale 2 -vcodec msmpeg4 -acodec wmav2 \"" + videoFile.Replace(ext, ".wmv") + "\"");
+      Process.Start(FFmpegConfig.path, " -i \"" + videoFile + "\" -qscale 2 -vcodec msmpeg4 -acodec wmav2 \"" + videoFile.Replace(ext, ".wmv") + "\"");
     }
 
     public static void ConvertVideoAvi(string videoFile)
@@ -293,7 +293,7 @@ namespace Evereal.VideoCapture
       }
       Debug.Log("Start convert video " + videoFile + " to AVI");
       string ext = System.IO.Path.GetExtension(videoFile);
-      Process.Start(FFmpeg.path, " -i \"" + videoFile + "\" -vcodec copy -acodec copy \"" + videoFile.Replace(ext, ".avi") + "\"");
+      Process.Start(FFmpegConfig.path, " -i \"" + videoFile + "\" -vcodec copy -acodec copy \"" + videoFile.Replace(ext, ".avi") + "\"");
     }
 
     public static void ConvertVideoFlv(string videoFile)
@@ -309,7 +309,7 @@ namespace Evereal.VideoCapture
       }
       Debug.Log("Start convert video " + videoFile + " to FLV");
       string ext = System.IO.Path.GetExtension(videoFile);
-      Process.Start(FFmpeg.path, " -i \"" + videoFile + "\" -c:v libx264 -crf 19 \"" + videoFile.Replace(ext, ".flv") + "\"");
+      Process.Start(FFmpegConfig.path, " -i \"" + videoFile + "\" -c:v libx264 -crf 19 \"" + videoFile.Replace(ext, ".flv") + "\"");
     }
 
     public static void ConvertVideoMkv(string videoFile)
@@ -325,7 +325,7 @@ namespace Evereal.VideoCapture
       }
       Debug.Log("Start convert video " + videoFile + " to MKV");
       string ext = System.IO.Path.GetExtension(videoFile);
-      Process.Start(FFmpeg.path, " -i \"" + videoFile + "\" -vcodec copy -acodec copy \"" + videoFile.Replace(ext, ".mkv") + "\"");
+      Process.Start(FFmpegConfig.path, " -i \"" + videoFile + "\" -vcodec copy -acodec copy \"" + videoFile.Replace(ext, ".mkv") + "\"");
     }
 
     public static void ConvertVideoGif(string videoFile)
@@ -341,7 +341,7 @@ namespace Evereal.VideoCapture
       }
       Debug.Log("Start convert video " + videoFile + " to GIF");
       string ext = System.IO.Path.GetExtension(videoFile);
-      Process.Start(FFmpeg.path, " -i \"" + videoFile + "\" -s 1280x720 -pix_fmt rgb24 \"" + videoFile.Replace(ext, ".gif") + "\"");
+      Process.Start(FFmpegConfig.path, " -i \"" + videoFile + "\" -s 1280x720 -pix_fmt rgb24 \"" + videoFile.Replace(ext, ".gif") + "\"");
     }
 
     public static string GetEncoderPresetExt(EncoderPreset preset)

@@ -88,14 +88,15 @@ namespace Evereal.VideoCapture
       // Capture Options Section
       GUILayout.Label("Encoder Settings", EditorStyles.boldLabel);
 
-      if (!manager.gpuEncoding)
-      {
-        manager.encoderPreset = (EncoderPreset)EditorGUILayout.EnumPopup("Encoder Preset", manager.encoderPreset);
-      }
+      manager.encoderPreset = (EncoderPreset)EditorGUILayout.EnumPopup("Encoder Preset", manager.encoderPreset);
 #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
       if (!FreeTrial.Check())
       {
         manager.gpuEncoding = EditorGUILayout.Toggle("GPU Encoding", manager.gpuEncoding);
+      }
+      if (manager.gpuEncoding)
+      {
+        manager.legacyGpuEncoding = EditorGUILayout.Toggle("Legacy GPU Encoding", manager.legacyGpuEncoding);
       }
 #endif
 

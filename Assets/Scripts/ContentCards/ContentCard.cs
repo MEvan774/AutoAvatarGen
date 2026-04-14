@@ -4,10 +4,11 @@ using System;
 
 /// <summary>
 /// Abstract base class for all content zone cards.
+/// Self-building: each card constructs its own UI hierarchy in Awake.
 /// Handles fade in/out animations via DOTween, duration timing, and self-cleanup.
-/// Each card prefab must have a CanvasGroup on the root GameObject.
 /// </summary>
 [RequireComponent(typeof(CanvasGroup))]
+[RequireComponent(typeof(RectTransform))]
 public abstract class ContentCard : MonoBehaviour
 {
     protected const float FADE_IN_DURATION = 0.3f;
@@ -30,10 +31,25 @@ public abstract class ContentCard : MonoBehaviour
         canvasGroup = GetComponent<CanvasGroup>();
         rectTransform = GetComponent<RectTransform>();
 
+        // Stretch to fill parent
+        rectTransform.anchorMin = Vector2.zero;
+        rectTransform.anchorMax = Vector2.one;
+        rectTransform.offsetMin = Vector2.zero;
+        rectTransform.offsetMax = Vector2.zero;
+
         // Start invisible
         canvasGroup.alpha = 0f;
         canvasGroup.blocksRaycasts = false;
+
+        BuildUI();
     }
+
+    /// <summary>
+    /// Construct the card's UI hierarchy programmatically.
+    /// Called from Awake — implementations should create all child GameObjects
+    /// (background, text, images) and store references for Initialize().
+    /// </summary>
+    protected abstract void BuildUI();
 
     /// <summary>
     /// Populate the card's UI elements from event data.

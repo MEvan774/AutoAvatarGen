@@ -1,10 +1,17 @@
 fileFormatVersion: 2
 guid: ec60c6b15969242c4abbe3bec0730ffe
 timeCreated: 1581200886
-licenseType: Free
+licenseType: Store
 NativeFormatImporter:
   externalObjects: {}
   mainObjectFileID: 2100000
   userData: 
   assetBundleName: 
   assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 155663
+  packageName: Video Capture Pro
+  packageVersion: 2.5.2
+  assetPath: Assets/Evereal/VideoCapture/Demos/Materials/Red.mat
+  uploadId: 436072

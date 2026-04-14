@@ -18,8 +18,12 @@ namespace Evereal.VideoCapture
     [Tooltip("Encoding GPU acceleration will improve performance significantly, but only available for Windows with dedicated graphic card and H.264 codec.")]
     [SerializeField]
     public bool gpuEncoding = false;
+    private bool nvidiaEncoding = false;
+    public bool legacyGpuEncoding = false;
     // FFmpeg Encoder
     public FFmpegEncoder ffmpegEncoder;
+    // Nvidia Encoder
+    public NvidiaEncoder nvidiaEncoder;
     // GPU Encoder
     public GPUEncoder gpuEncoder;
 
@@ -62,13 +66,31 @@ namespace Evereal.VideoCapture
           gpuEncoding = false;
         }
 
-        // init GPU encoding settings
-        GPUEncoderSettings();
-
-        if (!gpuEncoder.instantiated || !gpuEncoder.IsSupported())
+        if (SystemInfo.graphicsDeviceVendor == "NVIDIA")
         {
-          Debug.LogFormat(LOG_FORMAT, "GPU encoding is not supported in current device or settings, fall back to software encoding.");
-          gpuEncoding = false;
+          // init nvidia encoding settings
+          NvidiaEncoderSettings();
+          nvidiaEncoding = true;
+          if (legacyGpuEncoding)
+          {
+            GPUEncoderSettings();
+            nvidiaEncoding = false;
+          }
+        }
+        else
+        {
+          // init GPU encoding settings
+          GPUEncoderSettings();
+          nvidiaEncoding = false;
+        }
+
+        if (gpuEncoding && !nvidiaEncoding)
+        {
+          if (!gpuEncoder.instantiated || !gpuEncoder.IsSupported())
+          {
+            Debug.LogFormat(LOG_FORMAT, "GPU encoding is not supported in current device or settings, fall back to software encoding.");
+            gpuEncoding = false;
+          }
         }
       }
 
@@ -83,7 +105,7 @@ namespace Evereal.VideoCapture
 #endif
 
       // Init audio recorder
-      if (!gpuEncoding && captureAudio)
+      if ((!gpuEncoding && captureAudio) || (nvidiaEncoding && captureAudio))
       {
         if (captureMicrophone)
         {
@@ -94,52 +116,79 @@ namespace Evereal.VideoCapture
           MicrophoneRecorder.singleton.saveFolderFullPath = saveFolderFullPath;
           MicrophoneRecorder.singleton.captureType = captureType;
           MicrophoneRecorder.singleton.deviceIndex = deviceIndex;
-          audioRecorder = MicrophoneRecorder.singleton;
+          microphoneRecorder = MicrophoneRecorder.singleton;
         }
-        else
+
+        if (AudioRecorder.singleton == null)
         {
-          if (AudioRecorder.singleton == null)
+          if (GetComponent<DontDestroy>() != null)
           {
-            if (GetComponent<DontDestroy>() != null)
+            // Reset AudioListener
+            AudioListener listener = FindObjectOfType<AudioListener>();
+            if (listener)
             {
-              // Reset AudioListener
-              AudioListener listener = FindObjectOfType<AudioListener>();
-              if (listener)
-              {
-                Destroy(listener);
-                Debug.LogFormat(LOG_FORMAT, "AudioListener found, reset in game scene.");
-              }
-              gameObject.AddComponent<AudioListener>();
-              gameObject.AddComponent<AudioRecorder>();
+              Destroy(listener);
+              Debug.LogFormat(LOG_FORMAT, "AudioListener found, reset in game scene.");
             }
-            else
-            {
-              // Keep AudioListener
-              AudioListener listener = FindObjectOfType<AudioListener>();
-              if (!listener)
-              {
-                listener = gameObject.AddComponent<AudioListener>();
-                Debug.LogFormat(LOG_FORMAT, "AudioListener not found, add a new AudioListener.");
-              }
-              listener.gameObject.AddComponent<AudioRecorder>();
-            }
+            gameObject.AddComponent<AudioListener>();
+            gameObject.AddComponent<AudioRecorder>();
           }
-          AudioRecorder.singleton.saveFolderFullPath = saveFolderFullPath;
-          AudioRecorder.singleton.captureType = captureType;
-          audioRecorder = AudioRecorder.singleton;
+          else
+          {
+            // Keep AudioListener
+            AudioListener listener = FindObjectOfType<AudioListener>();
+            if (!listener)
+            {
+              listener = gameObject.AddComponent<AudioListener>();
+              Debug.LogFormat(LOG_FORMAT, "AudioListener not found, add a new AudioListener.");
+            }
+            listener.gameObject.AddComponent<AudioRecorder>();
+          }
         }
+        AudioRecorder.singleton.saveFolderFullPath = saveFolderFullPath;
+        AudioRecorder.singleton.captureType = captureType;
+        audioRecorder = AudioRecorder.singleton;
       }
 
       // Init ffmpeg muxer
-      if (!gpuEncoding && captureAudio)
+      if ((!gpuEncoding && captureAudio) || (nvidiaEncoding && captureAudio))
       {
         if (FFmpegMuxer.singleton == null)
         {
           gameObject.AddComponent<FFmpegMuxer>();
         }
         FFmpegMuxer.singleton.ffmpegFullPath = ffmpegFullPath;
+        FFmpegMuxer.singleton.customFileName = customFileName;
         FFmpegMuxer.singleton.saveFolderFullPath = saveFolderFullPath;
         FFmpegMuxer.singleton.AttachVideoCapture(this);
+        FFmpegMuxer.singleton.verticalFlip = verticalFlip;
+        if (nvidiaEncoding)
+        {
+          if (captureSource != CaptureSource.SCREEN)
+          {
+            FFmpegMuxer.singleton.verticalFlip = !verticalFlip;
+          }
+        }
+        FFmpegMuxer.singleton.horizontalFlip = horizontalFlip;
+      }
+
+      // Init ffmpeg transcoder
+      if (gpuEncoding && nvidiaEncoding && !captureAudio)
+      {
+        if (FFmpegTranscoder.singleton == null)
+        {
+          gameObject.AddComponent<FFmpegTranscoder>();
+        }
+        FFmpegTranscoder.singleton.ffmpegFullPath = ffmpegFullPath;
+        FFmpegTranscoder.singleton.customFileName = customFileName;
+        FFmpegTranscoder.singleton.saveFolderFullPath = saveFolderFullPath;
+        FFmpegTranscoder.singleton.AttachVideoCapture(this);
+        FFmpegTranscoder.singleton.verticalFlip = verticalFlip;
+        if (captureSource != CaptureSource.SCREEN)
+        {
+          FFmpegTranscoder.singleton.verticalFlip = !verticalFlip;
+        }
+        FFmpegTranscoder.singleton.horizontalFlip = horizontalFlip;
       }
 
       // Init ffmpeg streamer
@@ -157,10 +206,33 @@ namespace Evereal.VideoCapture
 
       if (gpuEncoding)
       {
-        if (!gpuEncoder.StartCapture())
+        if (nvidiaEncoding)
         {
-          OnCaptureError(new CaptureErrorEventArgs(CaptureErrorCode.VIDEO_CAPTURE_START_FAILED));
-          return false;
+          if (!nvidiaEncoder.StartCapture())
+          {
+            OnCaptureError(new CaptureErrorEventArgs(CaptureErrorCode.VIDEO_CAPTURE_START_FAILED));
+            return false;
+          }
+
+          if (captureAudio)
+          {
+            if (!audioRecorder.RecordStarted())
+              audioRecorder.StartRecord();
+
+            if (captureMicrophone)
+            {
+              if (!microphoneRecorder.RecordStarted())
+                microphoneRecorder.StartRecord();
+            }
+          }
+        }
+        else
+        {
+          if (!gpuEncoder.StartCapture())
+          {
+            OnCaptureError(new CaptureErrorEventArgs(CaptureErrorCode.VIDEO_CAPTURE_START_FAILED));
+            return false;
+          }
         }
       }
       else
@@ -171,9 +243,15 @@ namespace Evereal.VideoCapture
           return false;
         }
 
-        if (captureAudio && !audioRecorder.RecordStarted())
+        if (captureAudio)
         {
-          audioRecorder.StartRecord();
+          if (!audioRecorder.RecordStarted())
+            audioRecorder.StartRecord();
+          if (captureMicrophone)
+          {
+            if (!microphoneRecorder.RecordStarted())
+              microphoneRecorder.StartRecord();
+          }
         }
 
         if (captureType == CaptureType.LIVE)
@@ -187,7 +265,8 @@ namespace Evereal.VideoCapture
       }
 
       // Create a blitter object to keep frames presented on the screen
-      CreateBlitterInstance();
+      if (screenBlitter)
+        CreateBlitterInstance();
 
       // Update current status.
       status = CaptureStatus.STARTED;
@@ -234,37 +313,102 @@ namespace Evereal.VideoCapture
       // pending for video encoding process
       status = CaptureStatus.STOPPED;
 
-      if (gpuEncoding && gpuEncoder.captureStarted)
+      if (gpuEncoding)
       {
-        gpuEncoder.StopCapture();
-      }
-
-      if (!gpuEncoding && ffmpegEncoder.captureStarted)
-      {
-        ffmpegEncoder.StopCapture();
-
-        if (captureAudio && audioRecorder.RecordStarted())
+        if (nvidiaEncoding)
         {
-          audioRecorder.StopRecord();
+          if (nvidiaEncoder.captureStarted)
+          {
+            if (captureAudio)
+            {
+              if (audioRecorder.RecordStarted())
+              {
+                audioRecorder.StopRecord();
+              }
+
+              FFmpegMuxer.singleton.SetAudioFile(audioRecorder.GetRecordedAudio());
+
+              if (captureMicrophone)
+              {
+                if (microphoneRecorder.RecordStarted())
+                {
+                  microphoneRecorder.StopRecord();
+                }
+
+                FFmpegMuxer.singleton.SetAudioFile2(microphoneRecorder.GetRecordedAudio());
+              }
+
+              if (!FFmpegMuxer.singleton.muxInitiated)
+              {
+                FFmpegMuxer.singleton.InitMux();
+              }
+            }
+            else
+            {
+              if (!FFmpegTranscoder.singleton.transcodeInitiated)
+              {
+                FFmpegTranscoder.singleton.InitTranscode();
+              }
+            }
+
+            nvidiaEncoder.StopCapture();
+
+            Debug.LogFormat(LOG_FORMAT, "Video capture session stopped, generating video...");
+          }
         }
-
-        if (captureType == CaptureType.VOD)
+        else
         {
+          if (gpuEncoder.captureStarted)
+          {
+            gpuEncoder.StopCapture();
+          }
+        }
+      }
+      else
+      {
+        if (ffmpegEncoder.captureStarted)
+        {
+          ffmpegEncoder.StopCapture();
+
           if (captureAudio)
           {
-            FFmpegMuxer.singleton.SetAudioFile(audioRecorder.GetRecordedAudio());
-
-            if (!FFmpegMuxer.singleton.muxInitiated)
+            if (audioRecorder.RecordStarted())
             {
-              FFmpegMuxer.singleton.InitMux();
+              audioRecorder.StopRecord();
+            }
+
+            if (captureMicrophone)
+            {
+              if (microphoneRecorder.RecordStarted())
+              {
+                microphoneRecorder.StopRecord();
+              }
             }
           }
 
-          Debug.LogFormat(LOG_FORMAT, "Video capture session stopped, generating video...");
-        }
-        else if (captureType == CaptureType.LIVE && FFmpegStreamer.singleton.streamStarted)
-        {
-          FFmpegStreamer.singleton.StopStream();
+          if (captureType == CaptureType.VOD)
+          {
+            if (captureAudio)
+            {
+              FFmpegMuxer.singleton.SetAudioFile(audioRecorder.GetRecordedAudio());
+
+              if (captureMicrophone)
+              {
+                FFmpegMuxer.singleton.SetAudioFile2(microphoneRecorder.GetRecordedAudio());
+              }
+
+              if (!FFmpegMuxer.singleton.muxInitiated)
+              {
+                FFmpegMuxer.singleton.InitMux();
+              }
+            }
+
+            Debug.LogFormat(LOG_FORMAT, "Video capture session stopped, generating video...");
+          }
+          else if (captureType == CaptureType.LIVE && FFmpegStreamer.singleton.streamStarted)
+          {
+            FFmpegStreamer.singleton.StopStream();
+          }
         }
       }
 
@@ -272,7 +416,11 @@ namespace Evereal.VideoCapture
       ResetCameraSettings();
 
       // Restore screen render.
-      ClearBlitterInstance();
+      if (screenBlitter)
+        ClearBlitterInstance();
+
+      audioRecorder = null;
+      microphoneRecorder = null;
 
       return true;
     }
@@ -294,18 +442,38 @@ namespace Evereal.VideoCapture
         Time.captureFramerate = 0;
       }
 
-      if (gpuEncoding && gpuEncoder.captureStarted)
+      if (gpuEncoding)
       {
-        gpuEncoder.CancelCapture();
+        if (nvidiaEncoding)
+        {
+          if (nvidiaEncoder.captureStarted)
+          {
+            nvidiaEncoder.CancelCapture();
+          }
+        }
+        else
+        {
+          if (gpuEncoder.captureStarted)
+          {
+            gpuEncoder.CancelCapture();
+          }
+        }
       }
 
       if (!gpuEncoding && ffmpegEncoder.captureStarted)
       {
         ffmpegEncoder.CancelCapture();
 
-        if (captureAudio && audioRecorder.RecordStarted())
+        if (captureAudio)
         {
-          audioRecorder.CancelRecord();
+          if (audioRecorder.RecordStarted())
+            audioRecorder.CancelRecord();
+
+          if (captureMicrophone)
+          {
+            if (microphoneRecorder.RecordStarted())
+              microphoneRecorder.CancelRecord();
+          }
         }
 
         if (captureType == CaptureType.LIVE && FFmpegStreamer.singleton.streamStarted)
@@ -328,14 +496,23 @@ namespace Evereal.VideoCapture
       return true;
     }
 
-    public FFmpegEncoder GetFFmpegEncoder()
+    public EncoderBase GetEncoder()
     {
-      return ffmpegEncoder;
-    }
-
-    public GPUEncoder GetGPUEncoder()
-    {
-      return gpuEncoder;
+      if (gpuEncoding)
+      {
+        if (nvidiaEncoding)
+        {
+          return nvidiaEncoder;
+        }
+        else
+        {
+          return gpuEncoder;
+        }
+      }
+      else
+      {
+        return ffmpegEncoder;
+      }
     }
 
     /// <summary>
@@ -354,22 +531,56 @@ namespace Evereal.VideoCapture
       }
       else if (captureType == CaptureType.VOD)
       {
-        if (gpuEncoding || !captureAudio) // No audio capture required, done!
+        if (gpuEncoding)
         {
-          status = CaptureStatus.READY;
+          if (nvidiaEncoding)
+          {
+            if (captureAudio)
+            {
+              // Enqueue video file
+              FFmpegMuxer.singleton.EnqueueVideoFile(savePath);
+            }
+            else
+            {
+              // Enqueue video file
+              FFmpegTranscoder.singleton.EnqueueVideoFile(savePath);
+            }
+            
+            // Pending for ffmpeg audio capture and muxing
+            status = CaptureStatus.PENDING;
+          }
+          else
+          {
+            // GPUEncoding
+            status = CaptureStatus.READY;
 
-          EnqueueCompleteEvent(new CaptureCompleteEventArgs(savePath));
+            EnqueueCompleteEvent(new CaptureCompleteEventArgs(savePath));
 
-          lastVideoFile = savePath;
+            lastVideoFile = savePath;
 
-          Debug.LogFormat(LOG_FORMAT, "Video capture session success!");
+            Debug.LogFormat(LOG_FORMAT, "Video capture session success!");
+          }
         }
         else
         {
-          // Enqueue video file
-          FFmpegMuxer.singleton.EnqueueVideoFile(savePath);
-          // Pending for ffmpeg audio capture and muxing
-          status = CaptureStatus.PENDING;
+          // FFmpegEncoder
+          if (!captureAudio)
+          {
+            status = CaptureStatus.READY;
+
+            EnqueueCompleteEvent(new CaptureCompleteEventArgs(savePath));
+
+            lastVideoFile = savePath;
+
+            Debug.LogFormat(LOG_FORMAT, "Video capture session success!");
+          }
+          else
+          {
+            // Enqueue video file
+            FFmpegMuxer.singleton.EnqueueVideoFile(savePath);
+            // Pending for ffmpeg audio capture and muxing
+            status = CaptureStatus.PENDING;
+          }
         }
       }
     }
@@ -389,9 +600,51 @@ namespace Evereal.VideoCapture
       Debug.LogFormat(LOG_FORMAT, "Video generated success!");
     }
 
+    /// <summary>
+    /// Handle transcode process complete during capture.
+    /// </summary>
+    /// <param name="savePath">Final transcode video path.</param>
+    public void OnTranscodeComplete(string savePath)
+    {
+      status = CaptureStatus.READY;
+
+      EnqueueCompleteEvent(new CaptureCompleteEventArgs(savePath));
+
+      lastVideoFile = savePath;
+
+      Debug.LogFormat(LOG_FORMAT, "Video generated success!");
+    }
+
     #endregion
 
     #region Internal
+
+    private void NvidiaEncoderSettings()
+    {
+      nvidiaEncoder.regularCamera = regularCamera;
+      nvidiaEncoder.stereoCamera = stereoCamera;
+      nvidiaEncoder.captureSource = captureSource;
+      nvidiaEncoder.captureType = captureType;
+      nvidiaEncoder.captureMode = captureMode;
+      nvidiaEncoder.encoderPreset = encoderPreset;
+      nvidiaEncoder.resolutionPreset = resolutionPreset;
+      nvidiaEncoder.frameWidth = frameWidth;
+      nvidiaEncoder.frameHeight = frameHeight;
+      nvidiaEncoder.cubemapSize = cubemapSize;
+      nvidiaEncoder.bitrate = bitrate;
+      nvidiaEncoder.frameRate = frameRate;
+      nvidiaEncoder.projectionType = projectionType;
+      nvidiaEncoder.liveStreamUrl = liveStreamUrl;
+      nvidiaEncoder.stereoMode = stereoMode;
+      nvidiaEncoder.interpupillaryDistance = interpupillaryDistance;
+      nvidiaEncoder.captureAudio = captureAudio;
+      //nvidiaEncoder.captureMicrophone = captureMicrophone;
+      nvidiaEncoder.antiAliasing = antiAliasingSetting;
+      nvidiaEncoder.inputTexture = inputTexture;
+      nvidiaEncoder.offlineRender = offlineRender;
+      nvidiaEncoder.saveFolderFullPath = saveFolderFullPath;
+      nvidiaEncoder.customFileName = customFileName;
+    }
 
     private void GPUEncoderSettings()
     {
@@ -400,6 +653,7 @@ namespace Evereal.VideoCapture
       gpuEncoder.captureSource = captureSource;
       gpuEncoder.captureType = captureType;
       gpuEncoder.captureMode = captureMode;
+      //gpuEncoder.encoderPreset = encoderPreset;
       gpuEncoder.resolutionPreset = resolutionPreset;
       gpuEncoder.frameWidth = frameWidth;
       gpuEncoder.frameHeight = frameHeight;
@@ -418,6 +672,7 @@ namespace Evereal.VideoCapture
       gpuEncoder.inputTexture = inputTexture;
       gpuEncoder.offlineRender = offlineRender;
       gpuEncoder.saveFolderFullPath = saveFolderFullPath;
+      gpuEncoder.customFileName = customFileName;
     }
 
     private void FFmpegEncoderSettings()
@@ -445,6 +700,7 @@ namespace Evereal.VideoCapture
       ffmpegEncoder.offlineRender = offlineRender;
       ffmpegEncoder.ffmpegFullPath = ffmpegFullPath;
       ffmpegEncoder.saveFolderFullPath = saveFolderFullPath;
+      ffmpegEncoder.customFileName = customFileName;
     }
 
     //void GarbageCollectionProcess()
@@ -488,6 +744,16 @@ namespace Evereal.VideoCapture
            "Component hardware encoder not found, please use prefab or follow the document to set up video capture.");
         }
       }
+
+      if (nvidiaEncoder == null)
+      {
+        nvidiaEncoder = GetComponentInChildren<NvidiaEncoder>(true);
+        if (nvidiaEncoder == null)
+        {
+          Debug.LogErrorFormat(LOG_FORMAT,
+           "Component nvidia encoder not found, please use prefab or follow the document to set up video capture.");
+        }
+      }
     }
 
     private void OnEnable()
@@ -501,6 +767,11 @@ namespace Evereal.VideoCapture
         gpuEncoder.gameObject.SetActive(true);
         gpuEncoder.OnComplete += OnEncoderComplete;
       }
+
+      if (nvidiaEncoder != null)
+      {
+        nvidiaEncoder.OnComplete += OnEncoderComplete;
+      }
 #endif
     }
 
@@ -512,6 +783,9 @@ namespace Evereal.VideoCapture
 #if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
       if (gpuEncoder != null)
         gpuEncoder.OnComplete -= OnEncoderComplete;
+
+      if (nvidiaEncoder != null)
+        nvidiaEncoder.OnComplete -= OnEncoderComplete;
 #endif
     }
 

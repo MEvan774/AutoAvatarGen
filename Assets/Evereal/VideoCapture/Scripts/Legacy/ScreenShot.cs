@@ -273,7 +273,7 @@ namespace Evereal.VideoCapture
       ffmpegEncoder.stereoMode = stereoMode;
       ffmpegEncoder.interpupillaryDistance = interpupillaryDistance;
       ffmpegEncoder.antiAliasing = antiAliasing;
-      ffmpegEncoder.ffmpegFullPath = FFmpeg.path;
+      ffmpegEncoder.ffmpegFullPath = FFmpegConfig.path;
       ffmpegEncoder.saveFolderFullPath = saveFolderFullPath;
     }
 

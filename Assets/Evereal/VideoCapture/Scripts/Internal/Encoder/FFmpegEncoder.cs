@@ -104,8 +104,6 @@ namespace Evereal.VideoCapture
     // Callback for error handling
     public event OnErrorEvent OnError = delegate { };
 
-    // Encoding preset for ffmpeg
-    public EncoderPreset encoderPreset { get; set; }
     // Vertical flip encode video
     private bool verticalFlip;
     // Horizontal flip encode video
@@ -271,12 +269,22 @@ namespace Evereal.VideoCapture
 
       if (captureType == CaptureType.VOD)
       {
-        videoSavePath = string.Format("{0}video_{1}x{2}_{3}_{4}.{5}",
-          saveFolderFullPath,
-          outputFrameWidth, outputFrameHeight,
-          Utils.GetTimeString(),
-          Utils.GetRandomString(5),
-          Utils.GetEncoderPresetExt(encoderPreset));
+        if (!captureAudio && customFileName != null)
+        {
+          videoSavePath = string.Format("{0}{1}.{2}",
+            saveFolderFullPath,
+            customFileName,
+            Utils.GetEncoderPresetExt(encoderPreset));
+        }
+        else
+        {
+          videoSavePath = string.Format("{0}video_{1}x{2}_{3}_{4}.{5}",
+            saveFolderFullPath,
+            outputFrameWidth, outputFrameHeight,
+            Utils.GetTimeString(),
+            Utils.GetRandomString(5),
+            Utils.GetEncoderPresetExt(encoderPreset));
+        }
       }
 
       // Reset tempory variables.
@@ -313,7 +321,7 @@ namespace Evereal.VideoCapture
           projectionType,
           stereoMode,
           videoSavePath,
-          FFmpeg.path);
+          FFmpegConfig.path);
 
         if (nativeAPI == IntPtr.Zero)
         {
@@ -336,7 +344,7 @@ namespace Evereal.VideoCapture
           projectionType,
           stereoMode,
           videoSlicePath,
-          FFmpeg.path);
+          FFmpegConfig.path);
 
         if (nativeAPI == IntPtr.Zero)
         {
@@ -483,7 +491,7 @@ namespace Evereal.VideoCapture
         projectionType,
         stereoMode,
         screenshotSavePath,
-        FFmpeg.path);
+        FFmpegConfig.path);
       if (nativeAPI == IntPtr.Zero)
       {
         OnError(EncoderErrorCode.SCREENSHOT_FAILED_TO_START, null);
