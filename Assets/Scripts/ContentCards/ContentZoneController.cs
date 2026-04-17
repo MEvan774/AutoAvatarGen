@@ -2,6 +2,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using MugsTech.Style;
 
 /// <summary>
 /// Manages content card timeline playback in the content zone.
@@ -22,6 +23,11 @@ public class ContentZoneController : MonoBehaviour
     [Tooltip("Reference to the existing media display — hidden while a card is active. If left empty, auto-finds from MediaPresentationSystem.")]
     public RawImage mediaDisplay;
 
+    [Header("Character Awareness")]
+    [Tooltip("Reference to MediaPresentationSystem for reading character position. " +
+             "Auto-found in Awake if left empty.")]
+    public MediaPresentationSystem mediaPresentationSystem;
+
     // Timeline state
     private List<ContentCardEvent> timeline;
     private int lastTriggeredIndex = -1;
@@ -38,15 +44,20 @@ public class ContentZoneController : MonoBehaviour
 
     void Awake()
     {
+        // Auto-wire MediaPresentationSystem if not set
+        if (mediaPresentationSystem == null)
+        {
+            mediaPresentationSystem = GetComponent<MediaPresentationSystem>();
+            if (mediaPresentationSystem == null)
+                mediaPresentationSystem = FindObjectOfType<MediaPresentationSystem>();
+        }
+
         // Auto-wire mediaDisplay from MediaPresentationSystem if not set
         if (mediaDisplay == null)
         {
-            MediaPresentationSystem mps = GetComponent<MediaPresentationSystem>();
-            if (mps == null)
-                mps = FindObjectOfType<MediaPresentationSystem>();
-            if (mps != null && mps.mediaDisplay != null)
+            if (mediaPresentationSystem != null && mediaPresentationSystem.mediaDisplay != null)
             {
-                mediaDisplay = mps.mediaDisplay;
+                mediaDisplay = mediaPresentationSystem.mediaDisplay;
                 Debug.Log("ContentZoneController: auto-wired mediaDisplay from MediaPresentationSystem");
             }
         }
@@ -202,6 +213,11 @@ public class ContentZoneController : MonoBehaviour
         }
 
         activeCard.Initialize(evt, cardAssets);
+
+        // Compute and apply entry direction based on the active style preset
+        // (falls back to FromBottom if no preset is active).
+        activeCard.SetEntryDirection(ComputeEntryDirection());
+
         activeCard.Show();
 
         // Start duration timer
@@ -270,5 +286,38 @@ public class ContentZoneController : MonoBehaviour
     {
         isPaused = false;
         Debug.Log("ContentZoneController: Timeline resumed");
+    }
+
+    /// <summary>
+    /// Decide which side the card should slide in from based on the active
+    /// style preset and the character's current position.
+    /// </summary>
+    private EntryDirection ComputeEntryDirection()
+    {
+        var preset = StyleManager.Instance != null ? StyleManager.Instance.ActivePreset : null;
+        if (preset == null) return EntryDirection.FromBottom;
+
+        switch (preset.entryDirection)
+        {
+            case EntryDirectionMode.FromLeft:    return EntryDirection.FromLeft;
+            case EntryDirectionMode.FromRight:   return EntryDirection.FromRight;
+            case EntryDirectionMode.FromBottom:  return EntryDirection.FromBottom;
+            case EntryDirectionMode.FromTop:     return EntryDirection.FromTop;
+
+            case EntryDirectionMode.CharacterFacing:
+                if (mediaPresentationSystem != null)
+                {
+                    switch (mediaPresentationSystem.CurrentPosition)
+                    {
+                        case CharacterPosition.Left:  return EntryDirection.FromLeft;
+                        case CharacterPosition.Right: return EntryDirection.FromRight;
+                        default:                      return EntryDirection.FromBottom;
+                    }
+                }
+                return EntryDirection.FromBottom;
+
+            default:
+                return EntryDirection.FromBottom;
+        }
     }
 }

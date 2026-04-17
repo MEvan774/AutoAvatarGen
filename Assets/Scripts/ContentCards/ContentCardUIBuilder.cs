@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using MugsTech.Style;
 
 /// <summary>
 /// Static helper for building content card UI elements consistently.
@@ -8,14 +9,41 @@ using TMPro;
 /// </summary>
 public static class ContentCardUIBuilder
 {
-    // Brand colors
+    // Brand / static colors (don't change based on background)
     public static readonly Color BackgroundColor = new Color(15f / 255f, 15f / 255f, 20f / 255f, 0.85f);
     public static readonly Color AccentColor = new Color(0xE8 / 255f, 0x5D / 255f, 0x4A / 255f, 1f);
     public static readonly Color AccentColor40 = new Color(0xE8 / 255f, 0x5D / 255f, 0x4A / 255f, 0.4f);
-    public static readonly Color TextPrimary = Color.white;
-    public static readonly Color TextSecondary = new Color(1f, 1f, 1f, 0.7f);
-    public static readonly Color TextTertiary = new Color(1f, 1f, 1f, 0.6f);
     public static readonly Color PositiveGreen = new Color(0x4C / 255f, 0xAF / 255f, 0x50 / 255f, 1f);
+
+    // Dark text colors for light backgrounds (office-paper look)
+    private static readonly Color DarkPrimary   = new Color(0.12f, 0.12f, 0.14f, 1f);    // ~#1F1F24 charcoal
+    private static readonly Color DarkSecondary = new Color(0.22f, 0.22f, 0.25f, 0.90f); // softer charcoal
+    private static readonly Color DarkTertiary  = new Color(0.34f, 0.34f, 0.38f, 0.85f); // muted attribution grey
+
+    // Light text colors for dark backgrounds (original)
+    private static readonly Color LightPrimary   = Color.white;
+    private static readonly Color LightSecondary = new Color(1f, 1f, 1f, 0.7f);
+    private static readonly Color LightTertiary  = new Color(1f, 1f, 1f, 0.6f);
+
+    /// <summary>
+    /// Primary text color — automatically switches to charcoal on light preset
+    /// backgrounds (luminance > 0.5) and white on dark backgrounds.
+    /// </summary>
+    public static Color TextPrimary => IsActivePresetLight() ? DarkPrimary : LightPrimary;
+    public static Color TextSecondary => IsActivePresetLight() ? DarkSecondary : LightSecondary;
+    public static Color TextTertiary => IsActivePresetLight() ? DarkTertiary : LightTertiary;
+
+    private static bool IsActivePresetLight()
+    {
+        var preset = MugsTech.Style.StyleManager.Instance != null
+            ? MugsTech.Style.StyleManager.Instance.ActivePreset
+            : null;
+        if (preset == null) return false;
+        Color c = preset.cardBackgroundColor;
+        // Perceived luminance (Rec. 601)
+        float lum = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
+        return lum > 0.5f;
+    }
 
     public const float CardPadding = 24f;
 
@@ -32,13 +60,31 @@ public static class ContentCardUIBuilder
         return rt;
     }
 
-    /// <summary>Creates the dark semi-transparent card background filling the parent.</summary>
+    /// <summary>
+    /// Creates the card background filling the parent.
+    /// If a <see cref="StyleManager"/> with an active preset exists, the background
+    /// uses the preset's cream color, corner radius, and opacity. Otherwise it
+    /// falls back to the original dark semi-transparent panel.
+    /// </summary>
     public static Image CreateBackground(RectTransform parent)
     {
         RectTransform rt = CreateChild(parent, "Background");
         Image img = rt.gameObject.AddComponent<Image>();
-        img.color = BackgroundColor;
         img.raycastTarget = false;
+
+        ChannelStylePreset preset = StyleManager.Instance != null ? StyleManager.Instance.ActivePreset : null;
+        if (preset != null)
+        {
+            img.sprite = StyleSpriteFactory.GetRoundedRect(Mathf.RoundToInt(preset.cornerRadiusPx));
+            img.type = Image.Type.Sliced;
+            Color c = preset.cardBackgroundColor;
+            c.a = preset.opacity;
+            img.color = c;
+        }
+        else
+        {
+            img.color = BackgroundColor;
+        }
         return img;
     }
 

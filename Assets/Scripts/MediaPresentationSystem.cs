@@ -91,6 +91,12 @@ public class MediaPresentationSystem : MonoBehaviour
     private int lastTriggeredPositionMarker = -1;
     private CharacterPosition currentPosition = CharacterPosition.Center;
 
+    /// <summary>
+    /// Read-only access to the character's current position. Used by
+    /// ContentZoneController to compute character-aware card entry directions.
+    /// </summary>
+    public CharacterPosition CurrentPosition => currentPosition;
+
     // --- New: zoom tracking ---
     private List<ZoomMarkerData> zoomMarkers;
     private int lastTriggeredZoomMarker = -1;

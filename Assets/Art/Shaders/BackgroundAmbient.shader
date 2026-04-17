@@ -1,77 +1,159 @@
+// ============================================================================
+// BackgroundAmbient.shader — built-in RP procedural background for MugsTech.
+//
+// Matches the "Calm / Neutral" reference image: a soft periwinkle/lavender
+// radial gradient with a drifting bright center-of-mass and 5 low-opacity
+// sine-based ribbons that sweep across the frame. No noise functions, no
+// texture samples — everything is smooth gradients and sinusoids so the
+// result is clean, graphic, and GPU-cheap (< 0.5 ms target).
+//
+// Mood states are driven entirely by property lerps from C# (see
+// BackgroundMoodController.cs). The shader itself is mood-agnostic.
+// ============================================================================
 Shader "Custom/BackgroundAmbient"
 {
     Properties
     {
-        _ColorA ("Color A (Dark)", Color) = (0.08, 0.08, 0.25, 1)
-        _ColorB ("Color B (Mid)", Color) = (0.15, 0.1, 0.4, 1)
-        _ColorC ("Color C (Accent)", Color) = (0.3, 0.2, 0.6, 1)
-        _WaveSpeed ("Wave Speed", Float) = 0.08
-        _WaveScale ("Wave Scale", Float) = 1.5
-        _GlowIntensity ("Glow Intensity", Float) = 0.6
-        _GlowX ("Glow Center X", Float) = 0.5
-        _GlowY ("Glow Center Y", Float) = 0.5
-        _Time2 ("Time Override", Float) = 0
+        [Header(Gradient)]
+        _ColorCool      ("Cool Color (top-left)",       Color)            = (0.784, 0.831, 0.941, 1)   // #C8D4F0
+        _ColorWarm      ("Warm Color (bottom-right)",   Color)            = (0.831, 0.784, 0.910, 1)   // #D4C8E8
+        _CenterBrightness ("Center Brightness",         Range(0.8, 1.0))  = 0.97
+        _CenterOffset   ("Center Position",             Vector)           = (0.55, 0.55, 0, 0)
+
+        [Header(Ribbons)]
+        _RibbonTint     ("Ribbon Tint (xyz=color, w=base opacity)", Color) = (1, 1, 1, 0.06)
+        _RibbonOpacity  ("Ribbon Opacity Multiplier",   Range(0, 2))      = 1.0
+        _RibbonScale    ("Ribbon Scale",                Range(0.5, 3.0))  = 1.0
+        _RibbonSpeed    ("Animation Speed",             Range(0, 3))      = 1.0
+
+        [Header(Animation)]
+        _DriftSpeed     ("Gradient Drift Speed",        Range(0, 0.2))    = 0.08
+        _DriftAmount    ("Gradient Drift Amount",       Range(0, 0.1))    = 0.03
     }
 
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Background" }
-        LOD 100
+        // Background queue renders before geometry. ZTest Always + ZWrite Off
+        // keeps this fullscreen and out of the depth buffer.
+        Tags
+        {
+            "RenderType"       = "Opaque"
+            "Queue"            = "Background"
+            "IgnoreProjector"  = "True"
+        }
 
         Pass
         {
+            Name "BackgroundAmbient"
+            ZWrite Off
+            ZTest Always
+            Cull Off
+
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
             #include "UnityCG.cginc"
 
             struct appdata { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
-            struct v2f    { float2 uv : TEXCOORD0; float4 vertex : SV_POSITION; };
+            struct v2f     { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; };
 
-            float4 _ColorA, _ColorB, _ColorC;
-            float _WaveSpeed, _WaveScale, _GlowIntensity, _GlowX, _GlowY;
+            float4 _ColorCool;
+            float4 _ColorWarm;
+            float  _CenterBrightness;
+            float4 _CenterOffset;
+            float4 _RibbonTint;
+            float  _RibbonOpacity;
+            float  _RibbonScale;
+            float  _RibbonSpeed;
+            float  _DriftSpeed;
+            float  _DriftAmount;
 
-            v2f vert(appdata v) { v2f o; o.vertex = UnityObjectToClipPos(v.vertex); o.uv = v.uv; return o; }
-
-            // Smooth noise
-            float hash(float2 p) { return frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
-            float noise(float2 p)
+            v2f vert(appdata v)
             {
-                float2 i = floor(p); float2 f = frac(p);
-                float2 u = f * f * (3.0 - 2.0 * f);
-                return lerp(lerp(hash(i), hash(i + float2(1,0)), u.x),
-                            lerp(hash(i + float2(0,1)), hash(i + float2(1,1)), u.x), u.y);
+                v2f o;
+                o.vertex = UnityObjectToClipPos(v.vertex);
+                o.uv = v.uv;
+                return o;
+            }
+
+            // Sine-based ribbon: evaluate vertical distance from a curve
+            //     y(x) = amplitude * sin(frequency * x + phase) + offset
+            // and return a soft band (0..1) around that curve with `feather` falloff.
+            float Ribbon(float2 uv, float amplitude, float frequency, float phase,
+                         float offset, float feather)
+            {
+                float curveY = amplitude * sin(frequency * uv.x + phase) + offset;
+                float dist = abs(uv.y - curveY);
+                // smoothstep(0, feather, dist) → 0 at the curve, 1 at the edge.
+                // Invert to get a band with soft falloff.
+                return 1.0 - smoothstep(0.0, feather, dist);
             }
 
             fixed4 frag(v2f i) : SV_Target
             {
                 float2 uv = i.uv;
-                float t = _Time.y * _WaveSpeed;
+                float t   = _Time.y;
 
-                // Flowing wave layers
-                float wave1 = noise(uv * _WaveScale + float2(t * 0.3, t * 0.1));
-                float wave2 = noise(uv * _WaveScale * 1.8 + float2(-t * 0.2, t * 0.15) + 3.7);
-                float wave3 = noise(uv * _WaveScale * 0.7 + float2(t * 0.1, -t * 0.08) + 7.3);
+                // ---- Base gradient ----
+                // Drifting center-of-mass — a Lissajous path at ±drift amount, slow speeds.
+                float2 centerDrift = float2(
+                    _DriftAmount        * sin(t * _DriftSpeed),
+                    _DriftAmount * 0.67 * sin(t * _DriftSpeed * 0.625)
+                );
+                float2 center = _CenterOffset.xy + centerDrift;
 
-                float blend = wave1 * 0.5 + wave2 * 0.3 + wave3 * 0.2;
+                // Diagonal warm/cool axis from top-left (cool) → bottom-right (warm).
+                // `coolWarmT` is 0 at top-left, 1 at bottom-right.
+                float coolWarmT = saturate(0.5 + 0.5 * (uv.x - (1.0 - uv.y)));
+                float3 gradient = lerp(_ColorCool.rgb, _ColorWarm.rgb, coolWarmT);
 
-                // Base gradient
-                float3 col = lerp(_ColorA.rgb, _ColorB.rgb, blend);
-                col = lerp(col, _ColorC.rgb, wave2 * 0.5);
+                // Near-white luminous core at the drifting center.
+                float distToCenter = length(uv - center);
+                float centerGlow = 1.0 - smoothstep(0.0, 0.7, distToCenter);
+                float3 nearWhite = float3(1, 1, 1) * _CenterBrightness;
+                // Mix in the white toward the center (up to 55%).
+                float3 col = lerp(gradient, nearWhite, centerGlow * 0.55);
 
-                // Central glow (the bright blue-purple core in your image)
-                float2 glowCenter = float2(_GlowX, _GlowY);
-                float dist = length(uv - glowCenter);
-                float glow = exp(-dist * dist * 3.5) * _GlowIntensity;
-                col += _ColorC.rgb * glow * 0.8;
+                // ---- Ribbons ----
+                // Frequencies near PI = half a sine period across the full frame width.
+                // Each ribbon animates phase at a unique speed so they never sync.
+                // Back group (slower, thinner):
+                float r1 = Ribbon(uv, 0.08, 2.6 * _RibbonScale,
+                                  0.3 + t * 0.020 * _RibbonSpeed, 0.88, 0.10); // upper-left sweep
+                float r2 = Ribbon(uv, 0.07, 2.2 * _RibbonScale,
+                                  1.7 + t * 0.025 * _RibbonSpeed, 0.78, 0.11); // upper-center diagonal
+                float r3 = Ribbon(uv, 0.10, 1.8 * _RibbonScale,
+                                  2.4 + t * 0.018 * _RibbonSpeed, 0.35, 0.12); // bottom-left curve
 
-                // Subtle vignette
-                float vignette = 1.0 - smoothstep(0.4, 1.0, length(uv - 0.5) * 1.4);
-                col *= vignette;
+                // Front group (~1.3× faster, slightly bolder):
+                float r4 = Ribbon(uv, 0.13, 2.0 * _RibbonScale,
+                                  0.9 + t * 0.040 * _RibbonSpeed, 0.28, 0.14); // lower-right sweep
+                float r5 = Ribbon(uv, 0.18, 1.5 * _RibbonScale,
+                                  4.1 + t * 0.050 * _RibbonSpeed, 0.10, 0.16); // bottom-right bulge
 
+                // Slightly cooler / warmer tints so the ribbons read as translucent fabric
+                // rather than flat white overlays.
+                float3 tintCool  = saturate(_ColorCool.rgb * 0.85 + 0.18);
+                float3 tintWhite = float3(1, 1, 1);
+                float3 tintWarm  = saturate(_ColorWarm.rgb * 0.85 + 0.15);
+
+                // Each ribbon's "base" opacity below is multiplied by the global
+                // _RibbonOpacity so moods like Minimal-Focus can fade them out.
+                col += tintCool  * r1 * 0.05 * _RibbonOpacity;
+                col += tintWhite * r2 * 0.04 * _RibbonOpacity;
+                col += tintCool  * r3 * 0.05 * _RibbonOpacity;
+                col += tintWarm  * r4 * 0.06 * _RibbonOpacity;
+                col += tintWarm  * r5 * 0.08 * _RibbonOpacity;
+
+                // Optional global tint modulation via _RibbonTint (alpha is extra scale).
+                col += _RibbonTint.rgb * (_RibbonTint.a - 0.06) * _RibbonOpacity;
+
+                col = saturate(col);
                 return fixed4(col, 1.0);
             }
             ENDCG
         }
     }
+
+    FallBack Off
 }
