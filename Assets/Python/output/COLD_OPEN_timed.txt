@@ -1,0 +1,3 @@
+{Position:Center,T=0.000} {Neutral,T=0.569} [deadpan,T=0.569] Google's AI answers are wrong tens of millions of times per hour. [pause,T=4.714] They know this. They shipped it anyway. [sips coffee,T=6.757] And then they made the regular search results worse so the AI looks better by comparison.
+ 
+{Concerned,T=13.688} Today we're breaking down how Google search went from the most reliable tool on the internet to something that recommends glue on pizza — and what's actually going on behind the decision. Let's get into it.

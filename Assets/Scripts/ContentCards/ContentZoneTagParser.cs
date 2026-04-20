@@ -1,37 +1,43 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using UnityEngine;
 
 /// <summary>
 /// Static parser that extracts content card tags from a video script and builds
-/// a timeline of ContentCardEvents with character-proportional timing.
-/// Follows the same parsing pattern as MediaPresentationSystem's marker parsers.
+/// a timeline of ContentCardEvents. Prefers exact T=X.XXX timestamps baked in
+/// by the ElevenLabs pre-processor; falls back to character-proportional timing
+/// for tags without a T= value.
 /// </summary>
 public static class ContentZoneTagParser
 {
-    // Combined pattern that matches ALL content card tags — used to compute totalCleanChars
+    // Combined pattern that matches ALL content card tags (both legacy and
+    // pre-processed forms) — used to compute totalCleanChars and to strip.
+    // Pre-processed form has ",T=X.XXX,D=Y"; legacy form has just ",Y".
     private static readonly Regex StripAllRegex = new Regex(
-        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*,\d+(?:\.\d+)?\}" +
-        @"|\{(?:Logo|BRoll):[^,}]+,\d+(?:\.\d+)?\}");
+        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}" +
+        @"|\{(?:Logo|BRoll):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}");
 
-    // Individual extraction patterns
+    // Individual extraction patterns. Each accepts an optional ",T=X.XXX"
+    // between the content fields and the duration, and an optional "D=" prefix
+    // on the duration itself.
     private static readonly Regex HeadlineRegex = new Regex(
-        @"\{Headline:""([^""]+)"",""([^""]+)"",(\d+(?:\.\d+)?)\}");
+        @"\{Headline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
     private static readonly Regex ExcerptRegex = new Regex(
-        @"\{Excerpt:""([^""]+)"",""([^""]+)"",""([^""]+)"",(\d+(?:\.\d+)?)\}");
+        @"\{Excerpt:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
     private static readonly Regex QuoteRegex = new Regex(
-        @"\{Quote:""([^""]+)"",""([^""]+)"",""([^""]+)"",(\d+(?:\.\d+)?)\}");
+        @"\{Quote:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
     private static readonly Regex StatRegex = new Regex(
-        @"\{Stat:""([^""]+)"",""([^""]+)"",""([^""]+)"",(\d+(?:\.\d+)?)\}");
+        @"\{Stat:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
     private static readonly Regex LogoRegex = new Regex(
-        @"\{Logo:([^,}]+),(\d+(?:\.\d+)?)\}");
+        @"\{Logo:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
     private static readonly Regex BRollRegex = new Regex(
-        @"\{BRoll:([^,}]+),(\d+(?:\.\d+)?)\}");
+        @"\{BRoll:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
     /// <summary>
     /// Parses all content card tags from the script, builds timed events, and returns
@@ -63,26 +69,37 @@ public static class ContentZoneTagParser
         return (cleanScript, events);
     }
 
-    private static float ComputeTriggerTime(string script, int matchIndex, float audioDuration, int totalCleanChars)
+    // Returns T=X.XXX from the given group if present/parseable; otherwise
+    // falls back to character-proportional timing.
+    private static float ResolveTriggerTime(string script, int matchIndex, Group tsGroup,
+                                            float audioDuration, int totalCleanChars)
     {
+        if (tsGroup != null && tsGroup.Success &&
+            float.TryParse(tsGroup.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out float t))
+            return t;
+
         string textBefore = script.Substring(0, matchIndex);
         string cleanBefore = StripAllRegex.Replace(textBefore, "");
-        int charsBefore = cleanBefore.Length;
-        return (charsBefore / (float)totalCleanChars) * audioDuration;
+        return (cleanBefore.Length / (float)totalCleanChars) * audioDuration;
+    }
+
+    private static float ParseFloat(string s)
+    {
+        return float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 
     private static void ExtractHeadlines(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
     {
         foreach (Match match in HeadlineRegex.Matches(script))
         {
-            float time = ComputeTriggerTime(script, match.Index, audioDuration, totalCleanChars);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[3], audioDuration, totalCleanChars);
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
                 cardType = ContentCardType.Headline,
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
-                duration = float.Parse(match.Groups[3].Value)
+                duration = ParseFloat(match.Groups[4].Value)
             });
             Debug.Log($"  Headline at {time:F2}s: \"{match.Groups[1].Value}\"");
         }
@@ -92,7 +109,7 @@ public static class ContentZoneTagParser
     {
         foreach (Match match in ExcerptRegex.Matches(script))
         {
-            float time = ComputeTriggerTime(script, match.Index, audioDuration, totalCleanChars);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[4], audioDuration, totalCleanChars);
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
@@ -100,7 +117,7 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
-                duration = float.Parse(match.Groups[4].Value)
+                duration = ParseFloat(match.Groups[5].Value)
             });
             Debug.Log($"  Excerpt at {time:F2}s: highlight=\"{match.Groups[2].Value}\"");
         }
@@ -110,7 +127,7 @@ public static class ContentZoneTagParser
     {
         foreach (Match match in QuoteRegex.Matches(script))
         {
-            float time = ComputeTriggerTime(script, match.Index, audioDuration, totalCleanChars);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[4], audioDuration, totalCleanChars);
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
@@ -118,7 +135,7 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
-                duration = float.Parse(match.Groups[4].Value)
+                duration = ParseFloat(match.Groups[5].Value)
             });
             Debug.Log($"  Quote at {time:F2}s: by {match.Groups[2].Value}");
         }
@@ -128,7 +145,7 @@ public static class ContentZoneTagParser
     {
         foreach (Match match in StatRegex.Matches(script))
         {
-            float time = ComputeTriggerTime(script, match.Index, audioDuration, totalCleanChars);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[4], audioDuration, totalCleanChars);
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
@@ -136,7 +153,7 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
-                duration = float.Parse(match.Groups[4].Value)
+                duration = ParseFloat(match.Groups[5].Value)
             });
             Debug.Log($"  Stat at {time:F2}s: {match.Groups[1].Value}");
         }
@@ -146,13 +163,13 @@ public static class ContentZoneTagParser
     {
         foreach (Match match in LogoRegex.Matches(script))
         {
-            float time = ComputeTriggerTime(script, match.Index, audioDuration, totalCleanChars);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
                 cardType = ContentCardType.Logo,
                 primaryText = match.Groups[1].Value.Trim(),
-                duration = float.Parse(match.Groups[2].Value)
+                duration = ParseFloat(match.Groups[3].Value)
             });
             Debug.Log($"  Logo at {time:F2}s: {match.Groups[1].Value.Trim()}");
         }
@@ -162,13 +179,13 @@ public static class ContentZoneTagParser
     {
         foreach (Match match in BRollRegex.Matches(script))
         {
-            float time = ComputeTriggerTime(script, match.Index, audioDuration, totalCleanChars);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
                 cardType = ContentCardType.BRoll,
                 primaryText = match.Groups[1].Value.Trim(),
-                duration = float.Parse(match.Groups[2].Value)
+                duration = ParseFloat(match.Groups[3].Value)
             });
             Debug.Log($"  BRoll at {time:F2}s: {match.Groups[1].Value.Trim()}");
         }

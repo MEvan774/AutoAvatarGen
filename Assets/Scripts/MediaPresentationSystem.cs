@@ -166,6 +166,10 @@ public class MediaPresentationSystem : MonoBehaviour
         string cleanScript = mediaResult.Item1;
         mediaMarkers = mediaResult.Item2;
 
+        // Strip stage directions like [pause,T=4.7] / [sips coffee,T=6.8] —
+        // baked in by the ElevenLabs pre-processor as narrative cues only.
+        cleanScript = Regex.Replace(cleanScript, @"\[[^\]]*\]", "");
+
         // Forward to avatar system for emotion processing (unchanged)
         avatarSystem.ProcessWithExistingAudio(cleanScript, audio);
 
@@ -371,7 +375,8 @@ public class MediaPresentationSystem : MonoBehaviour
 
     // -----------------------------------------------------------------------
     // Parse Zoom Markers
-    // Format: {Zoom:In}, {Zoom:Out}, {Zoom:Reset}
+    // Format: {Zoom:In}, {Zoom:Out}, {Zoom:Reset}  (optional ,T=X.XXX appended
+    // by the ElevenLabs pre-processor — used directly when present)
     // -----------------------------------------------------------------------
 
     (string, List<ZoomMarkerData>) ParseZoomMarkers(string script, float audioDuration)
@@ -379,19 +384,21 @@ public class MediaPresentationSystem : MonoBehaviour
         List<ZoomMarkerData> markerList = new List<ZoomMarkerData>();
         string clean = script;
 
-        Regex regex = new Regex(@"\{Zoom:(\w+)\}");
+        Regex regex = new Regex(@"\{Zoom:(\w+)(?:,T=(\d+(?:\.\d+)?))?\}");
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
-        int totalChars = scriptWithoutMarkers.Length;
+        int totalChars = Mathf.Max(1, scriptWithoutMarkers.Length);
 
         foreach (Match match in matches)
         {
-            string textBeforeMarker = script.Substring(0, match.Index);
-            string cleanTextBefore = regex.Replace(textBeforeMarker, "");
-            int charsBeforeMarker = cleanTextBefore.Length;
-
-            float markerTime = (charsBeforeMarker / (float)Mathf.Max(1, totalChars)) * audioDuration;
+            float markerTime = TryParseTimestamp(match.Groups[2]);
+            if (markerTime < 0f)
+            {
+                string textBeforeMarker = script.Substring(0, match.Index);
+                string cleanTextBefore = regex.Replace(textBeforeMarker, "");
+                markerTime = (cleanTextBefore.Length / (float)totalChars) * audioDuration;
+            }
 
             string zoomStr = match.Groups[1].Value.ToLower();
             ZoomType zoomType = ZoomType.Reset;
@@ -616,6 +623,7 @@ public class MediaPresentationSystem : MonoBehaviour
     // -----------------------------------------------------------------------
     // Parse Position Markers
     // Format: {Position:Left}, {Position:Right,Cut}, {Position:Center,Smooth}
+    //         (optional ,T=X.XXX appended by the ElevenLabs pre-processor)
     // -----------------------------------------------------------------------
 
     (string, List<PositionMarkerData>) ParsePositionMarkers(string script, float audioDuration)
@@ -623,19 +631,21 @@ public class MediaPresentationSystem : MonoBehaviour
         List<PositionMarkerData> markerList = new List<PositionMarkerData>();
         string clean = script;
 
-        Regex regex = new Regex(@"\{Position:(\w+)(?:,(\w+))?\}");
+        Regex regex = new Regex(@"\{Position:(\w+)(?:,(Cut|Smooth))?(?:,T=(\d+(?:\.\d+)?))?\}");
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
-        int totalChars = scriptWithoutMarkers.Length;
+        int totalChars = Mathf.Max(1, scriptWithoutMarkers.Length);
 
         foreach (Match match in matches)
         {
-            string textBeforeMarker = script.Substring(0, match.Index);
-            string cleanTextBefore = regex.Replace(textBeforeMarker, "");
-            int charsBeforeMarker = cleanTextBefore.Length;
-
-            float markerTime = (charsBeforeMarker / (float)Mathf.Max(1, totalChars)) * audioDuration;
+            float markerTime = TryParseTimestamp(match.Groups[3]);
+            if (markerTime < 0f)
+            {
+                string textBeforeMarker = script.Substring(0, match.Index);
+                string cleanTextBefore = regex.Replace(textBeforeMarker, "");
+                markerTime = (cleanTextBefore.Length / (float)totalChars) * audioDuration;
+            }
 
             string posStr = match.Groups[1].Value;
             CharacterPosition pos = CharacterPosition.Center;
@@ -675,7 +685,9 @@ public class MediaPresentationSystem : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
-    // Parse Media Markers (unchanged)
+    // Parse Media Markers
+    // Format: {Image:name}, {Image:name,3}, or the pre-processed
+    //         {Image:name,T=X.XXX,D=Y}. Also handles {Video:...}.
     // -----------------------------------------------------------------------
 
     (string, List<MediaMarkerData>) ParseMediaMarkers(string script, float audioDuration)
@@ -683,23 +695,35 @@ public class MediaPresentationSystem : MonoBehaviour
         List<MediaMarkerData> markerList = new List<MediaMarkerData>();
         string clean = script;
 
-        Regex regex = new Regex(@"\{(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?))?\}");
+        // Groups: 1=Image|Video, 2=name, 3=T (optional), 4=D= duration (optional),
+        //         5=bare duration (optional, legacy pre-T= format)
+        Regex regex = new Regex(
+            @"\{(Image|Video):([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,D=(\d+(?:\.\d+)?))?(?:,(\d+(?:\.\d+)?))?\}");
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
-        int totalChars = scriptWithoutMarkers.Length;
+        int totalChars = Mathf.Max(1, scriptWithoutMarkers.Length);
 
         foreach (Match match in matches)
         {
-            string textBeforeMarker = script.Substring(0, match.Index);
-            string cleanTextBefore = regex.Replace(textBeforeMarker, "");
-            int charsBeforeMarker = cleanTextBefore.Length;
-
-            float markerTime = (charsBeforeMarker / (float)totalChars) * audioDuration;
+            float markerTime = TryParseTimestamp(match.Groups[3]);
+            if (markerTime < 0f)
+            {
+                string textBeforeMarker = script.Substring(0, match.Index);
+                string cleanTextBefore = regex.Replace(textBeforeMarker, "");
+                markerTime = (cleanTextBefore.Length / (float)totalChars) * audioDuration;
+            }
 
             MediaType type = match.Groups[1].Value == "Image" ? MediaType.IMAGE : MediaType.VIDEO;
             string mediaName = match.Groups[2].Value.Trim();
-            float duration = match.Groups[3].Success ? float.Parse(match.Groups[3].Value) : (type == MediaType.IMAGE ? 3f : 0f);
+
+            float duration;
+            if (match.Groups[4].Success)
+                duration = float.Parse(match.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture);
+            else if (match.Groups[5].Success)
+                duration = float.Parse(match.Groups[5].Value, System.Globalization.CultureInfo.InvariantCulture);
+            else
+                duration = type == MediaType.IMAGE ? 3f : 0f;
 
             markerList.Add(new MediaMarkerData
             {
@@ -715,6 +739,22 @@ public class MediaPresentationSystem : MonoBehaviour
         }
 
         return (clean, markerList);
+    }
+
+    // -----------------------------------------------------------------------
+    // Shared helper — parse a T=X.XXX capture. Returns -1 if the group is
+    // empty or the value can't be parsed.
+    // -----------------------------------------------------------------------
+
+    static float TryParseTimestamp(Group group)
+    {
+        if (group == null || !group.Success) return -1f;
+        if (float.TryParse(group.Value,
+                           System.Globalization.NumberStyles.Float,
+                           System.Globalization.CultureInfo.InvariantCulture,
+                           out float t))
+            return t;
+        return -1f;
     }
 }
 

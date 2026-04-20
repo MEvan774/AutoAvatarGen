@@ -138,8 +138,11 @@ public class CrossPlatformRecorder : MonoBehaviour
             return;
         }
 
-        // Set a unique timestamped filename for this take.
-        string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        // Set a unique timestamped filename for this take. Format:
+        //   <videoTitle>_<yyyy-MM-dd_HH-mm-ss>.mp4
+        // The prefix is the ElevenLabs segment slug (set by ScriptFileReader
+        // on auto-load) and stands in as the video title.
+        string stamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
         string fileName = string.IsNullOrEmpty(fileNamePrefix)
             ? stamp
             : $"{fileNamePrefix}_{stamp}";

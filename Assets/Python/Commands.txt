@@ -1,0 +1,11 @@
+# Process whole script (all sections)
+python elevenlabs_tts_processor.py --script script/Script.txt
+
+# Test it first without spending API credits
+python elevenlabs_tts_processor.py --script script/Script.txt --dry_run
+
+# Re-process just one section (e.g. you rewrote the cold open)
+python elevenlabs_tts_processor.py --script script/Script.txt --segment "COLD OPEN"
+
+
+Ref: C:/Users/Milan/Documents/GitHub/AutoAvatarGen/Assets/Python/output/COLD_OPEN_timed.txt

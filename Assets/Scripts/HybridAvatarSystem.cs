@@ -376,39 +376,50 @@ public class HybridAvatarSystem : MonoBehaviour
         renderer.transform.localScale = initialAvatarScale * ratio;
     }
 
-    // NEW: Calculate time-based markers
+    // Time-based markers. Prefers exact T=X.XXX timestamps baked in by the
+    // ElevenLabs pre-processor; falls back to proportional char-count timing
+    // when no T= is present (scripts that haven't been pre-processed).
     (string, List<TimeMarkerData>) ParseScriptWithTimeMarkers(string script, float audioDuration)
     {
         List<TimeMarkerData> markerList = new List<TimeMarkerData>();
         string clean = script;
 
-        // Find all {Emotion} markers
-        Regex regex = new Regex(@"\{(\w+)\}");
+        // {Emotion} or {Emotion,T=X.XXX}. Position/Zoom/Media markers have a ':'
+        // in the tag, so \w+ won't match them — they're handled elsewhere.
+        Regex regex = new Regex(@"\{(\w+)(?:,T=(\d+(?:\.\d+)?))?\}");
         MatchCollection matches = regex.Matches(script);
 
-        // Count total characters (excluding markers)
         string scriptWithoutMarkers = regex.Replace(script, "");
-        int totalChars = scriptWithoutMarkers.Length;
+        int totalChars = Mathf.Max(1, scriptWithoutMarkers.Length);
 
         foreach (Match match in matches)
         {
-            // Count characters before this marker (excluding previous markers)
-            string textBeforeMarker = script.Substring(0, match.Index);
-            string cleanTextBefore = regex.Replace(textBeforeMarker, "");
-            int charsBeforeMarker = cleanTextBefore.Length;
+            string emotion = match.Groups[1].Value;
 
-            // Calculate proportional time
-            float markerTime = (charsBeforeMarker / (float)totalChars) * audioDuration;
+            float markerTime;
+            if (match.Groups[2].Success &&
+                float.TryParse(match.Groups[2].Value,
+                               System.Globalization.NumberStyles.Float,
+                               System.Globalization.CultureInfo.InvariantCulture,
+                               out float parsed))
+            {
+                markerTime = parsed;
+            }
+            else
+            {
+                string textBeforeMarker = script.Substring(0, match.Index);
+                string cleanTextBefore = regex.Replace(textBeforeMarker, "");
+                markerTime = (cleanTextBefore.Length / (float)totalChars) * audioDuration;
+            }
 
             markerList.Add(new TimeMarkerData
             {
                 triggerTime = markerTime,
-                emotion = match.Groups[1].Value
+                emotion = emotion
             });
 
-            Debug.Log($"Marker '{match.Groups[1].Value}' will trigger at {markerTime:F2}s");
+            Debug.Log($"Marker '{emotion}' will trigger at {markerTime:F2}s");
 
-            // Remove marker from script
             clean = clean.Replace(match.Value, "");
         }
 

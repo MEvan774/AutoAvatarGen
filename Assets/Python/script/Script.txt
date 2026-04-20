@@ -1,0 +1,5 @@
+## COLD OPEN
+ 
+{Position:Center} {Neutral} [deadpan] Google's AI answers are wrong tens of millions of times per hour. [pause] They know this. They shipped it anyway. [sips coffee] And then they made the regular search results worse so the AI looks better by comparison.
+ 
+{Concerned} Today we're breaking down how Google search went from the most reliable tool on the internet to something that recommends glue on pizza — and what's actually going on behind the decision. Let's get into it.

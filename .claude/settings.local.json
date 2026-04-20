@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -nB2 -A30 \"&1116897571\" Assets/Scenes/SampleScene.unity)",
+      "Bash(grep -nB1 -A2 \"1116897572\\\\|m_PrefabAsset.*15\\\\|VideoCapture\" Assets/Scenes/SampleScene.unity)",
+      "Bash(xargs grep *)",
+      "Bash(grep -v \"//\")"
+    ]
+  }
+}
