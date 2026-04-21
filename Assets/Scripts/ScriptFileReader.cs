@@ -10,6 +10,11 @@ public class ScriptFileReader : MonoBehaviour
     public MediaPresentationSystem mediaPresentationSystem;
     public AudioClip correspondingAudio;
 
+    [Tooltip("Optional — assigned automatically when a manifest.json is found. " +
+             "Stitches multiple numbered segments into one seamless clip so " +
+             "reactions fire on each file's own timing.")]
+    public SegmentSequencer segmentSequencer;
+
     [Header("File Settings")]
     public string scriptFileName = "tech_news_script.txt";
 
@@ -20,9 +25,11 @@ public class ScriptFileReader : MonoBehaviour
     public bool useMediaSystem = true;
 
     [Header("Auto-Load From ElevenLabs Output")]
-    [Tooltip("When true, auto-discovers a '<SLUG>_timed.txt' and matching '<SLUG>.mp3' pair " +
-             "in 'Assets/<pythonOutputFolder>' and loads both. The discovered slug is used as " +
-             "the recorded video's title.")]
+    [Tooltip("When true, auto-discovers the ElevenLabs pre-processor output in " +
+             "'Assets/<pythonOutputFolder>'. If a manifest.json is present, all " +
+             "numbered segments are loaded and stitched into one seamless clip. " +
+             "Otherwise a single '<SLUG>_timed.txt' + '<SLUG>.mp3' pair is loaded. " +
+             "The discovered slug is used as the recorded video's title.")]
     public bool autoLoadFromPythonOutput = true;
 
     [Tooltip("Folder (relative to Assets/) that contains the ElevenLabs pre-processor output. " +
@@ -30,7 +37,8 @@ public class ScriptFileReader : MonoBehaviour
     public string pythonOutputFolder = "Python/output";
 
     [Tooltip("Leave empty to load the first '*_timed.txt' found (alphabetically). Otherwise specify " +
-             "a slug like 'COLD_OPEN' to load 'COLD_OPEN_timed.txt' + 'COLD_OPEN.mp3'.")]
+             "a slug like 'COLD_OPEN' to load 'COLD_OPEN_timed.txt' + 'COLD_OPEN.mp3'. " +
+             "When set, forces the single-pair path and bypasses manifest stitching.")]
     public string segmentSlugOverride = "";
 
     // Resolved slug of the segment that was actually loaded — surfaced so the
@@ -39,14 +47,61 @@ public class ScriptFileReader : MonoBehaviour
 
     void Start()
     {
-        if (autoLoadFromPythonOutput && TryResolvePythonPair(out string scriptPath, out string audioPath, out string slug))
+        if (autoLoadFromPythonOutput)
         {
-            StartCoroutine(AutoLoadAndProcess(scriptPath, audioPath, slug));
+            string folder = Path.Combine(Application.dataPath, pythonOutputFolder);
+
+            // Manifest-driven multi-segment path takes precedence unless the
+            // user explicitly overrides the slug (which targets a single pair).
+            if (string.IsNullOrWhiteSpace(segmentSlugOverride) &&
+                File.Exists(Path.Combine(folder, "manifest.json")))
+            {
+                StartCoroutine(AutoLoadFromManifest(folder));
+                return;
+            }
+
+            if (TryResolvePythonPair(out string scriptPath, out string audioPath, out string slug))
+            {
+                StartCoroutine(AutoLoadAndProcess(scriptPath, audioPath, slug));
+                return;
+            }
         }
-        else
+
+        ProcessScript();
+    }
+
+    // -----------------------------------------------------------------------
+    // Manifest path — stitches multiple numbered segments via SegmentSequencer
+    // -----------------------------------------------------------------------
+
+    IEnumerator AutoLoadFromManifest(string folder)
+    {
+        if (segmentSequencer == null)
+            segmentSequencer = gameObject.AddComponent<SegmentSequencer>();
+
+        yield return segmentSequencer.LoadAndBuild(folder);
+
+        if (segmentSequencer.combinedClip == null ||
+            string.IsNullOrEmpty(segmentSequencer.combinedScript))
         {
-            ProcessScript();
+            Debug.LogWarning("[ScriptFileReader] Manifest load failed — falling back to single-pair discovery.");
+            if (TryResolvePythonPair(out string scriptPath, out string audioPath, out string slug))
+                yield return AutoLoadAndProcess(scriptPath, audioPath, slug);
+            else
+                ProcessScript();
+            yield break;
         }
+
+        LoadedSegmentSlug = segmentSequencer.titleSlug;
+        correspondingAudio = segmentSequencer.combinedClip;
+        ApplyVideoTitle(segmentSequencer.titleSlug);
+
+        int count = segmentSequencer.orderedSegments != null
+            ? segmentSequencer.orderedSegments.Count
+            : 0;
+        Debug.Log($"[ScriptFileReader] Auto-loaded {count} stitched segment(s) as '{segmentSequencer.titleSlug}'");
+
+        Dispatch(segmentSequencer.combinedScript, segmentSequencer.combinedClip);
     }
 
     // -----------------------------------------------------------------------

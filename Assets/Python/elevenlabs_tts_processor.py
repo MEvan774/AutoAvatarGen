@@ -2,16 +2,23 @@
 AutoAvatarGen — ElevenLabs TTS Pre-Processor  (v2 — Segmented)
 ===============================================================
 Takes a Script.txt with ## SECTION NAME headings, splits it into segments,
-sends each segment to ElevenLabs separately, and outputs per-segment files:
+sends each segment to ElevenLabs separately, and outputs per-segment files.
+
+When the script has 2+ segments, outputs get a numeric prefix (01_, 02_, …)
+so Unity can sort them into the correct playback order and stitch them
+back-to-back.  A manifest.json is always emitted so Unity knows each
+segment's leading/trailing silence (from word-level ElevenLabs timing)
+and can trim it to produce seamless inter-segment pacing.
 
   output/
-    COLD_OPEN.mp3             ← audio per segment
-    COLD_OPEN_timed.txt       ← script with T= timestamps baked in
-    SETUP.mp3
-    SETUP_timed.txt
+    manifest.json             ← order + speech_start/end per segment
+    01_COLD_OPEN.mp3          ← audio per segment (prefix only if 2+ segments)
+    01_COLD_OPEN_timed.txt    ← script with T= timestamps baked in
+    02_SETUP.mp3
+    02_SETUP_timed.txt
     ...
     word_timestamps/
-      COLD_OPEN_words.json    ← debug: word-level alignment data
+      01_COLD_OPEN_words.json ← debug: word-level alignment data
 
 What gets STRIPPED before TTS (never read aloud):
   - ## SECTION HEADERS
@@ -371,7 +378,9 @@ def process_segment(segment: dict, out_dir: str, api_key: str,
     with open(script_path, 'w', encoding='utf-8') as f: f.write(timed_script)
     with open(words_path,  'w', encoding='utf-8') as f: json.dump(word_ts, f, indent=2)
 
-    duration = word_ts[-1]['end'] if word_ts else 0
+    duration     = word_ts[-1]['end']   if word_ts else 0.0
+    speech_start = word_ts[0]['start']  if word_ts else 0.0
+    speech_end   = word_ts[-1]['end']   if word_ts else 0.0
 
     print(f"\n    Timestamp map:")
     print(f"    {'MARKER':<52} {'TIME':>8}")
@@ -379,16 +388,18 @@ def process_segment(segment: dict, out_dir: str, api_key: str,
     for m in timed_markers:
         print(f"    {m['marker'][:52]:<52} {m['trigger_time']:>7.3f}s")
 
-    print(f"\n    -> {slug}.mp3          ({duration:.1f}s)")
+    print(f"\n    -> {slug}.mp3          ({duration:.1f}s, speech {speech_start:.2f}s–{speech_end:.2f}s)")
     print(f"    -> {slug}_timed.txt")
 
     return {
-        'slug':      slug,
-        'name':      name,
-        'duration':  duration,
-        'audio':     audio_path,
-        'script':    script_path,
-        'n_markers': len(timed_markers),
+        'slug':         slug,
+        'name':         name,
+        'duration':     duration,
+        'speech_start': speech_start,
+        'speech_end':   speech_end,
+        'audio':        audio_path,
+        'script':       script_path,
+        'n_markers':    len(timed_markers),
     }
 
 
@@ -455,6 +466,17 @@ def main():
             print(f"        Available: {available}")
             sys.exit(1)
 
+    # When processing multiple segments, prefix each slug with a zero-padded
+    # order number so Unity can pick them up in the right playback order.
+    # Single-segment runs keep the original slug for backwards compatibility.
+    if len(segments) > 1:
+        width = max(2, len(str(len(segments))))
+        for i, s in enumerate(segments):
+            s['order'] = i + 1
+            s['slug']  = f"{i + 1:0{width}d}_{s['slug']}"
+    else:
+        segments[0]['order'] = 1
+
     # Process
     os.makedirs(args.out_dir, exist_ok=True)
     results = []
@@ -468,7 +490,30 @@ def main():
             config  = VOICE_CONFIG,
             dry_run = args.dry_run,
         )
+        result['order'] = seg.get('order', len(results) + 1)
         results.append(result)
+
+    # Write manifest.json — Unity reads this to know the playback order and
+    # each segment's leading/trailing silence (for seamless stitching).
+    if not args.dry_run:
+        manifest = {
+            "segments": [
+                {
+                    "order":        r['order'],
+                    "slug":         r['slug'],
+                    "name":         r['name'],
+                    "audio_file":   f"{r['slug']}.mp3",
+                    "script_file":  f"{r['slug']}_timed.txt",
+                    "duration":     round(r.get('duration', 0.0),     3),
+                    "speech_start": round(r.get('speech_start', 0.0), 3),
+                    "speech_end":   round(r.get('speech_end', 0.0),   3),
+                }
+                for r in results
+            ]
+        }
+        manifest_path = os.path.join(args.out_dir, 'manifest.json')
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            json.dump(manifest, f, indent=2)
 
     # Summary
     print(f"\n{'=' * 60}")
@@ -480,17 +525,19 @@ def main():
         total_markers = sum(r.get('n_markers', 0) for r in results)
 
         print(f"  DONE — {len(results)} segment(s)")
-        print(f"  {'─'*58}")
-        print(f"  {'SEGMENT':<28} {'DURATION':>10}  {'MARKERS':>8}")
-        print(f"  {'─'*28} {'─'*10}  {'─'*8}")
+        print(f"  {'─'*64}")
+        print(f"  {'#':>2}  {'SEGMENT':<28} {'DURATION':>10}  {'SPEECH':>12}  {'MARKERS':>8}")
+        print(f"  {'─'*2}  {'─'*28} {'─'*10}  {'─'*12}  {'─'*8}")
         for r in results:
-            print(f"  {r['name']:<28} {r.get('duration',0):>9.1f}s"
-                  f"  {r.get('n_markers',0):>8}")
-        print(f"  {'─'*28} {'─'*10}  {'─'*8}")
-        print(f"  {'TOTAL':<28} {total_dur:>9.1f}s  {total_markers:>8}")
-        print(f"\n  Drop into Unity:")
-        print(f"    {args.out_dir}/*.mp3          ->  Assets/Audio/")
-        print(f"    {args.out_dir}/*_timed.txt    ->  Assets/Script/")
+            sp_rng = f"{r.get('speech_start',0):.2f}–{r.get('speech_end',0):.2f}"
+            print(f"  {r.get('order','?'):>2}  {r['name']:<28} {r.get('duration',0):>9.1f}s"
+                  f"  {sp_rng:>12}  {r.get('n_markers',0):>8}")
+        print(f"  {'─'*2}  {'─'*28} {'─'*10}  {'─'*12}  {'─'*8}")
+        print(f"      {'TOTAL':<28} {total_dur:>9.1f}s  {'':>12}  {total_markers:>8}")
+        print(f"\n  -> {os.path.join(args.out_dir, 'manifest.json')}")
+        print(f"\n  Unity picks up segments automatically from {args.out_dir}/")
+        print(f"  (reads manifest.json, stitches audio back-to-back with")
+        print(f"   leading/trailing silence trimmed per word timestamps).")
     print()
 
 

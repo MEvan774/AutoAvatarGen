@@ -1,0 +1,302 @@
+[
+  {
+    "word": "So",
+    "start": 0.0,
+    "end": 0.29
+  },
+  {
+    "word": "here's",
+    "start": 0.406,
+    "end": 0.627
+  },
+  {
+    "word": "what",
+    "start": 0.65,
+    "end": 0.755
+  },
+  {
+    "word": "happened.",
+    "start": 0.789,
+    "end": 1.161
+  },
+  {
+    "word": "An",
+    "start": 1.765,
+    "end": 1.927
+  },
+  {
+    "word": "AI",
+    "start": 2.02,
+    "end": 2.276
+  },
+  {
+    "word": "startup",
+    "start": 2.357,
+    "end": 2.74
+  },
+  {
+    "word": "called",
+    "start": 2.821,
+    "end": 3.1
+  },
+  {
+    "word": "Oumi",
+    "start": 3.216,
+    "end": 3.634
+  },
+  {
+    "word": "ran",
+    "start": 3.808,
+    "end": 4.029
+  },
+  {
+    "word": "Google's",
+    "start": 4.122,
+    "end": 4.609
+  },
+  {
+    "word": "AI",
+    "start": 4.725,
+    "end": 5.004
+  },
+  {
+    "word": "Overviews",
+    "start": 5.097,
+    "end": 5.608
+  },
+  {
+    "word": "through",
+    "start": 5.642,
+    "end": 5.828
+  },
+  {
+    "word": "a",
+    "start": 5.851,
+    "end": 5.875
+  },
+  {
+    "word": "standardized",
+    "start": 5.921,
+    "end": 6.548
+  },
+  {
+    "word": "accuracy",
+    "start": 6.664,
+    "end": 7.163
+  },
+  {
+    "word": "benchmark",
+    "start": 7.233,
+    "end": 7.721
+  },
+  {
+    "word": "\u2014",
+    "start": 7.895,
+    "end": 7.988
+  },
+  {
+    "word": "over",
+    "start": 8.371,
+    "end": 8.603
+  },
+  {
+    "word": "four",
+    "start": 8.684,
+    "end": 9.033
+  },
+  {
+    "word": "thousand",
+    "start": 9.474,
+    "end": 9.996
+  },
+  {
+    "word": "searches,",
+    "start": 10.077,
+    "end": 10.623
+  },
+  {
+    "word": "tested",
+    "start": 10.716,
+    "end": 11.169
+  },
+  {
+    "word": "twice.",
+    "start": 11.262,
+    "end": 11.749
+  },
+  {
+    "word": "Once",
+    "start": 12.353,
+    "end": 12.725
+  },
+  {
+    "word": "when",
+    "start": 12.783,
+    "end": 13.026
+  },
+  {
+    "word": "Google",
+    "start": 13.142,
+    "end": 13.456
+  },
+  {
+    "word": "was",
+    "start": 13.479,
+    "end": 13.572
+  },
+  {
+    "word": "running",
+    "start": 13.642,
+    "end": 13.92
+  },
+  {
+    "word": "Gemini",
+    "start": 14.002,
+    "end": 14.385
+  },
+  {
+    "word": "2,",
+    "start": 14.478,
+    "end": 14.838
+  },
+  {
+    "word": "and",
+    "start": 15.116,
+    "end": 15.453
+  },
+  {
+    "word": "again",
+    "start": 15.546,
+    "end": 15.964
+  },
+  {
+    "word": "after",
+    "start": 16.08,
+    "end": 16.37
+  },
+  {
+    "word": "they",
+    "start": 16.416,
+    "end": 16.533
+  },
+  {
+    "word": "upgraded",
+    "start": 16.614,
+    "end": 17.055
+  },
+  {
+    "word": "to",
+    "start": 17.102,
+    "end": 17.172
+  },
+  {
+    "word": "Gemini",
+    "start": 17.241,
+    "end": 17.59
+  },
+  {
+    "word": "3.rnet",
+    "start": 17.706,
+    "end": 18.588
+  },
+  {
+    "word": "to",
+    "start": 18.832,
+    "end": 18.936
+  },
+  {
+    "word": "something",
+    "start": 19.006,
+    "end": 19.319
+  },
+  {
+    "word": "that",
+    "start": 19.354,
+    "end": 19.459
+  },
+  {
+    "word": "recommends",
+    "start": 19.528,
+    "end": 19.993
+  },
+  {
+    "word": "glue",
+    "start": 20.086,
+    "end": 20.353
+  },
+  {
+    "word": "on",
+    "start": 20.388,
+    "end": 20.469
+  },
+  {
+    "word": "pizza",
+    "start": 20.55,
+    "end": 21.003
+  },
+  {
+    "word": "\u2014",
+    "start": 21.084,
+    "end": 21.142
+  },
+  {
+    "word": "and",
+    "start": 21.421,
+    "end": 21.653
+  },
+  {
+    "word": "what's",
+    "start": 21.699,
+    "end": 21.885
+  },
+  {
+    "word": "actually",
+    "start": 21.92,
+    "end": 22.175
+  },
+  {
+    "word": "going",
+    "start": 22.21,
+    "end": 22.396
+  },
+  {
+    "word": "on",
+    "start": 22.454,
+    "end": 22.57
+  },
+  {
+    "word": "behind",
+    "start": 22.64,
+    "end": 22.93
+  },
+  {
+    "word": "the",
+    "start": 22.977,
+    "end": 23.046
+  },
+  {
+    "word": "decision.",
+    "start": 23.081,
+    "end": 23.569
+  },
+  {
+    "word": "Let's",
+    "start": 23.894,
+    "end": 24.091
+  },
+  {
+    "word": "get",
+    "start": 24.126,
+    "end": 24.242
+  },
+  {
+    "word": "into",
+    "start": 24.277,
+    "end": 24.428
+  },
+  {
+    "word": "it.",
+    "start": 24.509,
+    "end": 24.939
+  }
+]
