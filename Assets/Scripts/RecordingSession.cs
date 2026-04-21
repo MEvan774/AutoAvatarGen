@@ -1,8 +1,11 @@
+using System;
 using System.Collections;
+using System.IO;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using Evereal.VideoCapture;
+using Diag = System.Diagnostics;
 
 /// <summary>
 /// Persistent owner of a single recording run. Spawned by the main menu when the
@@ -226,8 +229,9 @@ public class RecordingSession : MonoBehaviour
         HandOffAsGenerating();
 
         // If OnComplete/OnError never arrive, surface a failure so the menu
-        // doesn't stay stuck on "Generating..." forever.
-        const float finalizeTimeout = 60f;
+        // doesn't stay stuck on "Generating..." forever. The window covers both
+        // Evereal's native encode/mux and our post-mux ffmpeg pass.
+        const float finalizeTimeout = 180f;
         float elapsed = 0f;
         while (!finished && elapsed < finalizeTimeout)
         {
@@ -274,19 +278,27 @@ public class RecordingSession : MonoBehaviour
     void HandleCaptureComplete(object sender, CaptureCompleteEventArgs args)
     {
         if (finished) return;
+        Debug.Log($"[RecordingSession] Capture complete: {args.SavePath}");
+        UnsubscribeFromCapture();
+        // Fold a leftover audio_*.wav (Evereal's intermediate or a failed-mux
+        // leftover) back into the .mp4 before we mark the result Saved, so the
+        // user only ever sees a single combined file.
+        StartCoroutine(FinalizeAfterMux(args.SavePath));
+    }
+
+    IEnumerator FinalizeAfterMux(string videoPath)
+    {
+        yield return CombineOrphanAudioIntoVideo(videoPath);
+
+        if (finished) yield break;
         finished = true;
         LastResult = new RecordingResult
         {
             State = RecordingResult.Status.Saved,
-            SavePath = args.SavePath
+            SavePath = videoPath
         };
-        Debug.Log($"[RecordingSession] Capture complete: {args.SavePath}");
         RaiseResultChanged();
-        UnsubscribeFromCapture();
 
-        // Normal path: the watchdog already handed off to the main menu on
-        // capture-stop, so just clean up. Fallback path (rare): OnComplete
-        // fired before capture.status changed — still need to go back to menu.
         if (!handedOff && SceneManager.GetActiveScene().name == RecordingSceneName)
         {
             handedOff = true;
@@ -500,6 +512,131 @@ public class RecordingSession : MonoBehaviour
 
         displayedPercent = Mathf.Clamp(pct, 0f, 100f);
         percentText.text = Mathf.RoundToInt(displayedPercent) + "%";
+    }
+
+    // -----------------------------------------------------------------------
+    // Post-capture: fold leftover audio_*.wav into the .mp4 so we end up with
+    // a single combined file. Evereal usually handles this, but on some
+    // GPU/driver paths its native muxer either silently skips the cleanup or
+    // fails outright — this ensures we always converge on one output.
+    // -----------------------------------------------------------------------
+
+    IEnumerator CombineOrphanAudioIntoVideo(string videoPath)
+    {
+        if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
+            yield break;
+
+        string folder = Path.GetDirectoryName(videoPath);
+        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+            yield break;
+
+        string orphanWav = FindRecentOrphanWav(folder);
+        if (orphanWav == null) yield break;
+
+        string ffmpegPath = GetBundledFfmpegPath();
+        if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
+        {
+            Debug.LogWarning(
+                $"[RecordingSession] ffmpeg not found at '{ffmpegPath}' — leaving .wav beside the .mp4.");
+            yield break;
+        }
+
+        string muxedTemp = videoPath + ".muxing.mp4";
+        try { if (File.Exists(muxedTemp)) File.Delete(muxedTemp); }
+        catch (Exception e)
+        {
+            Debug.LogError($"[RecordingSession] Could not clear temp file '{muxedTemp}': {e.Message}");
+            yield break;
+        }
+
+        // -map 0:v:0 -map 1:a:0 pins the output to exactly one video + one
+        // audio stream so we don't get duplicates even if Evereal already
+        // embedded sound.
+        string ffArgs = string.Format(
+            "-y -hide_banner -loglevel warning -i \"{0}\" -i \"{1}\" " +
+            "-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -shortest \"{2}\"",
+            videoPath, orphanWav, muxedTemp);
+
+        Debug.Log($"[RecordingSession] Combining '{Path.GetFileName(videoPath)}' + " +
+                  $"'{Path.GetFileName(orphanWav)}' into one file.");
+
+        Diag.Process process = null;
+        try
+        {
+            process = Diag.Process.Start(new Diag.ProcessStartInfo
+            {
+                FileName = ffmpegPath,
+                Arguments = ffArgs,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true,
+                RedirectStandardOutput = true,
+            });
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[RecordingSession] Failed to start ffmpeg: {e.Message}");
+            yield break;
+        }
+
+        while (!process.HasExited)
+            yield return null;
+
+        int code = process.ExitCode;
+        string stderr = process.StandardError.ReadToEnd();
+        process.Dispose();
+
+        if (code != 0 || !File.Exists(muxedTemp))
+        {
+            Debug.LogError($"[RecordingSession] ffmpeg mux failed (exit {code}). stderr: {stderr}");
+            try { if (File.Exists(muxedTemp)) File.Delete(muxedTemp); } catch { }
+            yield break;
+        }
+
+        try
+        {
+            File.Delete(videoPath);
+            File.Move(muxedTemp, videoPath);
+            File.Delete(orphanWav);
+            Debug.Log($"[RecordingSession] Combined into '{videoPath}'; removed orphan .wav.");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[RecordingSession] Mux succeeded but cleanup failed: {e.Message}");
+        }
+    }
+
+    // Evereal writes "audio_<timestamp>_<rand>.wav" next to the video. Pick
+    // the newest one written in the last few minutes so we don't accidentally
+    // fold in a file from an earlier session.
+    static string FindRecentOrphanWav(string folder)
+    {
+        string newest = null;
+        DateTime newestTime = DateTime.MinValue;
+        DateTime cutoff = DateTime.Now.AddMinutes(-5);
+
+        foreach (string wav in Directory.EnumerateFiles(folder, "audio_*.wav"))
+        {
+            DateTime t = File.GetLastWriteTime(wav);
+            if (t < cutoff) continue;
+            if (t > newestTime)
+            {
+                newestTime = t;
+                newest = wav;
+            }
+        }
+        return newest;
+    }
+
+    static string GetBundledFfmpegPath()
+    {
+#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
+        return Path.Combine(Application.streamingAssetsPath, "FFmpeg", "x86_64", "ffmpeg.exe");
+#elif UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
+        return Path.Combine(Application.streamingAssetsPath, "FFmpeg", "ffmpeg");
+#else
+        return "ffmpeg";
+#endif
     }
 
     // -----------------------------------------------------------------------
