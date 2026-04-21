@@ -45,8 +45,19 @@ public class ScriptFileReader : MonoBehaviour
     // recorder can stamp it into the output filename.
     public string LoadedSegmentSlug { get; private set; }
 
+    // Kept in sync with MainMenuController.PythonOutputFolderPrefKey. If you
+    // rename one, rename the other.
+    const string PythonOutputFolderPrefKey = "AutoAvatarGen.PythonOutputFolder";
+
     void Start()
     {
+        // Honor any override saved from the main menu's "Python output folder"
+        // input. Scenes don't share MonoBehaviour state directly, so we pass
+        // the value via PlayerPrefs.
+        string overrideFolder = PlayerPrefs.GetString(PythonOutputFolderPrefKey, "");
+        if (!string.IsNullOrWhiteSpace(overrideFolder))
+            pythonOutputFolder = overrideFolder;
+
         if (autoLoadFromPythonOutput)
         {
             string folder = Path.Combine(Application.dataPath, pythonOutputFolder);

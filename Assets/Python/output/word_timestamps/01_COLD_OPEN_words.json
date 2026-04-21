@@ -2,181 +2,181 @@
   {
     "word": "Today",
     "start": 0.0,
-    "end": 0.418
+    "end": 0.406
   },
   {
     "word": "we're",
-    "start": 0.534,
-    "end": 0.708
+    "start": 0.58,
+    "end": 0.789
   },
   {
     "word": "breaking",
-    "start": 0.731,
-    "end": 1.033
+    "start": 0.813,
+    "end": 1.103
   },
   {
     "word": "down",
-    "start": 1.103,
-    "end": 1.44
+    "start": 1.161,
+    "end": 1.405
   },
   {
     "word": "how",
-    "start": 1.823,
-    "end": 2.009
+    "start": 1.498,
+    "end": 1.649
   },
   {
     "word": "Google",
-    "start": 2.125,
-    "end": 2.612
+    "start": 1.765,
+    "end": 2.125
   },
   {
     "word": "search",
-    "start": 2.659,
-    "end": 2.937
+    "start": 2.159,
+    "end": 2.415
   },
   {
     "word": "went",
-    "start": 2.995,
-    "end": 3.228
+    "start": 2.473,
+    "end": 2.67
   },
   {
     "word": "from",
-    "start": 3.309,
-    "end": 3.529
+    "start": 2.728,
+    "end": 2.879
   },
   {
     "word": "the",
-    "start": 3.611,
-    "end": 3.68
+    "start": 2.937,
+    "end": 3.007
   },
   {
     "word": "most",
-    "start": 3.727,
-    "end": 3.913
+    "start": 3.042,
+    "end": 3.228
   },
   {
     "word": "reliable",
-    "start": 3.971,
-    "end": 4.447
+    "start": 3.297,
+    "end": 3.82
   },
   {
     "word": "tool",
-    "start": 4.481,
-    "end": 4.69
+    "start": 3.855,
+    "end": 4.075
   },
   {
     "word": "on",
-    "start": 4.737,
-    "end": 4.795
+    "start": 4.122,
+    "end": 4.18
   },
   {
     "word": "the",
-    "start": 4.83,
-    "end": 4.899
+    "start": 4.214,
+    "end": 4.284
   },
   {
     "word": "internet",
-    "start": 4.934,
-    "end": 5.329
+    "start": 4.319,
+    "end": 4.725
   },
   {
     "word": "to",
-    "start": 5.608,
-    "end": 5.724
+    "start": 5.05,
+    "end": 5.166
   },
   {
     "word": "something",
-    "start": 5.793,
-    "end": 6.107
+    "start": 5.236,
+    "end": 5.538
   },
   {
     "word": "that",
-    "start": 6.153,
-    "end": 6.269
+    "start": 5.584,
+    "end": 5.7
   },
   {
     "word": "recommends",
-    "start": 6.351,
-    "end": 6.954
+    "start": 5.77,
+    "end": 6.281
   },
   {
     "word": "glue",
-    "start": 7.105,
-    "end": 7.419
+    "start": 6.455,
+    "end": 6.931
   },
   {
     "word": "on",
-    "start": 7.465,
-    "end": 7.57
+    "start": 7.024,
+    "end": 7.233
   },
   {
     "word": "pizza",
-    "start": 7.651,
-    "end": 8.092
+    "start": 7.349,
+    "end": 7.837
   },
   {
     "word": "\u2014",
-    "start": 8.266,
-    "end": 8.324
+    "start": 7.988,
+    "end": 8.046
   },
   {
     "word": "and",
-    "start": 8.928,
-    "end": 9.334
+    "start": 8.557,
+    "end": 8.975
   },
   {
     "word": "what's",
-    "start": 9.613,
-    "end": 9.857
+    "start": 9.218,
+    "end": 9.485
   },
   {
     "word": "actually",
-    "start": 9.892,
-    "end": 10.159
+    "start": 9.532,
+    "end": 9.903
   },
   {
     "word": "going",
-    "start": 10.194,
-    "end": 10.391
+    "start": 9.95,
+    "end": 10.159
   },
   {
     "word": "on",
-    "start": 10.449,
-    "end": 10.553
+    "start": 10.228,
+    "end": 10.356
   },
   {
     "word": "behind",
-    "start": 10.623,
-    "end": 11.076
+    "start": 10.426,
+    "end": 10.89
   },
   {
     "word": "the",
-    "start": 11.146,
-    "end": 11.227
+    "start": 10.971,
+    "end": 11.053
   },
   {
     "word": "decision.",
-    "start": 11.273,
-    "end": 11.831
+    "start": 11.099,
+    "end": 11.668
   },
   {
     "word": "Let's",
-    "start": 12.109,
-    "end": 12.307
+    "start": 12.051,
+    "end": 12.249
   },
   {
     "word": "get",
-    "start": 12.341,
-    "end": 12.446
+    "start": 12.283,
+    "end": 12.399
   },
   {
     "word": "into",
-    "start": 12.492,
-    "end": 12.643
+    "start": 12.446,
+    "end": 12.608
   },
   {
     "word": "it.",
-    "start": 12.725,
+    "start": 12.69,
     "end": 13.142
   }
 ]

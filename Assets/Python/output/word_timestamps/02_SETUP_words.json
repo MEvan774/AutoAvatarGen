@@ -2,301 +2,201 @@
   {
     "word": "So",
     "start": 0.0,
-    "end": 0.29
+    "end": 0.279
   },
   {
     "word": "here's",
-    "start": 0.406,
-    "end": 0.627
+    "start": 0.36,
+    "end": 0.58
   },
   {
     "word": "what",
-    "start": 0.65,
-    "end": 0.755
+    "start": 0.615,
+    "end": 0.731
   },
   {
     "word": "happened.",
-    "start": 0.789,
-    "end": 1.161
+    "start": 0.778,
+    "end": 1.184
   },
   {
     "word": "An",
-    "start": 1.765,
-    "end": 1.927
+    "start": 1.231,
+    "end": 1.37
   },
   {
     "word": "AI",
-    "start": 2.02,
-    "end": 2.276
+    "start": 1.486,
+    "end": 1.741
   },
   {
     "word": "startup",
-    "start": 2.357,
-    "end": 2.74
+    "start": 1.823,
+    "end": 2.194
   },
   {
     "word": "called",
-    "start": 2.821,
-    "end": 3.1
+    "start": 2.264,
+    "end": 2.554
   },
   {
     "word": "Oumi",
-    "start": 3.216,
-    "end": 3.634
+    "start": 2.682,
+    "end": 3.088
   },
   {
     "word": "ran",
-    "start": 3.808,
-    "end": 4.029
+    "start": 3.262,
+    "end": 3.495
   },
   {
     "word": "Google's",
-    "start": 4.122,
-    "end": 4.609
+    "start": 3.611,
+    "end": 4.098
   },
   {
     "word": "AI",
-    "start": 4.725,
-    "end": 5.004
+    "start": 4.214,
+    "end": 4.493
   },
   {
     "word": "Overviews",
-    "start": 5.097,
-    "end": 5.608
+    "start": 4.574,
+    "end": 5.097
   },
   {
     "word": "through",
-    "start": 5.642,
-    "end": 5.828
+    "start": 5.143,
+    "end": 5.329
   },
   {
     "word": "a",
-    "start": 5.851,
-    "end": 5.875
+    "start": 5.352,
+    "end": 5.375
   },
   {
     "word": "standardized",
-    "start": 5.921,
-    "end": 6.548
+    "start": 5.422,
+    "end": 6.014
   },
   {
     "word": "accuracy",
-    "start": 6.664,
-    "end": 7.163
+    "start": 6.095,
+    "end": 6.594
   },
   {
     "word": "benchmark",
-    "start": 7.233,
-    "end": 7.721
+    "start": 6.664,
+    "end": 7.152
   },
   {
     "word": "\u2014",
-    "start": 7.895,
-    "end": 7.988
+    "start": 7.326,
+    "end": 7.407
   },
   {
     "word": "over",
-    "start": 8.371,
-    "end": 8.603
+    "start": 7.848,
+    "end": 8.115
   },
   {
     "word": "four",
-    "start": 8.684,
-    "end": 9.033
+    "start": 8.231,
+    "end": 8.58
   },
   {
     "word": "thousand",
-    "start": 9.474,
-    "end": 9.996
+    "start": 8.754,
+    "end": 9.253
   },
   {
     "word": "searches,",
-    "start": 10.077,
-    "end": 10.623
+    "start": 9.334,
+    "end": 9.88
   },
   {
     "word": "tested",
-    "start": 10.716,
-    "end": 11.169
+    "start": 9.938,
+    "end": 10.344
   },
   {
     "word": "twice.",
-    "start": 11.262,
-    "end": 11.749
+    "start": 10.403,
+    "end": 10.937
   },
   {
     "word": "Once",
-    "start": 12.353,
-    "end": 12.725
+    "start": 11.378,
+    "end": 11.703
   },
   {
     "word": "when",
-    "start": 12.783,
-    "end": 13.026
+    "start": 11.749,
+    "end": 12.016
   },
   {
     "word": "Google",
-    "start": 13.142,
-    "end": 13.456
+    "start": 12.144,
+    "end": 12.446
   },
   {
     "word": "was",
-    "start": 13.479,
-    "end": 13.572
+    "start": 12.469,
+    "end": 12.562
   },
   {
     "word": "running",
-    "start": 13.642,
-    "end": 13.92
+    "start": 12.632,
+    "end": 12.922
   },
   {
     "word": "Gemini",
-    "start": 14.002,
-    "end": 14.385
+    "start": 13.038,
+    "end": 13.421
   },
   {
     "word": "2,",
-    "start": 14.478,
-    "end": 14.838
+    "start": 13.537,
+    "end": 13.92
   },
   {
     "word": "and",
-    "start": 15.116,
-    "end": 15.453
+    "start": 13.978,
+    "end": 14.327
   },
   {
     "word": "again",
-    "start": 15.546,
-    "end": 15.964
+    "start": 14.443,
+    "end": 14.919
   },
   {
     "word": "after",
-    "start": 16.08,
-    "end": 16.37
+    "start": 15.302,
+    "end": 15.581
   },
   {
     "word": "they",
-    "start": 16.416,
-    "end": 16.533
+    "start": 15.627,
+    "end": 15.743
   },
   {
     "word": "upgraded",
-    "start": 16.614,
-    "end": 17.055
+    "start": 15.801,
+    "end": 16.242
   },
   {
     "word": "to",
-    "start": 17.102,
-    "end": 17.172
+    "start": 16.289,
+    "end": 16.405
   },
   {
     "word": "Gemini",
-    "start": 17.241,
-    "end": 17.59
+    "start": 16.521,
+    "end": 16.869
   },
   {
-    "word": "3.rnet",
-    "start": 17.706,
-    "end": 18.588
-  },
-  {
-    "word": "to",
-    "start": 18.832,
-    "end": 18.936
-  },
-  {
-    "word": "something",
-    "start": 19.006,
-    "end": 19.319
-  },
-  {
-    "word": "that",
-    "start": 19.354,
-    "end": 19.459
-  },
-  {
-    "word": "recommends",
-    "start": 19.528,
-    "end": 19.993
-  },
-  {
-    "word": "glue",
-    "start": 20.086,
-    "end": 20.353
-  },
-  {
-    "word": "on",
-    "start": 20.388,
-    "end": 20.469
-  },
-  {
-    "word": "pizza",
-    "start": 20.55,
-    "end": 21.003
-  },
-  {
-    "word": "\u2014",
-    "start": 21.084,
-    "end": 21.142
-  },
-  {
-    "word": "and",
-    "start": 21.421,
-    "end": 21.653
-  },
-  {
-    "word": "what's",
-    "start": 21.699,
-    "end": 21.885
-  },
-  {
-    "word": "actually",
-    "start": 21.92,
-    "end": 22.175
-  },
-  {
-    "word": "going",
-    "start": 22.21,
-    "end": 22.396
-  },
-  {
-    "word": "on",
-    "start": 22.454,
-    "end": 22.57
-  },
-  {
-    "word": "behind",
-    "start": 22.64,
-    "end": 22.93
-  },
-  {
-    "word": "the",
-    "start": 22.977,
-    "end": 23.046
-  },
-  {
-    "word": "decision.",
-    "start": 23.081,
-    "end": 23.569
-  },
-  {
-    "word": "Let's",
-    "start": 23.894,
-    "end": 24.091
-  },
-  {
-    "word": "get",
-    "start": 24.126,
-    "end": 24.242
-  },
-  {
-    "word": "into",
-    "start": 24.277,
-    "end": 24.428
-  },
-  {
-    "word": "it.",
-    "start": 24.509,
-    "end": 24.939
+    "word": "3.",
+    "start": 16.985,
+    "end": 17.601
   }
 ]

@@ -63,6 +63,13 @@ public class RecordingSession : MonoBehaviour
     Image spinnerImage;
     Image recDot;
     Text headerText;
+    Text percentText;
+
+    // Progress tracking — percent is audio-playback-driven: (voiceAudio.time /
+    // voiceAudio.clip.length). Cached so we can latch to 100% during the
+    // "generating" phase after the audio stops.
+    AudioSource voiceAudio;
+    float displayedPercent;
 
     static Sprite cachedSolidSprite;
     static Sprite cachedRingSprite;
@@ -134,6 +141,9 @@ public class RecordingSession : MonoBehaviour
     {
         finished = false;
         handedOff = false;
+        voiceAudio = null;
+        displayedPercent = 0f;
+        if (percentText != null) percentText.text = "0%";
         SetIndicatorVisible(true);
         StartCoroutine(SubscribeWhenReady());
     }
@@ -172,6 +182,15 @@ public class RecordingSession : MonoBehaviour
         capture.OnComplete += HandleCaptureComplete;
         capture.OnError    += HandleCaptureError;
         subscribed = true;
+
+        // Grab the narration AudioSource so we can drive the progress percent.
+        // Prefer the one explicitly wired on CrossPlatformRecorder; otherwise
+        // fall back to any AudioSource in the scene (there's typically only
+        // one doing playback during a take).
+        CrossPlatformRecorder recorder = capture.GetComponent<CrossPlatformRecorder>()
+                                       ?? FindAnyObjectByType<CrossPlatformRecorder>();
+        if (recorder != null) voiceAudio = recorder.voiceAudio;
+        if (voiceAudio == null) voiceAudio = FindAnyObjectByType<AudioSource>();
 
         // Safety net: even if Evereal fails to raise OnComplete (encoder hiccup,
         // handler exception elsewhere, etc.), we still want to return to the
@@ -346,7 +365,7 @@ public class RecordingSession : MonoBehaviour
         plateRect.anchorMax = new Vector2(1f, 0f);
         plateRect.pivot     = new Vector2(1f, 0f);
         plateRect.anchoredPosition = new Vector2(-40f, 40f);
-        plateRect.sizeDelta = new Vector2(460f, 150f);
+        plateRect.sizeDelta = new Vector2(560f, 150f);
 
         GameObject spinObj = new GameObject("Spinner", typeof(RectTransform));
         spinObj.transform.SetParent(plate.transform, false);
@@ -390,7 +409,28 @@ public class RecordingSession : MonoBehaviour
         textRect.anchorMin = new Vector2(0f, 0f);
         textRect.anchorMax = new Vector2(1f, 1f);
         textRect.offsetMin = new Vector2(125f, 10f);
-        textRect.offsetMax = new Vector2(-20f, -10f);
+        textRect.offsetMax = new Vector2(-140f, -10f);
+
+        // Big percentage on the right — updated each frame in Update() from the
+        // currently-playing narration AudioSource. Bold amber to stand apart
+        // from the white header text.
+        GameObject pctObj = new GameObject("Percent", typeof(RectTransform));
+        pctObj.transform.SetParent(plate.transform, false);
+        percentText = pctObj.AddComponent<Text>();
+        percentText.text = "0%";
+        percentText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        percentText.fontSize = 44;
+        percentText.fontStyle = FontStyle.Bold;
+        percentText.color = new Color(1f, 0.85f, 0.35f, 1f);
+        percentText.alignment = TextAnchor.MiddleRight;
+        percentText.horizontalOverflow = HorizontalWrapMode.Overflow;
+        percentText.verticalOverflow   = VerticalWrapMode.Overflow;
+        RectTransform pctRect = percentText.rectTransform;
+        pctRect.anchorMin = new Vector2(1f, 0.5f);
+        pctRect.anchorMax = new Vector2(1f, 0.5f);
+        pctRect.pivot     = new Vector2(1f, 0.5f);
+        pctRect.anchoredPosition = new Vector2(-18f, 0f);
+        pctRect.sizeDelta = new Vector2(130f, 60f);
     }
 
     void SetIndicatorVisible(bool visible)
@@ -412,6 +452,54 @@ public class RecordingSession : MonoBehaviour
             c.a = pulse;
             recDot.color = c;
         }
+
+        UpdateProgressPercent();
+    }
+
+    // Drives the 0%-100% readout on the recording indicator. Progress is
+    // measured against audio playback (voiceAudio.time / clip.length) so it
+    // tracks the actual narrative length the user will see in the output.
+    //
+    // State machine:
+    //   - Before playback: 0%
+    //   - While audio playing: monotonically increasing fraction of clip
+    //   - After audio stops: latched at the last known value, then snapped to
+    //     100% once capture is handed off (the "generating video" phase).
+    void UpdateProgressPercent()
+    {
+        if (percentText == null) return;
+
+        float pct = displayedPercent;
+
+        if (voiceAudio != null && voiceAudio.clip != null && voiceAudio.clip.length > 0f)
+        {
+            float fraction = Mathf.Clamp01(voiceAudio.time / voiceAudio.clip.length);
+            float live = fraction * 100f;
+
+            if (voiceAudio.isPlaying)
+            {
+                // Don't go backwards — AudioSource.time can briefly reset to 0
+                // on loop/seek boundaries which would cause a visual snap.
+                pct = Mathf.Max(displayedPercent, live);
+            }
+            else if (handedOff || finished)
+            {
+                pct = 100f;
+            }
+            else if (live > 0f)
+            {
+                // Audio paused/ended but still in recording phase — hold where
+                // it was rather than reset.
+                pct = Mathf.Max(displayedPercent, live);
+            }
+        }
+        else if (handedOff || finished)
+        {
+            pct = 100f;
+        }
+
+        displayedPercent = Mathf.Clamp(pct, 0f, 100f);
+        percentText.text = Mathf.RoundToInt(displayedPercent) + "%";
     }
 
     // -----------------------------------------------------------------------

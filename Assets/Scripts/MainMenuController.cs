@@ -9,16 +9,22 @@ using UnityEngine.UI;
 /// RecordingSession.LastResult and shows success / failure plus the saved
 /// file path.
 ///
+/// Also exposes a text field for the Python pre-processor output folder.
+/// ScriptFileReader.Start() reads the same PlayerPrefs key and overrides its
+/// own <c>pythonOutputFolder</c> so the user can point the pipeline at a
+/// different output directory without editing the SampleScene.
+///
 /// All UI is built programmatically at Awake so the scene YAML stays minimal.
-/// The script and audio for the recording itself are still configured in the
-/// recording scene (SampleScene) on the ScriptFileReader — drop your
-/// ElevenLabs audio into its correspondingAudio slot and your script into
-/// scriptTextAsset (or into StreamingAssets/Script.txt), then Start.
 /// </summary>
 public class MainMenuController : MonoBehaviour
 {
+    // Shared with ScriptFileReader. If you rename this, rename it there too.
+    public const string PythonOutputFolderPrefKey = "AutoAvatarGen.PythonOutputFolder";
+    public const string DefaultPythonOutputFolder = "Python/output";
+
     Text statusText;
     Text pathText;
+    InputField pathInput;
 
     static Sprite cachedSolidSprite;
 
@@ -66,33 +72,48 @@ public class MainMenuController : MonoBehaviour
             new Vector2(0, -180), new Vector2(1400, 160));
 
         Text subtitle = CreateText("Subtitle", canvasObj.transform,
-            "Drop your ElevenLabs script and audio onto the ScriptFileReader " +
-            "in SampleScene (or into StreamingAssets/Script.txt), then press Start.",
+            "The recorder reads the Python pre-processor output (manifest.json / *_timed.txt " +
+            "+ *.mp3). Point the field below at that folder, then press Start.",
             26, TextAnchor.MiddleCenter, FontStyle.Normal);
         subtitle.color = new Color(0.72f, 0.76f, 0.82f, 1f);
         SetRect(subtitle.rectTransform,
             new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
             new Vector2(0, -300), new Vector2(1500, 80));
 
+        Text pathLabel = CreateText("PathLabel", canvasObj.transform,
+            "Python output folder (relative to Assets/):",
+            24, TextAnchor.MiddleCenter, FontStyle.Normal);
+        pathLabel.color = new Color(0.82f, 0.85f, 0.9f, 1f);
+        SetRect(pathLabel.rectTransform,
+            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+            new Vector2(0, 155), new Vector2(1100, 32));
+
+        pathInput = CreateInputField("PathInput", canvasObj.transform, DefaultPythonOutputFolder);
+        SetRect(pathInput.GetComponent<RectTransform>(),
+            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+            new Vector2(0, 100), new Vector2(1100, 56));
+        pathInput.text = PlayerPrefs.GetString(PythonOutputFolderPrefKey, DefaultPythonOutputFolder);
+        pathInput.onEndEdit.AddListener(OnPathChanged);
+
         Button startBtn = CreateButton("StartButton", canvasObj.transform,
             "Start Recording", new Color(0.18f, 0.62f, 0.34f));
         SetRect(startBtn.GetComponent<RectTransform>(),
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(0, 70), new Vector2(560, 130));
+            new Vector2(0, 10), new Vector2(560, 110));
         startBtn.onClick.AddListener(OnStartClicked);
 
         Button quitBtn = CreateButton("QuitButton", canvasObj.transform,
             "Quit", new Color(0.58f, 0.17f, 0.17f));
         SetRect(quitBtn.GetComponent<RectTransform>(),
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(0, -90), new Vector2(560, 130));
+            new Vector2(0, -130), new Vector2(560, 110));
         quitBtn.onClick.AddListener(OnQuitClicked);
 
         Image resultPanel = CreateImage("ResultPanel", canvasObj.transform);
         resultPanel.color = new Color(1f, 1f, 1f, 0.06f);
         SetRect(resultPanel.rectTransform,
             new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-            new Vector2(0, 180), new Vector2(1500, 230));
+            new Vector2(0, 160), new Vector2(1500, 200));
 
         statusText = CreateText("Status", resultPanel.transform, "", 42,
             TextAnchor.UpperCenter, FontStyle.Bold);
@@ -157,6 +178,9 @@ public class MainMenuController : MonoBehaviour
 
     void OnStartClicked()
     {
+        // Flush the current path value in case the user typed into the input
+        // but didn't click out of it before hitting Start.
+        if (pathInput != null) OnPathChanged(pathInput.text);
         RecordingSession.Begin();
     }
 
@@ -167,6 +191,14 @@ public class MainMenuController : MonoBehaviour
 #else
         Application.Quit();
 #endif
+    }
+
+    void OnPathChanged(string value)
+    {
+        string trimmed = string.IsNullOrWhiteSpace(value) ? DefaultPythonOutputFolder : value.Trim();
+        PlayerPrefs.SetString(PythonOutputFolderPrefKey, trimmed);
+        PlayerPrefs.Save();
+        if (pathInput != null && pathInput.text != trimmed) pathInput.text = trimmed;
     }
 
     // -----------------------------------------------------------------------
@@ -244,6 +276,45 @@ public class MainMenuController : MonoBehaviour
         StretchToParent(labelText.rectTransform);
 
         return btn;
+    }
+
+    static InputField CreateInputField(string name, Transform parent, string defaultText)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+
+        Image bg = go.AddComponent<Image>();
+        bg.sprite = GetSolidSprite();
+        bg.color  = new Color(0.15f, 0.17f, 0.21f, 1f);
+
+        InputField input = go.AddComponent<InputField>();
+
+        Text text = CreateText("Text", go.transform, "", 26,
+            TextAnchor.MiddleLeft, FontStyle.Normal);
+        text.supportRichText = false;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        text.verticalOverflow   = VerticalWrapMode.Truncate;
+        RectTransform textRT = text.rectTransform;
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = new Vector2(16, 6);
+        textRT.offsetMax = new Vector2(-16, -6);
+
+        Text placeholder = CreateText("Placeholder", go.transform,
+            "e.g. Python/output", 26, TextAnchor.MiddleLeft, FontStyle.Italic);
+        placeholder.color = new Color(0.55f, 0.58f, 0.64f, 1f);
+        RectTransform phRT = placeholder.rectTransform;
+        phRT.anchorMin = Vector2.zero;
+        phRT.anchorMax = Vector2.one;
+        phRT.offsetMin = new Vector2(16, 6);
+        phRT.offsetMax = new Vector2(-16, -6);
+
+        input.textComponent = text;
+        input.placeholder   = placeholder;
+        input.targetGraphic = bg;
+        input.text          = defaultText;
+
+        return input;
     }
 
     static Sprite GetSolidSprite()

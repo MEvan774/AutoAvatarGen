@@ -4,4 +4,4 @@
 
 ## SETUP
 
-{Position:Left,Cut} {Neutral} {Zoom:Reset} {Headline:"Google AI Overviews Wrong Millions of Times Per Hour — Most Users Don't Know","The New York Times / Oumi",5} [tired but amused] So here's what happened. An AI startup called Oumi ran Google's AI Overviews through a standardized accuracy benchmark — over four thousand searches, tested twice. Once when Google was running Gemini 2, and again after they upgraded to Gemini 3.rnet to something that recommends glue on pizza — and what's actually going on behind the decision. Let's get into it.
+{Position:Left,Cut} {Neutral} {Zoom:Reset} {Headline:"Google AI Overviews Wrong Millions of Times Per Hour — Most Users Don't Know","The New York Times / Oumi",5} [tired but amused] So here's what happened. An AI startup called Oumi ran Google's AI Overviews through a standardized accuracy benchmark — over four thousand searches, tested twice. Once when Google was running Gemini 2, and again after they upgraded to Gemini 3.
