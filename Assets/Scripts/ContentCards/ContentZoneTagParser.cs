@@ -16,7 +16,7 @@ public static class ContentZoneTagParser
     // Pre-processed form has ",T=X.XXX,D=Y"; legacy form has just ",Y".
     private static readonly Regex StripAllRegex = new Regex(
         @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}" +
-        @"|\{(?:Logo|BRoll):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}");
+        @"|\{(?:Logo|BRoll|BigMedia):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}");
 
     // Individual extraction patterns. Each accepts an optional ",T=X.XXX"
     // between the content fields and the duration, and an optional "D=" prefix
@@ -39,6 +39,9 @@ public static class ContentZoneTagParser
     private static readonly Regex BRollRegex = new Regex(
         @"\{BRoll:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
+    private static readonly Regex BigMediaRegex = new Regex(
+        @"\{BigMedia:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+
     /// <summary>
     /// Parses all content card tags from the script, builds timed events, and returns
     /// the cleaned script with all card tags stripped.
@@ -58,6 +61,7 @@ public static class ContentZoneTagParser
         ExtractStats(script, audioDuration, totalCleanChars, events);
         ExtractLogos(script, audioDuration, totalCleanChars, events);
         ExtractBRolls(script, audioDuration, totalCleanChars, events);
+        ExtractBigMedias(script, audioDuration, totalCleanChars, events);
 
         // Sort by trigger time
         events.Sort((a, b) => a.triggerTime.CompareTo(b.triggerTime));
@@ -188,6 +192,22 @@ public static class ContentZoneTagParser
                 duration = ParseFloat(match.Groups[3].Value)
             });
             Debug.Log($"  BRoll at {time:F2}s: {match.Groups[1].Value.Trim()}");
+        }
+    }
+
+    private static void ExtractBigMedias(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        foreach (Match match in BigMediaRegex.Matches(script))
+        {
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.BigMedia,
+                primaryText = match.Groups[1].Value.Trim(),
+                duration = ParseFloat(match.Groups[3].Value)
+            });
+            Debug.Log($"  BigMedia at {time:F2}s: {match.Groups[1].Value.Trim()}");
         }
     }
 }

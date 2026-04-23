@@ -76,6 +76,10 @@ public class MediaPresentationSystem : MonoBehaviour
     [Tooltip("Content zone card system — displays branded text cards alongside media.")]
     public ContentZoneController contentZoneController;
 
+    [Header("Black Panel")]
+    [Tooltip("Fullscreen black panel controller — jump-cuts a black overlay via {Black:duration} markers.")]
+    public BlackPanelController blackPanelController;
+
     [Header("Media Settings")]
     public string mediaFolderPath = "Media";
 
@@ -103,6 +107,10 @@ public class MediaPresentationSystem : MonoBehaviour
     private float defaultCameraSize;
     private Coroutine zoomCoroutine;
 
+    // --- Black panel tracking ---
+    private List<BlackPanelMarkerData> blackPanelMarkers;
+    private int lastTriggeredBlackPanelMarker = -1;
+
     void Awake()
     {
         if (mediaDisplay != null)
@@ -121,6 +129,22 @@ public class MediaPresentationSystem : MonoBehaviour
             if (contentZoneController == null)
                 contentZoneController = FindObjectOfType<ContentZoneController>();
         }
+
+        // Auto-find or create BlackPanelController if not assigned
+        if (blackPanelController == null)
+        {
+            blackPanelController = GetComponent<BlackPanelController>();
+            if (blackPanelController == null)
+                blackPanelController = FindObjectOfType<BlackPanelController>();
+            if (blackPanelController == null)
+                blackPanelController = gameObject.AddComponent<BlackPanelController>();
+        }
+
+        // Hand the recorded canvas to the black panel so it lands in the frame
+        // the recorder actually captures. CrossPlatformRecorder's Camera source
+        // explicitly skips Screen Space - Overlay canvases.
+        //if (blackPanelController != null && mediaCanvas != null)
+           // blackPanelController.SetHostCanvas(mediaCanvas);
     }
 
     void Start()
@@ -145,6 +169,14 @@ public class MediaPresentationSystem : MonoBehaviour
 
     public void ProcessScriptWithMedia(string scriptWithMarkers, AudioClip audio)
     {
+        // Debug snapshot — lets you confirm what Unity actually parsed (not the
+        // raw Script.txt, but whichever _timed.txt / stitched variant was loaded).
+        string preview = scriptWithMarkers.Length > 400
+            ? scriptWithMarkers.Substring(0, 400) + "..."
+            : scriptWithMarkers;
+        Debug.Log($"[MediaPresentation] Loaded script ({scriptWithMarkers.Length} chars). " +
+                  $"Contains '{{Black': {scriptWithMarkers.Contains("{Black")}\n---\n{preview}\n---");
+
         // Parse position markers first (strips {Position:X} from script)
         var posResult = ParsePositionMarkers(scriptWithMarkers, audio.length);
         string scriptAfterPositions = posResult.Item1;
@@ -154,6 +186,11 @@ public class MediaPresentationSystem : MonoBehaviour
         var zoomResult = ParseZoomMarkers(scriptAfterPositions, audio.length);
         string scriptAfterZoom = zoomResult.Item1;
         zoomMarkers = zoomResult.Item2;
+
+        // Parse black panel markers (strips {Black:duration} from script)
+        var blackResult = ParseBlackPanelMarkers(scriptAfterZoom, audio.length);
+        scriptAfterZoom = blackResult.Item1;
+        blackPanelMarkers = blackResult.Item2;
 
         // Parse content card tags (strips {Headline:...}, {Quote:...}, etc.)
         var cardResult = ContentZoneTagParser.ParseContentTags(scriptAfterZoom, audio.length);
@@ -208,6 +245,7 @@ public class MediaPresentationSystem : MonoBehaviour
         StartCoroutine(TrackMediaByTime());
         StartCoroutine(TrackPositionsByTime());
         StartCoroutine(TrackZoomByTime());
+        StartCoroutine(TrackBlackPanelByTime());
 
         if (contentZoneController != null)
             StartCoroutine(contentZoneController.TrackCardsByTime());
@@ -454,6 +492,113 @@ public class MediaPresentationSystem : MonoBehaviour
 
             clean = clean.Replace(match.Value, "");
         }
+
+        return (clean, markerList);
+    }
+
+    // -----------------------------------------------------------------------
+    // Black Panel Tracking — fullscreen jump-cut overlay
+    // Format: {Black:duration}  (optional ,T=X.XXX or ,D=duration)
+    // -----------------------------------------------------------------------
+
+    IEnumerator TrackBlackPanelByTime()
+    {
+        lastTriggeredBlackPanelMarker = -1;
+
+        Debug.Log($"[Black] TrackBlackPanelByTime started. markers={blackPanelMarkers?.Count ?? 0}, audio playing={voiceAudio != null && voiceAudio.isPlaying}");
+
+        // Wait one frame so voiceAudio.isPlaying can latch to true if Play()
+        // was called in the same frame as this coroutine was started.
+        if (voiceAudio == null || !voiceAudio.isPlaying)
+            yield return null;
+
+        if (blackPanelMarkers == null || blackPanelMarkers.Count == 0)
+        {
+            Debug.Log("[Black] No black-panel markers to track — coroutine exiting.");
+            yield break;
+        }
+
+        while (voiceAudio != null && voiceAudio.isPlaying)
+        {
+            float currentTime = voiceAudio.time;
+
+            for (int i = lastTriggeredBlackPanelMarker + 1; i < blackPanelMarkers.Count; i++)
+            {
+                if (currentTime >= blackPanelMarkers[i].triggerTime)
+                {
+                    var marker = blackPanelMarkers[i];
+                    Debug.Log($"[Black] Triggering black panel for {marker.duration:F2}s at {currentTime:F2}s");
+
+                    if (blackPanelController != null)
+                        blackPanelController.Show(marker.duration);
+                    else
+                        Debug.LogError("[Black] blackPanelController is NULL — cannot show panel. Assign it in the Inspector.");
+
+                    lastTriggeredBlackPanelMarker = i;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            yield return null;
+        }
+
+        Debug.Log("[Black] TrackBlackPanelByTime loop ended (audio no longer playing).");
+    }
+
+    (string, List<BlackPanelMarkerData>) ParseBlackPanelMarkers(string script, float audioDuration)
+    {
+        List<BlackPanelMarkerData> markerList = new List<BlackPanelMarkerData>();
+        string clean = script;
+
+        // Accepts: {Black:3}, {Black:D=3}, {Black:3,T=4.5}, {Black:T=4.5,D=3}, {Black:D=3,T=4.5}
+        Regex regex = new Regex(
+            @"\{Black:(?:(?:T=(\d+(?:\.\d+)?),)?(?:D=)?(\d+(?:\.\d+)?)|(?:D=)?(\d+(?:\.\d+)?)(?:,T=(\d+(?:\.\d+)?))?)\}");
+        MatchCollection matches = regex.Matches(script);
+
+        // Also run a very loose probe — if the script contains "{Black" at all
+        // but the strict regex didn't match, log the raw text so we can see
+        // what form the marker actually took in _timed.txt.
+        if (matches.Count == 0 && script.Contains("{Black"))
+        {
+            int idx = script.IndexOf("{Black", System.StringComparison.Ordinal);
+            int end = script.IndexOf('}', idx);
+            string sample = end > idx ? script.Substring(idx, System.Math.Min(end - idx + 1, 80)) : script.Substring(idx, System.Math.Min(40, script.Length - idx));
+            Debug.LogWarning($"[Black] Found literal '{{Black' in script but strict regex did not match. Raw: \"{sample}\" — check the marker form.");
+        }
+
+        string scriptWithoutMarkers = regex.Replace(script, "");
+        int totalChars = Mathf.Max(1, scriptWithoutMarkers.Length);
+
+        foreach (Match match in matches)
+        {
+            // T= can be either group 1 (T-first form) or group 4 (duration-first form)
+            Group tsGroup = match.Groups[1].Success ? match.Groups[1] : match.Groups[4];
+            float markerTime = TryParseTimestamp(tsGroup);
+            if (markerTime < 0f)
+            {
+                string textBeforeMarker = script.Substring(0, match.Index);
+                string cleanTextBefore = regex.Replace(textBeforeMarker, "");
+                markerTime = (cleanTextBefore.Length / (float)totalChars) * audioDuration;
+            }
+
+            string durStr = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[3].Value;
+            float duration = float.Parse(durStr, System.Globalization.CultureInfo.InvariantCulture);
+
+            markerList.Add(new BlackPanelMarkerData
+            {
+                triggerTime = markerTime,
+                duration = duration
+            });
+
+            Debug.Log($"[Black] Parsed marker \"{match.Value}\" — trigger at {markerTime:F2}s for {duration:F2}s");
+
+            clean = clean.Replace(match.Value, "");
+        }
+
+        Debug.Log($"[Black] ParseBlackPanelMarkers found {markerList.Count} marker(s). blackPanelController={(blackPanelController != null ? blackPanelController.name : "NULL")}");
 
         return (clean, markerList);
     }
@@ -846,4 +991,14 @@ public class ZoomMarkerData
 {
     public float triggerTime;
     public ZoomType zoomType;
+}
+
+/// <summary>
+/// Fullscreen black panel marker. Jump-cuts in, holds for duration, jump-cuts out.
+/// </summary>
+[System.Serializable]
+public class BlackPanelMarkerData
+{
+    public float triggerTime;
+    public float duration;
 }

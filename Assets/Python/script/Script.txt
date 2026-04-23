@@ -1,6 +1,6 @@
 ## COLD OPEN
 
-{Concerned} Today we're breaking down how Google search went from the most reliable tool on the internet to something that recommends glue on pizza — and what's actually going on behind the decision. Let's get into it.
+{Concerned} Today we're breaking down how Google search went from the most reliable tool on the internet to something that recommends glue on pizza {Black:1} — and what's actually going on behind the decision. Let's get into it.
 
 ## SETUP
 

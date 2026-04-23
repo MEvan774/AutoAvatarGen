@@ -32,6 +32,10 @@ public class ContentCardAssets : ScriptableObject
     [Tooltip("Map description strings to video clips for BRoll cards.")]
     public List<BRollEntry> bRollClips = new List<BRollEntry>();
 
+    [Header("Big Media Fallback")]
+    [Tooltip("Resources folder path to search for BigMedia images when the name doesn't match a logo. Default: \"Media\".")]
+    public string bigMediaResourcesFolder = "Media";
+
     // Lazy-built runtime dictionaries for O(1) lookup
     private Dictionary<string, Sprite> logoDict;
     private Dictionary<string, VideoClip> bRollDict;
@@ -53,6 +57,44 @@ public class ContentCardAssets : ScriptableObject
 
         Debug.LogWarning($"ContentCardAssets: No logo found for \"{name}\"");
         return null;
+    }
+
+    /// <summary>
+    /// Resolves a name for a BigMedia card. Tries the logo dictionary first,
+    /// then falls back to a Sprite in Resources/{bigMediaResourcesFolder}/{name},
+    /// and finally to a Texture2D at the same path (wrapped as a Sprite).
+    /// Returns null if nothing matches.
+    /// </summary>
+    public Sprite GetBigMedia(string name)
+    {
+        Sprite logo = GetLogoSilent(name);
+        if (logo != null) return logo;
+
+        string folder = string.IsNullOrEmpty(bigMediaResourcesFolder) ? "Media" : bigMediaResourcesFolder;
+
+        Sprite sprite = Resources.Load<Sprite>($"{folder}/{name}");
+        if (sprite != null) return sprite;
+
+        Texture2D tex = Resources.Load<Texture2D>($"{folder}/{name}");
+        if (tex != null)
+            return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+
+        Debug.LogWarning($"ContentCardAssets: No BigMedia asset found for \"{name}\"");
+        return null;
+    }
+
+    private Sprite GetLogoSilent(string name)
+    {
+        if (logoDict == null)
+        {
+            logoDict = new Dictionary<string, Sprite>();
+            foreach (var entry in logos)
+            {
+                if (!string.IsNullOrEmpty(entry.companyName))
+                    logoDict[entry.companyName.ToLower()] = entry.sprite;
+            }
+        }
+        return logoDict.TryGetValue(name.ToLower(), out Sprite sprite) ? sprite : null;
     }
 
     public VideoClip GetBRoll(string description)

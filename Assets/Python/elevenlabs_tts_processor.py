@@ -25,6 +25,7 @@ What gets STRIPPED before TTS (never read aloud):
   - {Emotion}        e.g. {Concerned} {Excited} {Neutral} {Serious} {Sad}
   - {Position:...}   e.g. {Position:Left,Cut}
   - {Zoom:...}       e.g. {Zoom:In}
+  - {Black:...}      e.g. {Black:3}  (fullscreen black panel, duration in seconds)
   - {Image:...}      e.g. {Image:file,5}
   - {Video:...}      e.g. {Video:clip,0}
   - {Headline:...}   content cards
@@ -33,6 +34,7 @@ What gets STRIPPED before TTS (never read aloud):
   - {Stat:...}
   - {Logo:...}
   - {BRoll:...}
+  - {BigMedia:...}  e.g. {BigMedia:logo_name,4}  (large centered image over character)
   - [stage directions]  e.g. [pause] [deadpan] [sips coffee]
 
 Usage:
@@ -74,6 +76,7 @@ _ALL_MARKERS = re.compile(
     r'\{(?:Excited|Serious|Concerned|Neutral|Sad)\}'        # emotion states
     r'|\{Position:\w+(?:,\w+)?\}'                           # position markers
     r'|\{Zoom:\w+\}'                                        # zoom markers
+    r'|\{Black:\d+(?:\.\d+)?\}'                             # black panel markers
     r'|\{(?:Image|Video):[^}]+\}'                           # media markers
     r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?\}'          # headline cards
     r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?\}'   # excerpt cards
@@ -81,6 +84,7 @@ _ALL_MARKERS = re.compile(
     r'|\{Stat:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?\}'      # stat cards
     r'|\{Logo:[^,}]+,\d+(?:\.\d+)?\}'                       # logo cards
     r'|\{BRoll:[^,}]+,\d+(?:\.\d+)?\}'                      # broll cards
+    r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                   # big-media feature cards
     r'|\[[\w\s]+\]'                                         # [stage directions]
 )
 
@@ -313,14 +317,19 @@ def _stamp_marker(marker: str, t: float) -> str:
     if inner.startswith('Position:'):
         return f"{{{inner},{ts}}}"
 
+    # {Black:3}  →  {Black:D=3,T=X.XXX}
+    m_black = re.match(r'^Black:(\d+(?:\.\d+)?)$', inner)
+    if m_black:
+        return f"{{Black:D={m_black.group(1)},{ts}}}"
+
     # {Image:file,5}  /  {Video:file,0}
     m_media = re.match(r'^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?))?$', inner)
     if m_media:
         dur = m_media.group(3) or '0'
         return f"{{{m_media.group(1)}:{m_media.group(2)},{ts},D={dur}}}"
 
-    # {Logo:name,5}  /  {BRoll:name,4}
-    m_lb = re.match(r'^(Logo|BRoll):([^,}]+),(\d+(?:\.\d+)?)$', inner)
+    # {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}
+    m_lb = re.match(r'^(Logo|BRoll|BigMedia):([^,}]+),(\d+(?:\.\d+)?)$', inner)
     if m_lb:
         return f"{{{m_lb.group(1)}:{m_lb.group(2)},{ts},D={m_lb.group(3)}}}"
 
