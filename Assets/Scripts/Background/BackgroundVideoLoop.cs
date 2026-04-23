@@ -35,6 +35,14 @@ public class BackgroundVideoLoop : MonoBehaviour
     private VideoPlayer videoPlayer;
     private RawImage rawImage;
     private RenderTexture renderTexture;
+    private bool isReady;
+
+    /// <summary>
+    /// True once the VideoPlayer has finished Prepare() and has had at least
+    /// one frame rendered — safe to start recording at this point so the
+    /// output doesn't begin with a blank/half-loaded background frame.
+    /// </summary>
+    public bool IsReady => isReady;
 
     void Start()
     {
@@ -110,7 +118,21 @@ public class BackgroundVideoLoop : MonoBehaviour
             source.Play();
             Debug.Log($"[BackgroundVideoLoop] Playing '{videoClip.name}' " +
                       $"({textureWidth}x{textureHeight}, loop, speed {playbackSpeed}x)");
+            StartCoroutine(MarkReadyAfterFirstFrame());
         };
+    }
+
+    // Wait for the video to actually render its first frame to the
+    // RenderTexture before declaring ready — isPrepared alone can fire a frame
+    // before the texture is populated, which would cause the recording to
+    // start on an empty background.
+    System.Collections.IEnumerator MarkReadyAfterFirstFrame()
+    {
+        long startFrame = videoPlayer.frame;
+        while (videoPlayer.frame <= startFrame)
+            yield return null;
+        yield return null;
+        isReady = true;
     }
 
     void OnDestroy()

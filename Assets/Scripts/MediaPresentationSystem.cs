@@ -170,6 +170,37 @@ public class MediaPresentationSystem : MonoBehaviour
         // baked in by the ElevenLabs pre-processor as narrative cues only.
         cleanScript = Regex.Replace(cleanScript, @"\[[^\]]*\]", "");
 
+        StartCoroutine(BeginPlaybackWhenBackgroundReady(cleanScript, audio));
+    }
+
+    // Waits for any BackgroundVideoLoop in the scene to finish preparing and
+    // render its first frame before kicking off playback. Without this, a
+    // recording started while the background .mp4 is still loading captures
+    // a blank or half-decoded frame at the very start of the output.
+    IEnumerator BeginPlaybackWhenBackgroundReady(string cleanScript, AudioClip audio)
+    {
+        BackgroundVideoLoop[] backgrounds = FindObjectsByType<BackgroundVideoLoop>(
+            FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+
+        if (backgrounds.Length > 0)
+        {
+            const float timeout = 10f;
+            float elapsed = 0f;
+            while (elapsed < timeout)
+            {
+                bool allReady = true;
+                foreach (BackgroundVideoLoop bg in backgrounds)
+                {
+                    if (bg != null && !bg.IsReady) { allReady = false; break; }
+                }
+                if (allReady) break;
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+            if (elapsed >= timeout)
+                Debug.LogWarning($"[MediaPresentation] Background video(s) not ready after {timeout}s — starting anyway.");
+        }
+
         // Forward to avatar system for emotion processing (unchanged)
         avatarSystem.ProcessWithExistingAudio(cleanScript, audio);
 

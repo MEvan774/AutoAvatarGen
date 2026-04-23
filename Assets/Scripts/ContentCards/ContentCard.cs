@@ -10,7 +10,7 @@ using MugsTech.Style;
 ///
 /// When a <see cref="StyleManager"/> with an active preset is present, the card
 /// applies the preset's rotation variance, wobble, and entry direction.
-/// Without a preset, falls back to the original slide-up entry.
+/// Without a preset, slides in from off-screen left with a small overshoot.
 /// </summary>
 [RequireComponent(typeof(CanvasGroup))]
 [RequireComponent(typeof(RectTransform))]
@@ -21,6 +21,13 @@ public abstract class ContentCard : MonoBehaviour
     protected const float FAST_FADE_DURATION = 0.15f;
     protected const float SLIDE_UP_DISTANCE = 20f;
     protected const float ENTRY_SLIDE_DISTANCE = 80f; // distance for preset-driven entries
+    protected const float ENTRY_SLIDE_DURATION = 0.35f; // from-left overshoot entry duration
+
+    // Overshoot curve copied from the CSS linear() keyframes:
+    //   linear(0, 0.221 2.5%, 0.421 5.2%, …, 1.109 32.8%, 1.109 36.1%, …, 1 87.9%, 1)
+    // Peaks at ~1.109 around 33% of the duration, then settles back to 1.0 by 88%.
+    // Built once and reused across every card.
+    private static readonly AnimationCurve OVERSHOOT_CURVE = BuildOvershootCurve();
 
     protected CanvasGroup canvasGroup;
     protected RectTransform rectTransform;
@@ -77,9 +84,11 @@ public abstract class ContentCard : MonoBehaviour
     }
 
     /// <summary>
-    /// Fade in. With no active preset: slide up 20px, ease-out, 0.3s.
-    /// With active preset: random Z rotation, slide from preset's entry direction
-    /// using preset's animation curve, optional elastic wobble.
+    /// Fade in. With no active preset: slide in from off-screen left with a
+    /// small overshoot (CSS linear() curve, peaks ~13% past the rest position
+    /// around 32% of the duration, then settles back). Fade runs in 0.3s, slide
+    /// in 0.5s. With active preset: random Z rotation, slide from preset's
+    /// entry direction using preset's animation curve, optional elastic wobble.
     /// </summary>
     public virtual void Show()
     {
@@ -87,44 +96,33 @@ public abstract class ContentCard : MonoBehaviour
 
         ChannelStylePreset preset = StyleManager.Instance != null ? StyleManager.Instance.ActivePreset : null;
 
-        if (preset == null)
-        {
-            // ----- Original behavior (no preset) -----
-            Vector2 startPos = rectTransform.anchoredPosition;
-            rectTransform.anchoredPosition = startPos - new Vector2(0f, SLIDE_UP_DISTANCE);
+        // Always slide in from off-screen left with the CSS-derived overshoot
+        // curve, whether or not a preset is active. Preset only contributes
+        // the optional rotation and wobble.
+        Vector2 endPos = rectTransform.anchoredPosition;
+        float slideDistance = rectTransform.rect.width > 1f
+            ? rectTransform.rect.width
+            : 400f; // fallback if layout hasn't resolved yet
+        rectTransform.anchoredPosition = endPos - new Vector2(slideDistance, 0f);
 
-            currentSequence = DOTween.Sequence()
-                .Join(canvasGroup.DOFade(1f, FADE_IN_DURATION).SetEase(Ease.OutQuad))
-                .Join(rectTransform.DOAnchorPos(startPos, FADE_IN_DURATION).SetEase(Ease.OutQuad));
-        }
-        else
+        if (preset != null)
         {
-            // ----- Preset-driven entry -----
-            Vector2 endPos = rectTransform.anchoredPosition;
-            Vector2 offset = GetEntryOffset(entryDirection, ENTRY_SLIDE_DISTANCE);
-            rectTransform.anchoredPosition = endPos + offset;
-
-            // Random Z rotation (imperfect "tossed onto a corkboard" feel)
             float rotationZ = preset.GetRandomEntryRotation();
             rectTransform.localEulerAngles = new Vector3(0f, 0f, rotationZ);
-
-            Ease ease = ConvertCurve(preset.entryCurve);
-
-            Sequence seq = DOTween.Sequence()
-                .Join(canvasGroup.DOFade(1f, FADE_IN_DURATION).SetEase(Ease.OutQuad))
-                .Join(rectTransform.DOAnchorPos(endPos, FADE_IN_DURATION).SetEase(ease));
-
-            // Wobble: scale 1 -> 1+wobble -> 1 with elastic out
-            if (preset.wobbleIntensity > 0.001f)
-            {
-                Vector3 baseScale = rectTransform.localScale;
-                float w = preset.wobbleIntensity * 0.15f; // max 15% scale boost at intensity=1
-                seq.Join(rectTransform
-                    .DOPunchScale(new Vector3(w, w, 0f), FADE_IN_DURATION + 0.1f, vibrato: 4, elasticity: 0.7f));
-            }
-
-            currentSequence = seq;
         }
+
+        Sequence seq = DOTween.Sequence()
+            .Join(canvasGroup.DOFade(1f, FADE_IN_DURATION).SetEase(Ease.OutQuad))
+            .Join(rectTransform.DOAnchorPos(endPos, ENTRY_SLIDE_DURATION).SetEase(OVERSHOOT_CURVE));
+
+        if (preset != null && preset.wobbleIntensity > 0.001f)
+        {
+            float w = preset.wobbleIntensity * 0.15f;
+            seq.Join(rectTransform
+                .DOPunchScale(new Vector3(w, w, 0f), FADE_IN_DURATION + 0.1f, vibrato: 4, elasticity: 0.7f));
+        }
+
+        currentSequence = seq;
     }
 
     /// <summary>
@@ -176,6 +174,70 @@ public abstract class ContentCard : MonoBehaviour
             currentSequence.Kill();
             currentSequence = null;
         }
+    }
+
+    // Translates the CSS linear() keyframes into a Unity AnimationCurve. Each
+    // keyframe's in/out tangents are set to the slope of the surrounding
+    // segment so Unity's Hermite interpolation collapses to (near-)linear
+    // between keys, matching CSS linear() semantics.
+    private static AnimationCurve BuildOvershootCurve()
+    {
+        // (time 0..1, value) — lifted 1:1 from the CSS snippet.
+        float[,] pts =
+        {
+            { 0.000f, 0.000f },
+            { 0.025f, 0.221f },
+            { 0.052f, 0.421f },
+            { 0.080f, 0.592f },
+            { 0.109f, 0.733f },
+            { 0.140f, 0.852f },
+            { 0.156f, 0.901f },
+            { 0.173f, 0.946f },
+            { 0.190f, 0.984f },
+            { 0.208f, 1.017f },
+            { 0.227f, 1.045f },
+            { 0.247f, 1.068f },
+            { 0.272f, 1.089f },
+            { 0.299f, 1.102f },
+            { 0.328f, 1.109f },
+            { 0.361f, 1.109f },
+            { 0.391f, 1.105f },
+            { 0.425f, 1.096f },
+            { 0.547f, 1.052f },
+            { 0.598f, 1.035f },
+            { 0.642f, 1.024f },
+            { 0.686f, 1.015f },
+            { 0.743f, 1.007f },
+            { 0.807f, 1.002f },
+            { 0.879f, 1.000f },
+            { 1.000f, 1.000f },
+        };
+
+        int n = pts.GetLength(0);
+        Keyframe[] frames = new Keyframe[n];
+        for (int i = 0; i < n; i++)
+        {
+            float t = pts[i, 0];
+            float v = pts[i, 1];
+
+            float inTangent = 0f;
+            if (i > 0)
+            {
+                float dt = t - pts[i - 1, 0];
+                if (dt > 0f) inTangent = (v - pts[i - 1, 1]) / dt;
+            }
+
+            float outTangent = 0f;
+            if (i < n - 1)
+            {
+                float dt = pts[i + 1, 0] - t;
+                if (dt > 0f) outTangent = (pts[i + 1, 1] - v) / dt;
+            }
+
+            frames[i] = new Keyframe(t, v, inTangent, outTangent);
+        }
+
+        return new AnimationCurve(frames);
     }
 
     protected virtual void OnDestroy()
