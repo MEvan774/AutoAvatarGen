@@ -27,7 +27,7 @@ public abstract class ContentCard : MonoBehaviour
     //   linear(0, 0.221 2.5%, 0.421 5.2%, …, 1.109 32.8%, 1.109 36.1%, …, 1 87.9%, 1)
     // Peaks at ~1.109 around 33% of the duration, then settles back to 1.0 by 88%.
     // Built once and reused across every card.
-    private static readonly AnimationCurve OVERSHOOT_CURVE = BuildOvershootCurve();
+    protected static readonly AnimationCurve OVERSHOOT_CURVE = BuildOvershootCurve();
 
     protected CanvasGroup canvasGroup;
     protected RectTransform rectTransform;
@@ -35,7 +35,7 @@ public abstract class ContentCard : MonoBehaviour
     /// <summary>Called by ContentZoneController after hide animation finishes.</summary>
     public Action OnHideComplete;
 
-    private Sequence currentSequence;
+    protected Sequence currentSequence;
 
     // Entry direction set by ContentZoneController before Show() is called.
     // Defaults to FromBottom if not explicitly set.

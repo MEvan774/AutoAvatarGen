@@ -14,15 +14,18 @@ public static class ContentZoneTagParser
     // Combined pattern that matches ALL content card tags (both legacy and
     // pre-processed forms) — used to compute totalCleanChars and to strip.
     // Pre-processed form has ",T=X.XXX,D=Y"; legacy form has just ",Y".
+    // Headline supports an optional trailing ",bigCenter" modifier that promotes
+    // the card to the fullscreen BigCenter variant.
     private static readonly Regex StripAllRegex = new Regex(
-        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}" +
+        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*bigCenter)?\}" +
         @"|\{(?:Logo|BRoll|BigMedia):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}");
 
     // Individual extraction patterns. Each accepts an optional ",T=X.XXX"
     // between the content fields and the duration, and an optional "D=" prefix
-    // on the duration itself.
+    // on the duration itself. Headline also accepts an optional ",bigCenter"
+    // modifier after the duration.
     private static readonly Regex HeadlineRegex = new Regex(
-        @"\{Headline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+        @"\{Headline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(bigCenter))?\}");
 
     private static readonly Regex ExcerptRegex = new Regex(
         @"\{Excerpt:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
@@ -97,15 +100,17 @@ public static class ContentZoneTagParser
         foreach (Match match in HeadlineRegex.Matches(script))
         {
             float time = ResolveTriggerTime(script, match.Index, match.Groups[3], audioDuration, totalCleanChars);
+            bool isBigCenter = match.Groups[5].Success;
+            ContentCardType type = isBigCenter ? ContentCardType.BigCenter : ContentCardType.Headline;
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
-                cardType = ContentCardType.Headline,
+                cardType = type,
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 duration = ParseFloat(match.Groups[4].Value)
             });
-            Debug.Log($"  Headline at {time:F2}s: \"{match.Groups[1].Value}\"");
+            Debug.Log($"  {type} at {time:F2}s: \"{match.Groups[1].Value}\"");
         }
     }
 

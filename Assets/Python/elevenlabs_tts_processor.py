@@ -34,7 +34,8 @@ What gets STRIPPED before TTS (never read aloud):
   - {Stat:...}
   - {Logo:...}
   - {BRoll:...}
-  - {BigMedia:...}  e.g. {BigMedia:logo_name,4}  (large centered image over character)
+  - {BigMedia:...}  e.g. {BigMedia:logo_name,4}              (single logo, centered)
+                       {BigMedia:logo1+logo2+logo3,4}        (up to 4 logos, pop in one by one)
   - [stage directions]  e.g. [pause] [deadpan] [sips coffee]
 
 Usage:

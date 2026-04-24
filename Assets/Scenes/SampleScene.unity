@@ -529,7 +529,7 @@ MonoBehaviour:
   zoomDuration: 2.5
   zoomInMultiplier: 1.12
   contentZoneController: {fileID: 88322329}
-  blackPanelController: {fileID: 0}
+  blackPanelController: {fileID: 191756452}
   mediaFolderPath: Media
 --- !u!114 &88322329
 MonoBehaviour:
