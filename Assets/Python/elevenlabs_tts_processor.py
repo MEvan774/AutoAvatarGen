@@ -36,6 +36,8 @@ What gets STRIPPED before TTS (never read aloud):
   - {BRoll:...}
   - {BigMedia:...}  e.g. {BigMedia:logo_name,4}              (single logo, centered)
                        {BigMedia:logo1+logo2+logo3,4}        (up to 4 logos, pop in one by one)
+  - {BigText:...}   e.g. {BigText:100M Users,4}              (single big centered line)
+                       {BigText:100M Users+$50B Revenue,4}   (up to 4 lines, slide up one by one)
   - [stage directions]  e.g. [pause] [deadpan] [sips coffee]
 
 Usage:
@@ -76,7 +78,7 @@ VOICE_CONFIG = {
 _ALL_MARKERS = re.compile(
     r'\{(?:Excited|Serious|Concerned|Neutral|Sad)\}'        # emotion states
     r'|\{Position:\w+(?:,\w+)?\}'                           # position markers
-    r'|\{Zoom:\w+\}'                                        # zoom markers
+    r'|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}'           # zoom markers (+optional Cut / D=)
     r'|\{Black:\d+(?:\.\d+)?\}'                             # black panel markers
     r'|\{(?:Image|Video):[^}]+\}'                           # media markers
     r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?\}'          # headline cards
@@ -86,6 +88,7 @@ _ALL_MARKERS = re.compile(
     r'|\{Logo:[^,}]+,\d+(?:\.\d+)?\}'                       # logo cards
     r'|\{BRoll:[^,}]+,\d+(?:\.\d+)?\}'                      # broll cards
     r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                   # big-media feature cards
+    r'|\{BigText:[^,}]+,\d+(?:\.\d+)?\}'                    # big-text feature cards
     r'|\[[\w\s]+\]'                                         # [stage directions]
 )
 
@@ -329,8 +332,8 @@ def _stamp_marker(marker: str, t: float) -> str:
         dur = m_media.group(3) or '0'
         return f"{{{m_media.group(1)}:{m_media.group(2)},{ts},D={dur}}}"
 
-    # {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}
-    m_lb = re.match(r'^(Logo|BRoll|BigMedia):([^,}]+),(\d+(?:\.\d+)?)$', inner)
+    # {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}  /  {BigText:line,5}
+    m_lb = re.match(r'^(Logo|BRoll|BigMedia|BigText):([^,}]+),(\d+(?:\.\d+)?)$', inner)
     if m_lb:
         return f"{{{m_lb.group(1)}:{m_lb.group(2)},{ts},D={m_lb.group(3)}}}"
 

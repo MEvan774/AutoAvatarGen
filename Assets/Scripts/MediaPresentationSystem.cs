@@ -66,11 +66,27 @@ public class MediaPresentationSystem : MonoBehaviour
     [Header("Camera Zoom")]
     [Tooltip("Main camera — used for zoom in/out.")]
     public Camera mainCamera;
-    [Tooltip("How long a zoom takes in seconds.")]
-    public float zoomDuration = 2.5f;
+    float zoomDuration = 0.8f;
     [Tooltip("How much to zoom in (1.12 = 112% zoom, blueprint says 110-115%).")]
     [Range(1.01f, 1.25f)]
     public float zoomInMultiplier = 1.12f;
+
+    [Header("Pullback Effect ({Zoom:Pullback})")]
+    [Tooltip("Initial wide framing — orthographicSize is snapped to defaultSize * this on trigger.")]
+    [Range(1.1f, 4f)]
+    public float pullbackStartMultiplier = 1.8f;
+    [Tooltip("End of the slow drift. The camera linearly drifts from start → end, then jump-cuts back.")]
+    [Range(1.1f, 4f)]
+    public float pullbackEndMultiplier = 1.9f;
+    [Tooltip("How long the slow drift lasts (seconds). Overridden per-marker by ',D=seconds'.")]
+    public float pullbackDuration = 3f;
+
+    [Tooltip("Black border planes (or any GameObjects) that frame the default camera view in " +
+             "world space. Activated during {Zoom:Pullback} so anything outside the original " +
+             "framing is cropped to black; deactivated when the effect ends. Position them just " +
+             "outside the default camera frame edges and large enough to extend beyond the maximum " +
+             "pullback view.")]
+    public GameObject[] pullbackBorderPlanes;
 
     [Header("Content Cards")]
     [Tooltip("Content zone card system — displays branded text cards alongside media.")]
@@ -106,6 +122,7 @@ public class MediaPresentationSystem : MonoBehaviour
     private int lastTriggeredZoomMarker = -1;
     private float defaultCameraSize;
     private Coroutine zoomCoroutine;
+    private Coroutine pendingResetCoroutine;
 
     // --- Black panel tracking ---
     private List<BlackPanelMarkerData> blackPanelMarkers;
@@ -381,9 +398,11 @@ public class MediaPresentationSystem : MonoBehaviour
                 if (currentTime >= zoomMarkers[i].triggerTime)
                 {
                     var marker = zoomMarkers[i];
-                    Debug.Log($"Triggering zoom: {marker.zoomType} at {currentTime:F2}s");
+                    string mods = (marker.cut ? " (cut)" : "") +
+                                  (marker.holdDuration > 0f ? $" hold {marker.holdDuration:F2}s" : "");
+                    Debug.Log($"Triggering zoom: {marker.zoomType}{mods} at {currentTime:F2}s");
 
-                    ApplyZoom(marker.zoomType);
+                    ApplyZoom(marker.zoomType, marker.cut, marker.holdDuration);
                     lastTriggeredZoomMarker = i;
                 }
                 else
@@ -396,13 +415,24 @@ public class MediaPresentationSystem : MonoBehaviour
         }
     }
 
-    void ApplyZoom(ZoomType type)
+    void ApplyZoom(ZoomType type, bool cut = false, float holdDuration = 0f)
     {
         if (mainCamera == null) return;
 
-        // Stop any in-progress zoom
-        if (zoomCoroutine != null)
-            StopCoroutine(zoomCoroutine);
+        // Stop any in-progress zoom + any pending auto-reset from a previous marker.
+        // Also pop the pullback mask off — if the new zoom is itself a Pullback,
+        // AnimatePullback will switch it back on at the start.
+        if (zoomCoroutine != null) StopCoroutine(zoomCoroutine);
+        if (pendingResetCoroutine != null) StopCoroutine(pendingResetCoroutine);
+        SetPullbackMaskActive(false);
+
+        // Pullback is a self-contained multi-stage effect — handle it on its own.
+        if (type == ZoomType.Pullback)
+        {
+            float drift = holdDuration > 0f ? holdDuration : pullbackDuration;
+            zoomCoroutine = StartCoroutine(AnimatePullback(drift));
+            return;
+        }
 
         float targetSize;
 
@@ -415,14 +445,75 @@ public class MediaPresentationSystem : MonoBehaviour
                 targetSize = defaultCameraSize;
                 break;
             case ZoomType.Reset:
-                // Instant snap back
+                // Reset is always an instant snap regardless of the cut flag —
+                // that's its whole purpose.
                 mainCamera.orthographicSize = defaultCameraSize;
                 return;
             default:
                 return;
         }
 
-        zoomCoroutine = StartCoroutine(AnimateZoom(targetSize));
+        if (cut)
+            mainCamera.orthographicSize = targetSize;
+        else
+            zoomCoroutine = StartCoroutine(AnimateZoom(targetSize));
+
+        // Auto-reset timer — only meaningful when we've actually changed away
+        // from default (i.e. zoomed In). For Out we're already at default.
+        if (holdDuration > 0f && type == ZoomType.In)
+            pendingResetCoroutine = StartCoroutine(AutoResetAfter(holdDuration, cut));
+    }
+
+    // Pullback: snap to a wide framing, drift slightly wider over `drift` seconds
+    // (linear so the motion reads as a steady push-out), then jump back to default.
+    // The pullbackBorderPlanes (assigned in the Inspector) crop anything outside
+    // the original camera framing so the output reads as a video shrinking on
+    // a black canvas.
+    IEnumerator AnimatePullback(float drift)
+    {
+        float startSize = defaultCameraSize * Mathf.Max(1.01f, pullbackStartMultiplier);
+        float endSize   = defaultCameraSize * Mathf.Max(pullbackStartMultiplier, pullbackEndMultiplier);
+
+        mainCamera.orthographicSize = startSize;
+        SetPullbackMaskActive(true);
+
+        float elapsed = 0f;
+        while (elapsed < drift)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / Mathf.Max(0.0001f, drift));
+            mainCamera.orthographicSize = Mathf.Lerp(startSize, endSize, t);
+            yield return null;
+        }
+
+        mainCamera.orthographicSize = defaultCameraSize;
+        SetPullbackMaskActive(false);
+    }
+
+    void SetPullbackMaskActive(bool active)
+    {
+        if (pullbackBorderPlanes == null) return;
+        for (int i = 0; i < pullbackBorderPlanes.Length; i++)
+        {
+            GameObject go = pullbackBorderPlanes[i];
+            if (go != null && go.activeSelf != active) go.SetActive(active);
+        }
+    }
+
+    IEnumerator AutoResetAfter(float delay, bool cut)
+    {
+        yield return new WaitForSeconds(delay);
+
+        if (mainCamera == null) yield break;
+
+        if (zoomCoroutine != null) StopCoroutine(zoomCoroutine);
+
+        if (cut)
+            mainCamera.orthographicSize = defaultCameraSize;
+        else
+            zoomCoroutine = StartCoroutine(AnimateZoom(defaultCameraSize));
+
+        pendingResetCoroutine = null;
     }
 
     IEnumerator AnimateZoom(float targetSize)
@@ -444,8 +535,14 @@ public class MediaPresentationSystem : MonoBehaviour
 
     // -----------------------------------------------------------------------
     // Parse Zoom Markers
-    // Format: {Zoom:In}, {Zoom:Out}, {Zoom:Reset}  (optional ,T=X.XXX appended
-    // by the ElevenLabs pre-processor — used directly when present)
+    // Format: {Zoom:<In|Out|Reset|Pullback>[,Cut][,D=seconds][,T=seconds]}
+    //   Cut       — instant snap instead of animating. (Ignored on Reset, which
+    //               is always a snap, and on Pullback, which manages its own cuts.)
+    //   D=seconds — In: auto-reset to default this many seconds after firing.
+    //               Pullback: overrides the slow-drift duration.
+    //               Ignored for Out / Reset.
+    //   T=seconds — exact trigger time (appended by the ElevenLabs pre-processor).
+    // Trailing options are order-independent.
     // -----------------------------------------------------------------------
 
     (string, List<ZoomMarkerData>) ParseZoomMarkers(string script, float audioDuration)
@@ -453,7 +550,9 @@ public class MediaPresentationSystem : MonoBehaviour
         List<ZoomMarkerData> markerList = new List<ZoomMarkerData>();
         string clean = script;
 
-        Regex regex = new Regex(@"\{Zoom:(\w+)(?:,T=(\d+(?:\.\d+)?))?\}");
+        // Group 1 = type word; Group 2 = the rest of the comma-separated tokens
+        // (including leading commas), parsed by hand below for order independence.
+        Regex regex = new Regex(@"\{Zoom:(\w+)((?:,[^,}]+)*)\}");
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
@@ -461,7 +560,47 @@ public class MediaPresentationSystem : MonoBehaviour
 
         foreach (Match match in matches)
         {
-            float markerTime = TryParseTimestamp(match.Groups[2]);
+            // Defaults
+            float markerTime    = -1f;
+            float holdDuration  = 0f;
+            bool  cut           = false;
+
+            // Walk the trailing tokens.
+            string tail = match.Groups[2].Value;
+            if (!string.IsNullOrEmpty(tail))
+            {
+                string[] tokens = tail.Split(',');
+                foreach (string raw in tokens)
+                {
+                    string tok = raw.Trim();
+                    if (tok.Length == 0) continue;
+
+                    if (tok.Equals("Cut", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        cut = true;
+                    }
+                    else if (tok.StartsWith("T=", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        float.TryParse(tok.Substring(2),
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out markerTime);
+                    }
+                    else if (tok.StartsWith("D=", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        float.TryParse(tok.Substring(2),
+                            System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out holdDuration);
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"Unknown zoom option '{tok}' in '{match.Value}' — ignored.");
+                    }
+                }
+            }
+
+            // Fall back to character-position estimate if no T= was supplied.
             if (markerTime < 0f)
             {
                 string textBeforeMarker = script.Substring(0, match.Index);
@@ -477,6 +616,7 @@ public class MediaPresentationSystem : MonoBehaviour
                 case "in": zoomType = ZoomType.In; break;
                 case "out": zoomType = ZoomType.Out; break;
                 case "reset": zoomType = ZoomType.Reset; break;
+                case "pullback": zoomType = ZoomType.Pullback; break;
                 default:
                     Debug.LogWarning($"Unknown zoom type: {zoomStr}, defaulting to Reset");
                     break;
@@ -484,11 +624,14 @@ public class MediaPresentationSystem : MonoBehaviour
 
             markerList.Add(new ZoomMarkerData
             {
-                triggerTime = markerTime,
-                zoomType = zoomType
+                triggerTime  = markerTime,
+                zoomType     = zoomType,
+                cut          = cut,
+                holdDuration = holdDuration
             });
 
-            Debug.Log($"Zoom marker '{zoomType}' will trigger at {markerTime:F2}s");
+            string mods = (cut ? " cut" : "") + (holdDuration > 0f ? $" hold={holdDuration:F2}s" : "");
+            Debug.Log($"Zoom marker '{zoomType}'{mods} will trigger at {markerTime:F2}s");
 
             clean = clean.Replace(match.Value, "");
         }
@@ -981,9 +1124,10 @@ public class MediaMarkerData
 /// </summary>
 public enum ZoomType
 {
-    In,     // Push in: 100% -> 110-115%. Signals focus/intensity.
-    Out,    // Pull back: zoomed -> 100%. Signals de-escalation.
-    Reset   // Instant snap back to default. No easing.
+    In,         // Push in: 100% -> 110-115%. Signals focus/intensity.
+    Out,        // Pull back: zoomed -> 100%. Signals de-escalation.
+    Reset,      // Instant snap back to default. No easing.
+    Pullback    // Snap wide, slowly drift wider, jump-cut back to default.
 }
 
 [System.Serializable]
@@ -991,6 +1135,14 @@ public class ZoomMarkerData
 {
     public float triggerTime;
     public ZoomType zoomType;
+
+    // When true, the zoom snaps instantly instead of animating over zoomDuration.
+    // Auto-reset (if scheduled) inherits this style.
+    public bool cut;
+
+    // Seconds after triggerTime to auto-reset the camera back to default. <= 0
+    // means "no auto-reset" and the zoom stays until a later marker changes it.
+    public float holdDuration;
 }
 
 /// <summary>

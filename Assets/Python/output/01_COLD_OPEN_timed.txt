@@ -1,1 +1,1 @@
-{Concerned,T=0.000} Today we're breaking down how Google search went from the most reliable tool on the internet to something that recommends glue on pizza {BigMedia:Google+X+Brave,4}  — and what's actually going on behind the decision. Let's get into it.
+{Concerned,T=0.000} Today we're breaking down how Google search went from the most reliable tool on the internet to something {BigText:100M Users,4} that recommends glue on pizza — and what's actually going on behind the decision. Let's get into it.

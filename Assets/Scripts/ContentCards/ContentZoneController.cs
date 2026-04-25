@@ -224,7 +224,7 @@ public class ContentZoneController : MonoBehaviour
 
     private RectTransform GetZoneForCard(ContentCardType type)
     {
-        if (type == ContentCardType.BigMedia || type == ContentCardType.BigCenter)
+        if (type == ContentCardType.BigMedia || type == ContentCardType.BigCenter || type == ContentCardType.BigText)
             return featureMediaZone != null ? featureMediaZone : contentZone;
         return contentZone;
     }
@@ -281,6 +281,7 @@ public class ContentZoneController : MonoBehaviour
             case ContentCardType.BRoll: activeCard = cardObj.AddComponent<BRollDisplay>(); break;
             case ContentCardType.BigMedia: activeCard = cardObj.AddComponent<BigMediaCard>(); break;
             case ContentCardType.BigCenter: activeCard = cardObj.AddComponent<BigCenterCard>(); break;
+            case ContentCardType.BigText: activeCard = cardObj.AddComponent<BigTextCard>(); break;
             default:
                 Debug.LogWarning($"Unknown card type: {evt.cardType}");
                 Destroy(cardObj);

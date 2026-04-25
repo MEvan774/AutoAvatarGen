@@ -18,7 +18,7 @@ public static class ContentZoneTagParser
     // the card to the fullscreen BigCenter variant.
     private static readonly Regex StripAllRegex = new Regex(
         @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*bigCenter)?\}" +
-        @"|\{(?:Logo|BRoll|BigMedia):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}");
+        @"|\{(?:Logo|BRoll|BigMedia|BigText):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}");
 
     // Individual extraction patterns. Each accepts an optional ",T=X.XXX"
     // between the content fields and the duration, and an optional "D=" prefix
@@ -45,6 +45,9 @@ public static class ContentZoneTagParser
     private static readonly Regex BigMediaRegex = new Regex(
         @"\{BigMedia:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
+    private static readonly Regex BigTextRegex = new Regex(
+        @"\{BigText:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+
     /// <summary>
     /// Parses all content card tags from the script, builds timed events, and returns
     /// the cleaned script with all card tags stripped.
@@ -65,6 +68,7 @@ public static class ContentZoneTagParser
         ExtractLogos(script, audioDuration, totalCleanChars, events);
         ExtractBRolls(script, audioDuration, totalCleanChars, events);
         ExtractBigMedias(script, audioDuration, totalCleanChars, events);
+        ExtractBigTexts(script, audioDuration, totalCleanChars, events);
 
         // Sort by trigger time
         events.Sort((a, b) => a.triggerTime.CompareTo(b.triggerTime));
@@ -213,6 +217,22 @@ public static class ContentZoneTagParser
                 duration = ParseFloat(match.Groups[3].Value)
             });
             Debug.Log($"  BigMedia at {time:F2}s: {match.Groups[1].Value.Trim()}");
+        }
+    }
+
+    private static void ExtractBigTexts(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        foreach (Match match in BigTextRegex.Matches(script))
+        {
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.BigText,
+                primaryText = match.Groups[1].Value.Trim(),
+                duration = ParseFloat(match.Groups[3].Value)
+            });
+            Debug.Log($"  BigText at {time:F2}s: {match.Groups[1].Value.Trim()}");
         }
     }
 }

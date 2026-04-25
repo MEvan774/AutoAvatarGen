@@ -9,7 +9,8 @@ public enum ContentCardType
     Logo,
     BRoll,
     BigMedia,
-    BigCenter
+    BigCenter,
+    BigText
 }
 
 [System.Serializable]
@@ -28,6 +29,7 @@ public class ContentCardEvent
     //   BRoll:     primaryText=description
     //   BigMedia:  primaryText=logo or image name (logo lookup first, falls back to Resources/Media sprite)
     //   BigCenter: primaryText=headline, secondaryText=source (Headline tag with ",bigCenter" modifier)
+    //   BigText:   primaryText=text or '+'-joined texts (e.g. "Line One+Line Two+Line Three")
     public string primaryText;
     public string secondaryText;
     public string tertiaryText;
