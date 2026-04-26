@@ -36,6 +36,8 @@ public class VisualsMenuController : MonoBehaviour
     public const string CardTextColorKey  = KeyPrefix + "Card.TextColor";
     public const string CardFontStyleKey  = KeyPrefix + "Card.FontStyle";
     public const string CardFontNameKey   = KeyPrefix + "Card.FontName";
+    public const string BgVideoPathKey    = KeyPrefix + "BgVideoPath";   // editor working state only
+    public const string BigTextStyleKey   = KeyPrefix + "BigText.Style"; // JSON-serialized BigTextStyleData
     public const string ActiveSaveNameKey = KeyPrefix + "ActiveSaveName";
 
     /// <summary>
@@ -129,6 +131,18 @@ public class VisualsMenuController : MonoBehaviour
     // or "user:<absolute path>".
     string fontIdentifier = "";
 
+    // BigText overlay style — edited via BigTextStylePopup, persisted in
+    // both the JSON save and a single PlayerPrefs JSON blob.
+    BigTextStyleData bigTextStyle = new BigTextStyleData();
+    Button           bigTextEditButton;
+
+    // Background mp4 path saved with the preset. The main menu's
+    // BackgroundVideoOverridePrefKey still wins at scene load.
+    string           backgroundVideoPath = "";
+    Text             bgVideoLabel;
+    Button           bgVideoLoadButton;
+    Button           bgVideoClearButton;
+
     // Auto-built font picker controls (runtime, no scene wiring required).
     Text   fontDisplayLabel;
     Button fontPrevButton;
@@ -177,6 +191,8 @@ public class VisualsMenuController : MonoBehaviour
 
         EnsureTmpCardPreview();
         BuildFontRow();
+        BuildBigTextEditButton();
+        BuildBgVideoRow();
 
         // Bottom row.
         saveButton.onClick.AddListener(OnQuickSave);
@@ -585,6 +601,179 @@ public class VisualsMenuController : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
+    // Background video (preset-saved, overridden by main menu's field)
+    // -----------------------------------------------------------------------
+
+    void BuildBgVideoRow()
+    {
+        if (panelRoot == null) return;
+
+        var row = new GameObject("BgVideoRow", typeof(RectTransform));
+        row.transform.SetParent(panelRoot.transform, false);
+        var rt = (RectTransform)row.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        // Sits between the font / Big-Text row (y=-395) and the action button
+        // strip (y=-495, top edge at -455). 36 px tall to keep clear of both.
+        rt.anchoredPosition = new Vector2(0f, -432f);
+        rt.sizeDelta        = new Vector2(1700f, 36f);
+
+        // Label (path display)
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(row.transform, false);
+        var lRT = (RectTransform)labelGO.transform;
+        lRT.anchorMin = lRT.anchorMax = lRT.pivot = new Vector2(0.5f, 0.5f);
+        lRT.anchoredPosition = new Vector2(-300f, 0f);
+        lRT.sizeDelta        = new Vector2(1000f, 40f);
+        bgVideoLabel = labelGO.AddComponent<Text>();
+        bgVideoLabel.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        bgVideoLabel.fontSize  = 20;
+        bgVideoLabel.alignment = TextAnchor.MiddleLeft;
+        bgVideoLabel.color     = new Color(0.85f, 0.88f, 0.93f, 1f);
+        bgVideoLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+        bgVideoLoadButton  = AddFontRowButton(row.transform, "BgVideoLoad",  "Load…",
+            new Vector2(390f, 0f), new Vector2(160f, 40f));
+        bgVideoClearButton = AddFontRowButton(row.transform, "BgVideoClear", "Clear",
+            new Vector2(580f, 0f), new Vector2(160f, 40f));
+
+        bgVideoLoadButton.onClick.AddListener(OnBgVideoLoadClicked);
+        bgVideoClearButton.onClick.AddListener(OnBgVideoClearClicked);
+        UpdateBgVideoLabel();
+    }
+
+    void UpdateBgVideoLabel()
+    {
+        if (bgVideoLabel == null) return;
+        bgVideoLabel.text = "BG Video:  " + (string.IsNullOrEmpty(backgroundVideoPath)
+            ? "(none — uses scene default)"
+            : Path.GetFileName(backgroundVideoPath));
+    }
+
+    void OnBgVideoLoadClicked()
+    {
+        string picked = TryPickVideoPath(backgroundVideoPath);
+        Debug.Log($"[BgVideoDiag] VisualsMenu OnBgVideoLoadClicked picked='{picked}'");
+        if (string.IsNullOrEmpty(picked)) return;
+        backgroundVideoPath = picked;
+        UpdateBgVideoLabel();
+        OnBgVideoChanged();
+    }
+
+    void OnBgVideoClearClicked()
+    {
+        if (string.IsNullOrEmpty(backgroundVideoPath)) return;
+        backgroundVideoPath = "";
+        UpdateBgVideoLabel();
+        OnBgVideoChanged();
+    }
+
+    // Mirror to PlayerPrefs (editor working state) and to the active named
+    // save's JSON so the change flows into the next recording without an
+    // explicit Quick Save.
+    void OnBgVideoChanged()
+    {
+        PlayerPrefs.SetString(BgVideoPathKey, backgroundVideoPath ?? "");
+        PlayerPrefs.Save();
+        Debug.Log($"[BgVideoDiag] VisualsMenu OnBgVideoChanged wrote BgVideoPathKey='{backgroundVideoPath ?? ""}' " +
+                  $"activeSaveName='{activeSaveName}'");
+
+        if (!string.IsNullOrEmpty(activeSaveName) && VisualsSaveStore.Exists(activeSaveName))
+        {
+            try
+            {
+                VisualsSaveStore.Save(CaptureCurrentState(activeSaveName));
+                Debug.Log($"[BgVideoDiag]   mirrored to JSON save '{activeSaveName}'");
+            }
+            catch (Exception e) { Debug.LogWarning($"[VisualsMenu] BG video mirror failed: {e.Message}"); }
+        }
+        else
+        {
+            Debug.Log("[BgVideoDiag]   no active save; only PlayerPrefs working-state updated.");
+        }
+    }
+
+    static string TryPickVideoPath(string current)
+    {
+        string startDir = !string.IsNullOrEmpty(current) ? Path.GetDirectoryName(current) : "";
+#if STANDALONE_FILE_BROWSER
+        var ext = new[]
+        {
+            new SFB.ExtensionFilter("Video Files", "mp4", "mov", "webm", "m4v"),
+            new SFB.ExtensionFilter("All Files",   "*"),
+        };
+        var picked = SFB.StandaloneFileBrowser.OpenFilePanel(
+            "Pick background video", startDir, ext, false);
+        return (picked != null && picked.Length > 0) ? picked[0] : "";
+#elif UNITY_EDITOR
+        return UnityEditor.EditorUtility.OpenFilePanel(
+            "Pick background video", startDir, "mp4,mov,webm,m4v");
+#else
+        return "";
+#endif
+    }
+
+    // -----------------------------------------------------------------------
+    // BigText style editor
+    // -----------------------------------------------------------------------
+
+    void BuildBigTextEditButton()
+    {
+        if (panelRoot == null) return;
+
+        // Place under the font row (font row is at y=-395, h=60). Put this
+        // one a bit lower-left so it doesn't visually crowd the action row.
+        bigTextEditButton = AddFontRowButton(panelRoot.transform, "BigTextEditButton",
+            "Edit Big Text…", new Vector2(-650f, -395f), new Vector2(280f, 50f));
+        bigTextEditButton.onClick.AddListener(OnBigTextEditClicked);
+    }
+
+    void OnBigTextEditClicked()
+    {
+        if (panelRoot == null) return;
+        // Pass the currently-picked font so the popup's preview matches what
+        // the recording will render. Falls back to TMP default when "(default)"
+        // is selected.
+        TMP_FontAsset font = string.IsNullOrEmpty(fontIdentifier)
+            ? TMP_Settings.defaultFontAsset
+            : (FontRegistry.Resolve(fontIdentifier)?.Asset ?? TMP_Settings.defaultFontAsset);
+
+        BigTextStylePopup.GetOrCreate(panelRoot.transform)
+                         .Show(bigTextStyle, font, OnBigTextStyleChanged);
+    }
+
+    // Mirror BigText edits into the active named save (if any) and into
+    // PlayerPrefs, so changes flow into the next recording without requiring
+    // an explicit Quick Save.
+    void OnBigTextStyleChanged()
+    {
+        PlayerPrefs.SetString(BigTextStyleKey, JsonUtility.ToJson(bigTextStyle));
+        PlayerPrefs.Save();
+
+        if (!string.IsNullOrEmpty(activeSaveName) && VisualsSaveStore.Exists(activeSaveName))
+        {
+            try { VisualsSaveStore.Save(CaptureCurrentState(activeSaveName)); }
+            catch (Exception e) { Debug.LogWarning($"[VisualsMenu] BigText mirror failed: {e.Message}"); }
+        }
+    }
+
+    static BigTextStyleData CloneBigTextStyle(BigTextStyleData src)
+    {
+        return new BigTextStyleData
+        {
+            textColorHex            = src.textColorHex,
+            fontStyle               = src.fontStyle,
+            outlineColorHex         = src.outlineColorHex,
+            outlineWidth            = src.outlineWidth,
+            shadowEnabled           = src.shadowEnabled,
+            shadowColorHex          = src.shadowColorHex,
+            shadowSoftness          = src.shadowSoftness,
+            backgroundEnabled       = src.backgroundEnabled,
+            backgroundColorHex      = src.backgroundColorHex,
+            backgroundCornerRadius  = src.backgroundCornerRadius,
+        };
+    }
+
+    // -----------------------------------------------------------------------
     // Color-wheel picker
     // -----------------------------------------------------------------------
 
@@ -721,6 +910,8 @@ public class VisualsMenuController : MonoBehaviour
         PlayerPrefs.SetString(CardTextColorKey, ColorToHex(textColor));
         PlayerPrefs.SetInt   (CardFontStyleKey, (int)fontStyle);
         PlayerPrefs.SetString(CardFontNameKey,  fontIdentifier ?? "");
+        PlayerPrefs.SetString(BgVideoPathKey,   backgroundVideoPath ?? "");
+        PlayerPrefs.SetString(BigTextStyleKey,  JsonUtility.ToJson(bigTextStyle));
         PlayerPrefs.Save();
 
         // Mirror into the active named save's JSON so edits flow through to the
@@ -753,6 +944,16 @@ public class VisualsMenuController : MonoBehaviour
         fontStyle      = (FontStyle)PlayerPrefs.GetInt(CardFontStyleKey, (int)fontStyle);
         fontIdentifier = PlayerPrefs.GetString(CardFontNameKey,  "");
         UpdateFontDisplay();
+
+        backgroundVideoPath = PlayerPrefs.GetString(BgVideoPathKey, "");
+        UpdateBgVideoLabel();
+
+        string bigJson = PlayerPrefs.GetString(BigTextStyleKey, "");
+        if (!string.IsNullOrEmpty(bigJson))
+        {
+            try { JsonUtility.FromJsonOverwrite(bigJson, bigTextStyle); }
+            catch { /* fall back to defaults already on the field */ }
+        }
 
         bgColorInput.text          = ColorToHex(bgColor);
         bgColorSwatch.color        = bgColor;
@@ -816,8 +1017,9 @@ public class VisualsMenuController : MonoBehaviour
     {
         var data = new VisualsSaveFile
         {
-            schemaVersion = 1,
-            name          = saveName,
+            schemaVersion       = 1,
+            name                = saveName,
+            backgroundVideoPath = backgroundVideoPath ?? "",
             card = new CardStyleData
             {
                 bgColorHex   = ColorToHex(bgColor),
@@ -826,6 +1028,7 @@ public class VisualsMenuController : MonoBehaviour
                 fontStyle    = (int)fontStyle,
                 fontName     = fontIdentifier ?? "",
             },
+            bigText = CloneBigTextStyle(bigTextStyle),
         };
 
         foreach (var slot in emotionSlots)
@@ -1015,6 +1218,12 @@ public class VisualsMenuController : MonoBehaviour
         fontStyle      = (FontStyle)data.card.fontStyle;
         fontIdentifier = data.card.fontName ?? "";
         UpdateFontDisplay();
+
+        // BigText round-trip — fall back to defaults if the save predates this field.
+        bigTextStyle = data.bigText != null ? CloneBigTextStyle(data.bigText) : new BigTextStyleData();
+
+        backgroundVideoPath = data.backgroundVideoPath ?? "";
+        UpdateBgVideoLabel();
 
         bgColorInput.text          = ColorToHex(bgColor);
         bgColorSwatch.color        = bgColor;

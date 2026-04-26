@@ -16,7 +16,13 @@ namespace MugsTech.Style
         public int    schemaVersion = 1;
         public string name          = "";
         public string savedAtIso    = "";
+        // Absolute file path to a background mp4. Empty = use the scene
+        // default. Note: the main menu's "Background Video Override" still
+        // wins over this — it's an ad-hoc top-level override that is never
+        // persisted into the preset.
+        public string backgroundVideoPath = "";
         public CardStyleData       card     = new CardStyleData();
+        public BigTextStyleData    bigText  = new BigTextStyleData();
         public List<EmotionImageData> emotions = new List<EmotionImageData>();
     }
 
@@ -30,6 +36,26 @@ namespace MugsTech.Style
         // FontRegistry identifier — empty = no override (use TMP default).
         // Format: "project:<name>" / "system:<name>" / "user:<absolute-path>"
         public string fontName     = "";
+    }
+
+    /// <summary>
+    /// Style for the big-text overlay (BigTextCard). Outline is always on
+    /// (just edit color/width); shadow and background each have their own
+    /// enabled flag.
+    /// </summary>
+    [Serializable]
+    public class BigTextStyleData
+    {
+        public string textColorHex            = "#FFFFFFFF";
+        public int    fontStyle               = 1; // UnityEngine.FontStyle as int (1 = Bold, the default look)
+        public string outlineColorHex         = "#000000BF"; // black @ ~0.75 alpha
+        public float  outlineWidth            = 0.10f;       // TMP _OutlineWidth (0..1)
+        public bool   shadowEnabled           = false;
+        public string shadowColorHex          = "#000000BF";
+        public float  shadowSoftness          = 0.5f;        // TMP _UnderlaySoftness
+        public bool   backgroundEnabled       = false;
+        public string backgroundColorHex      = "#000000A0";
+        public float  backgroundCornerRadius  = 18f;
     }
 
     [Serializable]

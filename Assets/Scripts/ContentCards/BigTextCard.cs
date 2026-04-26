@@ -1,7 +1,9 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 using DG.Tweening;
+using MugsTech.Style;
 
 /// <summary>
 /// Large centered text card. One or more lines slide up from off-screen
@@ -30,6 +32,7 @@ public class BigTextCard : ContentCard
 
     private readonly List<RectTransform> lineContainers = new List<RectTransform>(MAX_LINES);
     private readonly List<TextMeshProUGUI> lineTexts = new List<TextMeshProUGUI>(MAX_LINES);
+    private readonly List<Image> lineBackgrounds = new List<Image>(MAX_LINES);
 
     private int activeLineCount;
 
@@ -48,6 +51,21 @@ public class BigTextCard : ContentCard
             containerRT.pivot = new Vector2(0.5f, 0.5f);
             containerRT.sizeDelta = new Vector2(1600f, LINE_HEIGHT);
 
+            // Optional background plate — sits behind the text on every line.
+            // Sibling order matters: this is added FIRST so it renders below
+            // the text. Disabled until VisualsRuntimeApplier.BigText opts in.
+            GameObject bgGO = new GameObject("Background", typeof(RectTransform));
+            bgGO.transform.SetParent(containerRT, false);
+            RectTransform bgRT = bgGO.GetComponent<RectTransform>();
+            bgRT.anchorMin = Vector2.zero;
+            bgRT.anchorMax = Vector2.one;
+            bgRT.offsetMin = Vector2.zero;
+            bgRT.offsetMax = Vector2.zero;
+            Image bg = bgGO.AddComponent<Image>();
+            bg.raycastTarget = false;
+            bg.gameObject.SetActive(false);
+            lineBackgrounds.Add(bg);
+
             TextMeshProUGUI tmp = ContentCardUIBuilder.CreateText(
                 containerRT, "Text",
                 Color.white,
@@ -62,7 +80,7 @@ public class BigTextCard : ContentCard
             tmp.overflowMode = TextOverflowModes.Ellipsis;
             tmp.enableWordWrapping = true;
 
-            ApplyDarkOutline(tmp);
+            ApplyBigTextStyle(tmp, bg);
 
             containerGO.SetActive(false);
 
@@ -137,22 +155,82 @@ public class BigTextCard : ContentCard
         currentSequence = seq;
     }
 
-    // Crisp dark outline around each glyph so white text stays readable on
-    // light backgrounds. Touching fontMaterial first forces TMP to clone the
-    // shared material so this only affects this card's text instances. The
-    // OUTLINE_ON keyword is the shader-side toggle that the "Outline"
-    // checkbox in the TMP material inspector flips — without it, setting
-    // _OutlineColor / _OutlineWidth on some shader variants is a no-op.
-    private static void ApplyDarkOutline(TextMeshProUGUI tmp)
+    // Reads VisualsRuntimeApplier.BigText overrides (populated from the
+    // active VisualsSave) and applies them to the line's text + background.
+    // Touching fontMaterial first forces TMP to clone the shared material so
+    // edits only affect this card's text instances. OUTLINE_ON / UNDERLAY_ON
+    // are the shader-side toggles that the "Outline" / "Underlay" checkboxes
+    // in the TMP material inspector flip — without them, setting outline /
+    // shadow fields is a no-op on some shader variants.
+    private static void ApplyBigTextStyle(TextMeshProUGUI tmp, Image bg)
     {
         Material mat = tmp.fontMaterial;
-        mat.EnableKeyword("OUTLINE_ON");
-        mat.SetColor("_OutlineColor", new Color(0f, 0f, 0f, 0.75f));
-        mat.SetFloat("_OutlineWidth", 0.1f);
 
-        tmp.outlineColor = new Color(0f, 0f, 0f, 0.75f);
-        tmp.outlineWidth = 0.1f;
+        // Text color
+        Color textColor = VisualsRuntimeApplier.BigText.TextColor ?? Color.white;
+        tmp.color = textColor;
+
+        // Font style — BigText has its own pick (independent of card style),
+        // so replace whatever ContentCardUIBuilder.CreateText set.
+        switch (VisualsRuntimeApplier.BigText.FontStyle)
+        {
+            case UnityEngine.FontStyle.Bold:          tmp.fontStyle = FontStyles.Bold; break;
+            case UnityEngine.FontStyle.Italic:        tmp.fontStyle = FontStyles.Italic; break;
+            case UnityEngine.FontStyle.BoldAndItalic: tmp.fontStyle = FontStyles.Bold | FontStyles.Italic; break;
+            default:                                  tmp.fontStyle = FontStyles.Normal; break;
+        }
+
+        // Outline (always enabled; user picks color + width)
+        Color outlineColor = VisualsRuntimeApplier.BigText.OutlineColor ?? new Color(0f, 0f, 0f, 0.75f);
+        float outlineWidth = VisualsRuntimeApplier.BigText.OutlineWidth;
+        mat.EnableKeyword("OUTLINE_ON");
+        mat.SetColor("_OutlineColor", outlineColor);
+        mat.SetFloat("_OutlineWidth", outlineWidth);
+        tmp.outlineColor = outlineColor;
+        tmp.outlineWidth = outlineWidth;
+
+        // Shadow (TMP underlay) — opt-in
+        if (VisualsRuntimeApplier.BigText.ShadowEnabled)
+        {
+            mat.EnableKeyword("UNDERLAY_ON");
+            mat.SetColor("_UnderlayColor",    VisualsRuntimeApplier.BigText.ShadowColor);
+            mat.SetFloat("_UnderlayOffsetX",  1.0f);
+            mat.SetFloat("_UnderlayOffsetY", -1.0f);
+            mat.SetFloat("_UnderlayDilate",   0.5f);
+            mat.SetFloat("_UnderlaySoftness", VisualsRuntimeApplier.BigText.ShadowSoftness);
+        }
+        else
+        {
+            mat.DisableKeyword("UNDERLAY_ON");
+        }
+
         tmp.UpdateMeshPadding();
+
+        // Background plate behind the text — opt-in
+        if (bg != null)
+        {
+            if (VisualsRuntimeApplier.BigText.BackgroundEnabled)
+            {
+                bg.gameObject.SetActive(true);
+                bg.color  = VisualsRuntimeApplier.BigText.BackgroundColor;
+                int radius = Mathf.Max(0, Mathf.RoundToInt(
+                    VisualsRuntimeApplier.BigText.BackgroundCornerRadius));
+                if (radius > 0)
+                {
+                    bg.sprite = StyleSpriteFactory.GetRoundedRect(radius);
+                    bg.type   = Image.Type.Sliced;
+                }
+                else
+                {
+                    bg.sprite = null;
+                    bg.type   = Image.Type.Simple;
+                }
+            }
+            else
+            {
+                bg.gameObject.SetActive(false);
+            }
+        }
     }
 
     public override void Hide(bool fast = false)

@@ -31,6 +31,38 @@ namespace MugsTech.Style
         public static FontStyle?    CardFontStyleOverride;
         public static TMP_FontAsset CardFontOverride;
 
+        /// <summary>
+        /// BigText overlay style, read by BigTextCard. Active = HasValue;
+        /// when null/false, the card uses its hardcoded defaults.
+        /// </summary>
+        public static class BigText
+        {
+            public static Color?    TextColor;
+            public static FontStyle FontStyle         = UnityEngine.FontStyle.Bold;
+            public static Color?    OutlineColor;
+            public static float     OutlineWidth      = 0.10f;
+            public static bool      ShadowEnabled;
+            public static Color     ShadowColor       = new Color(0f, 0f, 0f, 0.75f);
+            public static float     ShadowSoftness    = 0.5f;
+            public static bool      BackgroundEnabled;
+            public static Color     BackgroundColor   = new Color(0f, 0f, 0f, 0.6f);
+            public static float     BackgroundCornerRadius = 18f;
+
+            public static void Reset()
+            {
+                TextColor              = null;
+                FontStyle              = UnityEngine.FontStyle.Bold;
+                OutlineColor           = null;
+                OutlineWidth           = 0.10f;
+                ShadowEnabled          = false;
+                ShadowColor            = new Color(0f, 0f, 0f, 0.75f);
+                ShadowSoftness         = 0.5f;
+                BackgroundEnabled      = false;
+                BackgroundColor        = new Color(0f, 0f, 0f, 0.6f);
+                BackgroundCornerRadius = 18f;
+            }
+        }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Bootstrap()
         {
@@ -44,6 +76,10 @@ namespace MugsTech.Style
 
         public static void ApplyToActiveScene()
         {
+            string activeName = PlayerPrefs.GetString(VisualsMenuController.ActiveSaveNameKey, "");
+            string sceneName  = SceneManager.GetActiveScene().name;
+            Debug.Log($"[BgVideoDiag] VisualsRuntimeApplier.ApplyToActiveScene scene='{sceneName}' " +
+                      $"activeSaveName='{activeName}'");
             VisualsSaveFile save = LoadActiveSave();
 
             // Reset overrides to a clean slate — leftover static state from a
@@ -52,11 +88,79 @@ namespace MugsTech.Style
             CardTextColorOverride = null;
             CardFontStyleOverride = null;
             CardFontOverride      = null;
+            BigText.Reset();
+            // Clear the preset video pref unconditionally — ApplyBackgroundVideo
+            // (below) re-writes it from whichever source has a path.
+            PlayerPrefs.DeleteKey(BackgroundVideoLoop.PresetPathPrefKey);
 
-            if (save == null) return;
+            if (save != null)
+            {
+                ApplyCardStyle(save);
+                ApplyBigTextStyle(save);
+                ApplyAvatarSprites(save);
+            }
 
-            ApplyCardStyle(save);
-            ApplyAvatarSprites(save);
+            // Bg video is intentionally not preset-bound: even without an
+            // active named save, a path picked in the visuals menu should
+            // apply at recording time. Active save's path wins; otherwise
+            // fall back to the visuals-menu working state PlayerPref.
+            ApplyBackgroundVideo(save);
+            PlayerPrefs.Save();
+
+            // Explicitly hand off to the override hijacker AFTER the prefs are
+            // written, so ordering relative to its own sceneLoaded subscription
+            // doesn't matter — by the time it runs here, PresetPathPrefKey is
+            // current.
+            MugsTech.Background.BackgroundVideoOverride.ApplyToActiveScene();
+        }
+
+        static void ApplyBackgroundVideo(VisualsSaveFile save)
+        {
+            // Active save is authoritative — its path wins even when empty
+            // (an empty path on an active save means "no override"). When no
+            // save is active, fall through to the visuals-menu working state
+            // so the user's pick still applies without requiring Save As.
+            string source;
+            string path;
+            if (save != null)
+            {
+                source = $"save '{save.name}'";
+                path   = save.backgroundVideoPath;
+            }
+            else
+            {
+                source = "PlayerPrefs working state";
+                path   = PlayerPrefs.GetString(VisualsMenuController.BgVideoPathKey, "");
+            }
+
+            Debug.Log($"[BgVideoDiag] ApplyBackgroundVideo: source={source} path='{path}'");
+
+            if (!string.IsNullOrWhiteSpace(path))
+            {
+                PlayerPrefs.SetString(BackgroundVideoLoop.PresetPathPrefKey, path.Trim());
+                Debug.Log($"[BgVideoDiag]   wrote PresetPathPrefKey='{path.Trim()}'");
+            }
+            else
+            {
+                Debug.Log("[BgVideoDiag]   no path to write; PresetPathPrefKey stays cleared.");
+            }
+        }
+
+        static void ApplyBigTextStyle(VisualsSaveFile save)
+        {
+            BigTextStyleData s = save.bigText;
+            if (s == null) return;
+
+            BigText.TextColor              = TryParseHex(s.textColorHex);
+            BigText.FontStyle              = (FontStyle)s.fontStyle;
+            BigText.OutlineColor           = TryParseHex(s.outlineColorHex);
+            BigText.OutlineWidth           = s.outlineWidth;
+            BigText.ShadowEnabled          = s.shadowEnabled;
+            if (TryParseHex(s.shadowColorHex) is Color sc) BigText.ShadowColor = sc;
+            BigText.ShadowSoftness         = s.shadowSoftness;
+            BigText.BackgroundEnabled      = s.backgroundEnabled;
+            if (TryParseHex(s.backgroundColorHex) is Color bc) BigText.BackgroundColor = bc;
+            BigText.BackgroundCornerRadius = s.backgroundCornerRadius;
         }
 
         /// <summary>

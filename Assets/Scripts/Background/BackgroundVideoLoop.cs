@@ -14,8 +14,13 @@ using UnityEngine.Video;
 /// Source resolution at Start (highest priority first):
 ///   1. PlayerPrefs override at <see cref="OverridePathPrefKey"/> — set by the
 ///      main menu's "Background Video" field. Any absolute MP4 path on disk.
-///   2. The Inspector field <c>defaultVideoPath</c> — an absolute MP4 path.
-///   3. The Inspector field <c>videoClip</c> — a Unity-imported VideoClip asset.
+///   2. PlayerPrefs preset path at <see cref="PresetPathPrefKey"/> — written
+///      by VisualsRuntimeApplier from the active VisualsSave's
+///      <c>backgroundVideoPath</c>. Lets a saved preset travel with its own
+///      background video while still allowing the main menu's ad-hoc field
+///      to win.
+///   3. The Inspector field <c>defaultVideoPath</c> — an absolute MP4 path.
+///   4. The Inspector field <c>videoClip</c> — a Unity-imported VideoClip asset.
 /// </summary>
 [RequireComponent(typeof(RectTransform))]
 public class BackgroundVideoLoop : MonoBehaviour
@@ -24,6 +29,13 @@ public class BackgroundVideoLoop : MonoBehaviour
     /// Shared with MainMenuController. Both keys must match — keep them in sync.
     /// </summary>
     public const string OverridePathPrefKey = "AutoAvatarGen.BackgroundVideoOverride";
+
+    /// <summary>
+    /// Written by VisualsRuntimeApplier when an active visuals save carries a
+    /// <c>backgroundVideoPath</c>. Cleared on no-active-save. Loses to
+    /// <see cref="OverridePathPrefKey"/> so the main menu's field still wins.
+    /// </summary>
+    public const string PresetPathPrefKey   = "AutoAvatarGen.BackgroundVideoPreset";
 
     [Header("Video — pick ONE source")]
     [Tooltip("Absolute file path to an MP4. Used as the default if no main-menu " +
@@ -61,6 +73,8 @@ public class BackgroundVideoLoop : MonoBehaviour
 
     void Start()
     {
+        Debug.Log($"[BgVideoDiag] BackgroundVideoLoop.Start on '{gameObject.name}' " +
+                  $"scene='{gameObject.scene.name}'");
         SetupRawImage();
         SetupVideoPlayer();
         Play();
@@ -118,7 +132,13 @@ public class BackgroundVideoLoop : MonoBehaviour
     void ApplyResolvedSource()
     {
         string overridePath = PlayerPrefs.GetString(OverridePathPrefKey, "");
+        string presetPath   = PlayerPrefs.GetString(PresetPathPrefKey,   "");
+        Debug.Log($"[BgVideoDiag] BackgroundVideoLoop.ApplyResolvedSource " +
+                  $"override='{overridePath}' preset='{presetPath}' " +
+                  $"defaultPath='{defaultVideoPath}' clip='{(videoClip != null ? videoClip.name : "<null>")}'");
+
         if (TrySetUrl(overridePath, "user override")) return;
+        if (TrySetUrl(presetPath,   "visuals preset")) return;
         if (TrySetUrl(defaultVideoPath, "default path")) return;
 
         if (videoClip != null)
@@ -126,26 +146,49 @@ public class BackgroundVideoLoop : MonoBehaviour
             videoPlayer.source = VideoSource.VideoClip;
             videoPlayer.clip   = videoClip;
             activeSourceLabel  = "VideoClip:" + videoClip.name;
+            Debug.Log($"[BgVideoDiag] Resolved to VideoClip:{videoClip.name}");
             return;
         }
 
         activeSourceLabel = null; // Play() will warn
+        Debug.LogWarning("[BgVideoDiag] No source resolved (override/preset/default/clip all empty or missing).");
     }
 
     bool TrySetUrl(string path, string sourceLabel)
     {
-        if (string.IsNullOrWhiteSpace(path)) return false;
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            Debug.Log($"[BgVideoDiag]   {sourceLabel}: empty, skipping.");
+            return false;
+        }
         string trimmed = path.Trim();
-        if (!File.Exists(trimmed))
+        bool exists = File.Exists(trimmed);
+        Debug.Log($"[BgVideoDiag]   {sourceLabel}: '{trimmed}' (File.Exists={exists})");
+        if (!exists)
         {
             Debug.LogWarning($"[BackgroundVideoLoop] {sourceLabel} path not found, " +
                              $"falling through: {trimmed}");
             return false;
         }
         videoPlayer.source = VideoSource.Url;
-        videoPlayer.url    = "file://" + trimmed;
+        videoPlayer.url    = ToFileUrl(trimmed);
         activeSourceLabel  = sourceLabel + ":" + Path.GetFileName(trimmed);
+        Debug.Log($"[BgVideoDiag] Resolved to {activeSourceLabel}, url='{videoPlayer.url}'");
         return true;
+    }
+
+    // Build a proper RFC-compliant file:// URL. Plain string concatenation
+    // ("file://" + "C:\foo\bar.mp4") yields a malformed URL on Windows that
+    // some Unity versions silently fail to load without raising errorReceived.
+    static string ToFileUrl(string absolutePath)
+    {
+        try { return new System.Uri(absolutePath).AbsoluteUri; }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"[BgVideoDiag] Uri construction failed for '{absolutePath}': " +
+                             $"{e.Message}; falling back to 'file://' + path.");
+            return "file://" + absolutePath;
+        }
     }
 
     void Play()
@@ -158,7 +201,10 @@ public class BackgroundVideoLoop : MonoBehaviour
             return;
         }
 
-        videoPlayer.Prepare();
+        videoPlayer.errorReceived += (source, msg) =>
+        {
+            Debug.LogError($"[BgVideoDiag] VideoPlayer error: {msg} (url='{source.url}')");
+        };
         videoPlayer.prepareCompleted += (source) =>
         {
             source.Play();
@@ -166,6 +212,9 @@ public class BackgroundVideoLoop : MonoBehaviour
                       $"({textureWidth}x{textureHeight}, loop, speed {playbackSpeed}x)");
             StartCoroutine(MarkReadyAfterFirstFrame());
         };
+        Debug.Log($"[BgVideoDiag] BackgroundVideoLoop.Prepare() — source={videoPlayer.source} " +
+                  $"url='{videoPlayer.url}' clip='{(videoPlayer.clip != null ? videoPlayer.clip.name : "<null>")}'");
+        videoPlayer.Prepare();
     }
 
     // Wait for the video to actually render its first frame to the

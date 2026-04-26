@@ -127,6 +127,8 @@ public class MainMenuController : MonoBehaviour
         // Flush field values in case the user typed but didn't click out before hitting Start.
         OnPathChanged(pathInput.text);
         OnVideoPathChanged(videoPathInput.text);
+        Debug.Log($"[BgVideoDiag] MainMenu OnStartClicked — videoPathInput.text='{videoPathInput.text}' " +
+                  $"OverridePref='{PlayerPrefs.GetString(BackgroundVideoOverridePrefKey, "")}'");
         RecordingSession.Begin();
     }
 
@@ -158,6 +160,7 @@ public class MainMenuController : MonoBehaviour
         string trimmed = string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
         PlayerPrefs.SetString(BackgroundVideoOverridePrefKey, trimmed);
         PlayerPrefs.Save();
+        Debug.Log($"[BgVideoDiag] MainMenu OnVideoPathChanged wrote OverridePathPrefKey='{trimmed}'");
         if (videoPathInput.text != trimmed) videoPathInput.text = trimmed;
     }
 
