@@ -1,3 +1,4 @@
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Video;
@@ -10,20 +11,33 @@ using UnityEngine.Video;
 ///   - Creates a RenderTexture and wires everything up
 ///   - Loops forever with no audio (character voice plays over it)
 ///
-/// Just assign your video clip in the Inspector and press Play.
+/// Source resolution at Start (highest priority first):
+///   1. PlayerPrefs override at <see cref="OverridePathPrefKey"/> — set by the
+///      main menu's "Background Video" field. Any absolute MP4 path on disk.
+///   2. The Inspector field <c>defaultVideoPath</c> — an absolute MP4 path.
+///   3. The Inspector field <c>videoClip</c> — a Unity-imported VideoClip asset.
 /// </summary>
 [RequireComponent(typeof(RectTransform))]
 public class BackgroundVideoLoop : MonoBehaviour
 {
-    [Header("Video")]
-    [Tooltip("The video clip to loop as the background.")]
+    /// <summary>
+    /// Shared with MainMenuController. Both keys must match — keep them in sync.
+    /// </summary>
+    public const string OverridePathPrefKey = "AutoAvatarGen.BackgroundVideoOverride";
+
+    [Header("Video — pick ONE source")]
+    [Tooltip("Absolute file path to an MP4. Used as the default if no main-menu " +
+             "override is set. Leave empty to fall back to the VideoClip below.")]
+    public string defaultVideoPath = "";
+
+    [Tooltip("Unity-imported VideoClip asset, used if no path is set above.")]
     public VideoClip videoClip;
 
+    [Header("Playback")]
     [Tooltip("Playback speed (1 = normal).")]
     [Range(0.1f, 3f)]
     public float playbackSpeed = 1f;
 
-    [Header("Audio")]
     [Tooltip("Mute the video's audio track (recommended — Mugs talks over it).")]
     public bool muteAudio = true;
 
@@ -36,6 +50,7 @@ public class BackgroundVideoLoop : MonoBehaviour
     private RawImage rawImage;
     private RenderTexture renderTexture;
     private bool isReady;
+    private string activeSourceLabel;
 
     /// <summary>
     /// True once the VideoPlayer has finished Prepare() and has had at least
@@ -81,34 +96,65 @@ public class BackgroundVideoLoop : MonoBehaviour
         if (videoPlayer == null)
             videoPlayer = gameObject.AddComponent<VideoPlayer>();
 
-        // Create a RenderTexture for the video to render into
         renderTexture = new RenderTexture(textureWidth, textureHeight, 0);
         renderTexture.name = "BackgroundVideoRT";
 
-        videoPlayer.clip = videoClip;
-        videoPlayer.renderMode = VideoRenderMode.RenderTexture;
+        videoPlayer.renderMode    = VideoRenderMode.RenderTexture;
         videoPlayer.targetTexture = renderTexture;
-        videoPlayer.isLooping = true;
+        videoPlayer.isLooping     = true;
         videoPlayer.playbackSpeed = playbackSpeed;
-        videoPlayer.playOnAwake = false;
-        videoPlayer.skipOnDrop = true;
+        videoPlayer.playOnAwake   = false;
+        videoPlayer.skipOnDrop    = true;
 
-        // Audio
         if (muteAudio)
-        {
             videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
+
+        rawImage.texture = renderTexture;
+
+        ApplyResolvedSource();
+    }
+
+    /// <summary>Picks the highest-priority source available and configures the VideoPlayer.</summary>
+    void ApplyResolvedSource()
+    {
+        string overridePath = PlayerPrefs.GetString(OverridePathPrefKey, "");
+        if (TrySetUrl(overridePath, "user override")) return;
+        if (TrySetUrl(defaultVideoPath, "default path")) return;
+
+        if (videoClip != null)
+        {
+            videoPlayer.source = VideoSource.VideoClip;
+            videoPlayer.clip   = videoClip;
+            activeSourceLabel  = "VideoClip:" + videoClip.name;
+            return;
         }
 
-        // Connect the RawImage to display the RenderTexture
-        rawImage.texture = renderTexture;
+        activeSourceLabel = null; // Play() will warn
+    }
+
+    bool TrySetUrl(string path, string sourceLabel)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        string trimmed = path.Trim();
+        if (!File.Exists(trimmed))
+        {
+            Debug.LogWarning($"[BackgroundVideoLoop] {sourceLabel} path not found, " +
+                             $"falling through: {trimmed}");
+            return false;
+        }
+        videoPlayer.source = VideoSource.Url;
+        videoPlayer.url    = "file://" + trimmed;
+        activeSourceLabel  = sourceLabel + ":" + Path.GetFileName(trimmed);
+        return true;
     }
 
     void Play()
     {
-        if (videoClip == null)
+        if (string.IsNullOrEmpty(activeSourceLabel))
         {
-            Debug.LogError("[BackgroundVideoLoop] No video clip assigned! " +
-                           "Drag a VideoClip into the 'Video Clip' field in the Inspector.");
+            Debug.LogError("[BackgroundVideoLoop] No video source resolved. Set " +
+                           "PlayerPrefs key '" + OverridePathPrefKey + "', the " +
+                           "'Default Video Path' field, or assign a 'Video Clip'.");
             return;
         }
 
@@ -116,7 +162,7 @@ public class BackgroundVideoLoop : MonoBehaviour
         videoPlayer.prepareCompleted += (source) =>
         {
             source.Play();
-            Debug.Log($"[BackgroundVideoLoop] Playing '{videoClip.name}' " +
+            Debug.Log($"[BackgroundVideoLoop] Playing {activeSourceLabel} " +
                       $"({textureWidth}x{textureHeight}, loop, speed {playbackSpeed}x)");
             StartCoroutine(MarkReadyAfterFirstFrame());
         };

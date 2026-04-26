@@ -69,13 +69,20 @@ public static class VisualsMenuUIBuilder
         // ---------- Panel ----------
         Image panel = CreateImage("Panel", canvasObj.transform);
         panel.color = new Color(0.10f, 0.12f, 0.16f, 1f);
-        SetRect(panel.rectTransform, AC, AC, AC, Vector2.zero, new Vector2(1900, 1100));
+        SetRect(panel.rectTransform, AC, AC, AC, Vector2.zero, new Vector2(1900, 1170));
         Transform p = panel.transform;
 
         // ---------- Title ----------
         Text title = CreateText("Title", p, "Customize Visuals",
             56, TextAnchor.MiddleCenter, FontStyle.Bold);
-        SetRect(title.rectTransform, AC, AC, AC, new Vector2(0, 480), new Vector2(1800, 70));
+        SetRect(title.rectTransform, AC, AC, AC, new Vector2(0, 515), new Vector2(1800, 70));
+
+        // ---------- Active save label (just below title) ----------
+        Text activeSaveLabel = CreateText("ActiveSaveLabel", p, "Editing:  Untitled",
+            24, TextAnchor.MiddleCenter, FontStyle.Italic);
+        activeSaveLabel.color = new Color(0.55f, 0.58f, 0.64f, 1f);
+        SetRect(activeSaveLabel.rectTransform, AC, AC, AC,
+            new Vector2(0, 458), new Vector2(1800, 30));
 
         // =======================================================
         // LEFT COLUMN — Presenter character
@@ -157,24 +164,49 @@ public static class VisualsMenuUIBuilder
         cptRT.offsetMax = new Vector2(-40, -30);
 
         // =======================================================
-        // BOTTOM ROW — Save / Close + Toast
+        // BOTTOM ROW — Save / Save As / Manage Saves / Close + Toast
         // =======================================================
         Button saveBtn = CreateButton("SaveButton", p, "Save",
             new Color(0.18f, 0.62f, 0.34f));
         SetRect(saveBtn.GetComponent<RectTransform>(), AC, AC, AC,
-            new Vector2(-160, -460), new Vector2(260, 80));
+            new Vector2(-395, -495), new Vector2(250, 80));
+
+        Button saveAsBtn = CreateButton("SaveAsButton", p, "Save As…",
+            new Color(0.18f, 0.50f, 0.62f));
+        SetRect(saveAsBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(-135, -495), new Vector2(250, 80));
+
+        Button manageSavesBtn = CreateButton("ManageSavesButton", p, "Manage Saves…",
+            new Color(0.30f, 0.40f, 0.55f));
+        SetRect(manageSavesBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(135, -495), new Vector2(250, 80));
 
         Button closeBtn = CreateButton("CloseButton", p, "Close",
             new Color(0.30f, 0.32f, 0.36f));
         SetRect(closeBtn.GetComponent<RectTransform>(), AC, AC, AC,
-            new Vector2(160, -460), new Vector2(260, 80));
+            new Vector2(395, -495), new Vector2(250, 80));
 
         Text toast = CreateText("Toast", p, "Saved.",
             26, TextAnchor.MiddleCenter, FontStyle.Italic);
         toast.color = new Color(0.35f, 0.85f, 0.45f, 1f);
         SetRect(toast.rectTransform, AC, AC, AC,
-            new Vector2(0, -515), new Vector2(1800, 30));
+            new Vector2(0, -555), new Vector2(1800, 30));
         toast.gameObject.SetActive(false);
+
+        // =======================================================
+        // MANAGE SAVES SUB-PANEL (overlay, initially hidden)
+        // =======================================================
+        var savesPanel = BuildSavesPanel(canvasObj.transform);
+
+        // =======================================================
+        // SAVE AS PROMPT (overlay, initially hidden)
+        // =======================================================
+        var saveAsPrompt = BuildSaveAsPrompt(canvasObj.transform);
+
+        // =======================================================
+        // OVERWRITE / CONFIRM PROMPT (overlay, initially hidden)
+        // =======================================================
+        var overwritePrompt = BuildConfirmPrompt(canvasObj.transform);
 
         // ---------- EventSystem (only if missing) ----------
         if (Object.FindFirstObjectByType<EventSystem>() == null)
@@ -213,10 +245,40 @@ public static class VisualsMenuUIBuilder
         so.FindProperty("fontBoldItalicButton").objectReferenceValue  = fontRow.boldItalicBtn;
         so.FindProperty("cardPreviewBackground").objectReferenceValue = cardPreviewBg;
         so.FindProperty("cardPreviewText").objectReferenceValue       = cardPreviewText;
+
+        so.FindProperty("activeSaveLabel").objectReferenceValue       = activeSaveLabel;
+
         so.FindProperty("saveButton").objectReferenceValue            = saveBtn;
+        so.FindProperty("saveAsButton").objectReferenceValue          = saveAsBtn;
+        so.FindProperty("manageSavesButton").objectReferenceValue     = manageSavesBtn;
         so.FindProperty("closeButton").objectReferenceValue           = closeBtn;
         so.FindProperty("toastText").objectReferenceValue             = toast;
+
+        so.FindProperty("savesPanelRoot").objectReferenceValue        = savesPanel.root;
+        so.FindProperty("savesListContent").objectReferenceValue      = savesPanel.listContent;
+        so.FindProperty("savesEmptyLabel").objectReferenceValue       = savesPanel.emptyLabel;
+        so.FindProperty("importButton").objectReferenceValue          = savesPanel.importBtn;
+        so.FindProperty("exportSelectedButton").objectReferenceValue  = savesPanel.exportBtn;
+        so.FindProperty("loadSelectedButton").objectReferenceValue    = savesPanel.loadBtn;
+        so.FindProperty("deleteSelectedButton").objectReferenceValue  = savesPanel.deleteBtn;
+        so.FindProperty("savesPanelCloseButton").objectReferenceValue = savesPanel.closeBtn;
+
+        so.FindProperty("saveAsPromptRoot").objectReferenceValue      = saveAsPrompt.root;
+        so.FindProperty("saveAsNameInput").objectReferenceValue       = saveAsPrompt.input;
+        so.FindProperty("saveAsConfirmButton").objectReferenceValue   = saveAsPrompt.confirmBtn;
+        so.FindProperty("saveAsCancelButton").objectReferenceValue    = saveAsPrompt.cancelBtn;
+
+        so.FindProperty("overwriteConfirmRoot").objectReferenceValue    = overwritePrompt.root;
+        so.FindProperty("overwriteConfirmMessage").objectReferenceValue = overwritePrompt.message;
+        so.FindProperty("overwriteConfirmButton").objectReferenceValue  = overwritePrompt.confirmBtn;
+        so.FindProperty("overwriteCancelButton").objectReferenceValue   = overwritePrompt.cancelBtn;
+
         so.ApplyModifiedProperties();
+
+        // Hide the overlays now that they're wired.
+        savesPanel.root.SetActive(false);
+        saveAsPrompt.root.SetActive(false);
+        overwritePrompt.root.SetActive(false);
 
         Undo.CollapseUndoOperations(undoGroup);
         EditorSceneManager.MarkSceneDirty(rootGO.scene);
@@ -532,5 +594,247 @@ public static class VisualsMenuUIBuilder
         slider.value          = value;
 
         return slider;
+    }
+
+    // =======================================================================
+    // Modal sub-panel builders
+    // =======================================================================
+
+    struct SavesPanelRefs
+    {
+        public GameObject root;
+        public RectTransform listContent;
+        public Text emptyLabel;
+        public Button importBtn, exportBtn, loadBtn, deleteBtn, closeBtn;
+    }
+
+    static SavesPanelRefs BuildSavesPanel(Transform canvasParent)
+    {
+        SavesPanelRefs r = default;
+
+        r.root = NewUIObject("SavesPanel", canvasParent);
+        var rootRT = r.root.GetComponent<RectTransform>();
+        rootRT.anchorMin = Vector2.zero;
+        rootRT.anchorMax = Vector2.one;
+        rootRT.offsetMin = Vector2.zero;
+        rootRT.offsetMax = Vector2.zero;
+
+        // Backdrop
+        Image backdrop = CreateImage("Backdrop", r.root.transform);
+        backdrop.color = new Color(0f, 0f, 0f, 0.65f);
+        StretchToParent(backdrop.rectTransform);
+
+        // Frame
+        Image frame = CreateImage("Frame", r.root.transform);
+        frame.color = new Color(0.10f, 0.12f, 0.16f, 1f);
+        SetRect(frame.rectTransform, AC, AC, AC, Vector2.zero, new Vector2(820, 700));
+        Transform f = frame.transform;
+
+        Text title = CreateText("Title", f, "Manage Saves",
+            36, TextAnchor.MiddleCenter, FontStyle.Bold);
+        SetRect(title.rectTransform, AC, AC, AC, new Vector2(0, 305), new Vector2(800, 50));
+
+        // Top row: Import / Export
+        r.importBtn = CreateButton("ImportButton", f, "Import…",
+            new Color(0.20f, 0.45f, 0.65f));
+        SetRect(r.importBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(-180, 240), new Vector2(220, 50));
+
+        r.exportBtn = CreateButton("ExportSelectedButton", f, "Export Selected…",
+            new Color(0.18f, 0.50f, 0.62f));
+        SetRect(r.exportBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(140, 240), new Vector2(280, 50));
+
+        // Scroll list
+        var content = CreateScrollView("SavesScrollView", f,
+            new Vector2(0, 5), new Vector2(760, 360));
+        r.listContent = content;
+
+        // Empty-state label centered over the list area.
+        r.emptyLabel = CreateText("EmptyLabel", f,
+            "No saves yet. Click \"Save As…\" on the editor to create one.",
+            22, TextAnchor.MiddleCenter, FontStyle.Italic);
+        r.emptyLabel.color = new Color(0.55f, 0.58f, 0.64f, 1f);
+        SetRect(r.emptyLabel.rectTransform, AC, AC, AC,
+            new Vector2(0, 5), new Vector2(720, 60));
+
+        // Bottom row: Load / Delete
+        r.loadBtn = CreateButton("LoadSelectedButton", f, "Load",
+            new Color(0.18f, 0.62f, 0.34f));
+        SetRect(r.loadBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(-150, -240), new Vector2(240, 60));
+
+        r.deleteBtn = CreateButton("DeleteSelectedButton", f, "Delete",
+            new Color(0.62f, 0.22f, 0.22f));
+        SetRect(r.deleteBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(150, -240), new Vector2(240, 60));
+
+        r.closeBtn = CreateButton("CloseButton", f, "Close",
+            new Color(0.30f, 0.32f, 0.36f));
+        SetRect(r.closeBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(0, -310), new Vector2(220, 50));
+
+        return r;
+    }
+
+    struct SaveAsPromptRefs
+    {
+        public GameObject root;
+        public InputField input;
+        public Button confirmBtn, cancelBtn;
+    }
+
+    static SaveAsPromptRefs BuildSaveAsPrompt(Transform canvasParent)
+    {
+        SaveAsPromptRefs r = default;
+
+        r.root = NewUIObject("SaveAsPrompt", canvasParent);
+        var rootRT = r.root.GetComponent<RectTransform>();
+        rootRT.anchorMin = Vector2.zero;
+        rootRT.anchorMax = Vector2.one;
+        rootRT.offsetMin = Vector2.zero;
+        rootRT.offsetMax = Vector2.zero;
+
+        Image backdrop = CreateImage("Backdrop", r.root.transform);
+        backdrop.color = new Color(0f, 0f, 0f, 0.70f);
+        StretchToParent(backdrop.rectTransform);
+
+        Image frame = CreateImage("Frame", r.root.transform);
+        frame.color = new Color(0.12f, 0.14f, 0.18f, 1f);
+        SetRect(frame.rectTransform, AC, AC, AC, Vector2.zero, new Vector2(620, 360));
+        Transform f = frame.transform;
+
+        Text title = CreateText("Title", f, "Save As",
+            36, TextAnchor.MiddleCenter, FontStyle.Bold);
+        SetRect(title.rectTransform, AC, AC, AC, new Vector2(0, 130), new Vector2(580, 50));
+
+        Text label = CreateText("Label", f, "Name:",
+            24, TextAnchor.MiddleLeft, FontStyle.Normal);
+        label.color = new Color(0.82f, 0.85f, 0.90f, 1f);
+        SetRect(label.rectTransform, AC, AC, AC, new Vector2(-220, 50), new Vector2(160, 30));
+
+        r.input = CreateInputField("NameInput", f, "MyVisuals");
+        SetRect(r.input.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(40, 50), new Vector2(420, 50));
+
+        r.cancelBtn = CreateButton("CancelButton", f, "Cancel",
+            new Color(0.30f, 0.32f, 0.36f));
+        SetRect(r.cancelBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(-120, -110), new Vector2(220, 60));
+
+        r.confirmBtn = CreateButton("ConfirmButton", f, "Save",
+            new Color(0.18f, 0.62f, 0.34f));
+        SetRect(r.confirmBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(120, -110), new Vector2(220, 60));
+
+        return r;
+    }
+
+    struct ConfirmPromptRefs
+    {
+        public GameObject root;
+        public Text message;
+        public Button confirmBtn, cancelBtn;
+    }
+
+    static ConfirmPromptRefs BuildConfirmPrompt(Transform canvasParent)
+    {
+        ConfirmPromptRefs r = default;
+
+        r.root = NewUIObject("OverwritePrompt", canvasParent);
+        var rootRT = r.root.GetComponent<RectTransform>();
+        rootRT.anchorMin = Vector2.zero;
+        rootRT.anchorMax = Vector2.one;
+        rootRT.offsetMin = Vector2.zero;
+        rootRT.offsetMax = Vector2.zero;
+
+        Image backdrop = CreateImage("Backdrop", r.root.transform);
+        backdrop.color = new Color(0f, 0f, 0f, 0.75f);
+        StretchToParent(backdrop.rectTransform);
+
+        Image frame = CreateImage("Frame", r.root.transform);
+        frame.color = new Color(0.12f, 0.14f, 0.18f, 1f);
+        SetRect(frame.rectTransform, AC, AC, AC, Vector2.zero, new Vector2(620, 320));
+        Transform f = frame.transform;
+
+        Text title = CreateText("Title", f, "Confirm",
+            34, TextAnchor.MiddleCenter, FontStyle.Bold);
+        SetRect(title.rectTransform, AC, AC, AC, new Vector2(0, 110), new Vector2(580, 40));
+
+        r.message = CreateText("Message", f, "(message)",
+            22, TextAnchor.MiddleCenter, FontStyle.Normal);
+        r.message.color = new Color(0.82f, 0.85f, 0.90f, 1f);
+        r.message.horizontalOverflow = HorizontalWrapMode.Wrap;
+        r.message.verticalOverflow   = VerticalWrapMode.Truncate;
+        SetRect(r.message.rectTransform, AC, AC, AC,
+            new Vector2(0, 20), new Vector2(540, 90));
+
+        r.cancelBtn = CreateButton("CancelButton", f, "Cancel",
+            new Color(0.30f, 0.32f, 0.36f));
+        SetRect(r.cancelBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(-120, -100), new Vector2(220, 60));
+
+        r.confirmBtn = CreateButton("ConfirmButton", f, "Yes",
+            new Color(0.62f, 0.22f, 0.22f));
+        SetRect(r.confirmBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            new Vector2(120, -100), new Vector2(220, 60));
+
+        return r;
+    }
+
+    // =======================================================================
+    // ScrollView builder — returns the Content RectTransform that the
+    // controller appends row GameObjects to at runtime.
+    // =======================================================================
+
+    static RectTransform CreateScrollView(string name, Transform parent,
+        Vector2 anchoredPos, Vector2 size)
+    {
+        GameObject scrollObj = NewUIObject(name, parent);
+        SetRect(scrollObj.GetComponent<RectTransform>(), AC, AC, AC, anchoredPos, size);
+
+        Image bg = Undo.AddComponent<Image>(scrollObj);
+        bg.sprite = GetUISprite();
+        bg.color  = new Color(0.06f, 0.07f, 0.10f, 1f);
+
+        ScrollRect sr = Undo.AddComponent<ScrollRect>(scrollObj);
+
+        // Viewport
+        GameObject viewport = NewUIObject("Viewport", scrollObj.transform);
+        var vpRT = viewport.GetComponent<RectTransform>();
+        vpRT.anchorMin = Vector2.zero;
+        vpRT.anchorMax = Vector2.one;
+        vpRT.offsetMin = new Vector2(4, 4);
+        vpRT.offsetMax = new Vector2(-4, -4);
+        Image vpImg = Undo.AddComponent<Image>(viewport);
+        vpImg.color = new Color(1f, 1f, 1f, 0.01f); // raycast target, nearly invisible
+        var mask = Undo.AddComponent<Mask>(viewport);
+        mask.showMaskGraphic = false;
+
+        // Content
+        GameObject content = NewUIObject("Content", viewport.transform);
+        var cRT = content.GetComponent<RectTransform>();
+        cRT.anchorMin = new Vector2(0, 1);
+        cRT.anchorMax = new Vector2(1, 1);
+        cRT.pivot     = new Vector2(0.5f, 1);
+        cRT.sizeDelta = Vector2.zero;
+        var vlg = Undo.AddComponent<VerticalLayoutGroup>(content);
+        vlg.childForceExpandWidth  = true;
+        vlg.childForceExpandHeight = false;
+        vlg.childControlHeight     = false;
+        vlg.childControlWidth      = true;
+        vlg.spacing                = 4f;
+        vlg.padding                = new RectOffset(8, 8, 8, 8);
+        var csf = Undo.AddComponent<ContentSizeFitter>(content);
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        sr.viewport          = vpRT;
+        sr.content           = cRT;
+        sr.horizontal        = false;
+        sr.vertical          = true;
+        sr.movementType      = ScrollRect.MovementType.Clamped;
+        sr.scrollSensitivity = 30f;
+
+        return cRT;
     }
 }

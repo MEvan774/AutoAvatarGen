@@ -136,6 +136,46 @@ public class HybridAvatarSystem : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Replaces the per-emotion sprites with runtime-loaded ones (e.g. from a
+    /// user's VisualsSave). Called after Awake by VisualsRuntimeApplier on
+    /// scene load. Updates the inspector-assigned sprite fields, the active
+    /// emotionMap, the live avatarRenderer sprite (if Neutral was overridden),
+    /// and refreshes the size baseline so the new neutral sets the reference
+    /// height for normalization.
+    /// </summary>
+    public void ApplyEmotionOverrides(IDictionary<string, Sprite> overrides)
+    {
+        if (overrides == null || overrides.Count == 0) return;
+
+        if (TryGet(overrides, "Neutral",   out Sprite n)) neutralSprite   = n;
+        if (TryGet(overrides, "Excited",   out Sprite e)) excitedSprite   = e;
+        if (TryGet(overrides, "Serious",   out Sprite s)) seriousSprite   = s;
+        if (TryGet(overrides, "Sad",       out Sprite d)) sadSprite       = d;
+        if (TryGet(overrides, "Concerned", out Sprite c)) concernedSprite = c;
+
+        if (emotionMap != null)
+        {
+            emotionMap["Neutral"]   = neutralSprite;
+            emotionMap["Excited"]   = excitedSprite;
+            emotionMap["Serious"]   = seriousSprite;
+            emotionMap["Sad"]       = sadSprite;
+            emotionMap["Concerned"] = concernedSprite;
+        }
+
+        if (avatarRenderer != null && neutralSprite != null)
+        {
+            avatarRenderer.sprite = neutralSprite;
+            baselineSpriteHeight  = neutralSprite.bounds.size.y;
+            NormalizeSpriteSize(avatarRenderer);
+        }
+    }
+
+    static bool TryGet(IDictionary<string, Sprite> map, string key, out Sprite value)
+    {
+        return map.TryGetValue(key, out value) && value != null;
+    }
+
     public void SetSwayBase(Vector3 basePosition, Quaternion baseRotation)
     {
         swayBasePosition = basePosition;

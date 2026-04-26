@@ -1,20 +1,28 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using MugsTech.Style;
 
 /// <summary>
 /// Direct-edit visuals customization panel.
 ///
 /// Presenter character: one slot per emotion. The user pastes (or browses to,
-/// when running in the Editor) an image path; the image is loaded from disk
-/// at runtime and shown as a preview. Saved paths persist to PlayerPrefs and
-/// are re-loaded the next time the panel opens.
+/// when running in the Editor or with UnityStandaloneFileBrowser installed)
+/// an image path; the image is loaded from disk at runtime and shown as a
+/// preview. Saved paths persist to PlayerPrefs and are re-loaded on next open.
 ///
 /// Card style: live-editable background color, corner radius, text color, and
-/// font style. A small card preview at the bottom of the panel reflects the
-/// current values in real time. Save writes everything to PlayerPrefs.
+/// font style. A small card preview reflects the current values in real time.
+///
+/// Named saves: "Save As..." writes a JSON file under
+/// Application.persistentDataPath/VisualsSaves/ with the image bytes embedded
+/// (true backup). "Manage Saves..." opens a sub-panel for load / delete /
+/// import / export. Quick "Save" still writes the active state to PlayerPrefs
+/// so the editor restores between sessions even without a named save.
 ///
 /// All UI lives as authored GameObjects. To rebuild the layout from scratch:
 ///   Tools -> AutoAvatarGen -> Build Visuals Menu UI
@@ -27,6 +35,8 @@ public class VisualsMenuController : MonoBehaviour
     public const string CardCornerKey     = KeyPrefix + "Card.CornerRadius";
     public const string CardTextColorKey  = KeyPrefix + "Card.TextColor";
     public const string CardFontStyleKey  = KeyPrefix + "Card.FontStyle";
+    public const string CardFontNameKey   = KeyPrefix + "Card.FontName";
+    public const string ActiveSaveNameKey = KeyPrefix + "ActiveSaveName";
 
     /// <summary>
     /// Canonical emotion list. Must match HybridAvatarSystem's hardcoded
@@ -55,6 +65,10 @@ public class VisualsMenuController : MonoBehaviour
     [Tooltip("The panel GameObject that gets toggled by Open() / Close.")]
     [SerializeField] GameObject panelRoot;
 
+    [Header("Active Save Display")]
+    [Tooltip("Label at the top of the editor that shows which named save is loaded.")]
+    [SerializeField] Text activeSaveLabel;
+
     [Header("Character Slots")]
     [Tooltip("One entry per emotion. The builder populates this with 5 entries " +
              "matching VisualsMenuController.Emotions.")]
@@ -76,64 +90,191 @@ public class VisualsMenuController : MonoBehaviour
     [SerializeField] Image cardPreviewBackground;
     [SerializeField] Text  cardPreviewText;
 
-    [Header("Action UI")]
+    [Header("Action UI (main panel bottom row)")]
     [SerializeField] Button saveButton;
+    [SerializeField] Button saveAsButton;
+    [SerializeField] Button manageSavesButton;
     [SerializeField] Button closeButton;
     [SerializeField] Text   toastText;
+
+    [Header("Manage Saves Sub-Panel")]
+    [SerializeField] GameObject    savesPanelRoot;
+    [SerializeField] RectTransform savesListContent; // ScrollRect.content
+    [SerializeField] Text          savesEmptyLabel;
+    [SerializeField] Button        importButton;
+    [SerializeField] Button        exportSelectedButton;
+    [SerializeField] Button        loadSelectedButton;
+    [SerializeField] Button        deleteSelectedButton;
+    [SerializeField] Button        savesPanelCloseButton;
+
+    [Header("Save As Prompt Overlay")]
+    [SerializeField] GameObject saveAsPromptRoot;
+    [SerializeField] InputField saveAsNameInput;
+    [SerializeField] Button     saveAsConfirmButton;
+    [SerializeField] Button     saveAsCancelButton;
+
+    [Header("Overwrite Confirm Overlay")]
+    [SerializeField] GameObject overwriteConfirmRoot;
+    [SerializeField] Text       overwriteConfirmMessage;
+    [SerializeField] Button     overwriteConfirmButton;
+    [SerializeField] Button     overwriteCancelButton;
 
     Color  bgColor      = new Color(0.98f, 0.95f, 0.88f, 1f);
     float  cornerRadius = 18f;
     Color  textColor    = new Color(0.10f, 0.10f, 0.12f, 1f);
     FontStyle fontStyle = FontStyle.Normal;
 
+    // Active font selection. Empty = no override (TMP default). Format matches
+    // FontRegistry.FontEntry.Identifier — "project:<name>", "system:<name>",
+    // or "user:<absolute path>".
+    string fontIdentifier = "";
+
+    // Auto-built font picker controls (runtime, no scene wiring required).
+    Text   fontDisplayLabel;
+    Button fontPrevButton;
+    Button fontNextButton;
+    Button fontLoadFileButton;
+
+    // TMP overlay over the legacy cardPreviewText so the preview can render
+    // any TMP_FontAsset. The legacy Text is hidden (enabled = false) on first
+    // build and the TMP one drives all visible preview state thereafter.
+    TextMeshProUGUI cardPreviewTmp;
+
+    string activeSaveName   = "";
+    string selectedSaveName = "";
+    Action pendingOverwriteAction;
+
     static readonly Color FontButtonInactive = new Color(0.30f, 0.32f, 0.36f, 1f);
     static readonly Color FontButtonActive   = new Color(0.20f, 0.55f, 0.85f, 1f);
+    static readonly Color RowUnselected      = new Color(0.16f, 0.18f, 0.22f, 1f);
+    static readonly Color RowSelected        = new Color(0.20f, 0.45f, 0.75f, 1f);
 
     Coroutine toastCoroutine;
 
     void Awake()
     {
-        // Character slot wiring + reload from PlayerPrefs.
+        // Character slot listener wiring (per-slot values are loaded later by
+        // LoadActivePresetOrDefaults so the active named save wins over the
+        // potentially-stale PlayerPrefs char paths).
         foreach (var slot in emotionSlots)
         {
             EmotionSlot captured = slot;
-            string prefKey = CharacterPathKey(captured.emotionName);
-            string saved   = PlayerPrefs.GetString(prefKey, "");
-            captured.pathInput.text = saved;
-            if (!string.IsNullOrEmpty(saved))
-                LoadImageInto(saved, captured.preview);
             captured.loadButton.onClick.AddListener(() => OnLoadEmotion(captured));
         }
 
         // Card style wiring.
         bgColorInput.onEndEdit.AddListener(OnBgColorEdited);
         textColorInput.onEndEdit.AddListener(OnTextColorEdited);
+        AttachColorPicker(bgColorSwatch,   () => bgColor,   c => ApplyPickedBgColor(c));
+        AttachColorPicker(textColorSwatch, () => textColor, c => ApplyPickedTextColor(c));
         cornerRadiusSlider.minValue = 0f;
         cornerRadiusSlider.maxValue = 32f;
         cornerRadiusSlider.onValueChanged.AddListener(OnCornerRadiusChanged);
-
         fontNormalButton.onClick.AddListener(()     => SetFontStyle(FontStyle.Normal));
         fontBoldButton.onClick.AddListener(()       => SetFontStyle(FontStyle.Bold));
         fontItalicButton.onClick.AddListener(()     => SetFontStyle(FontStyle.Italic));
         fontBoldItalicButton.onClick.AddListener(() => SetFontStyle(FontStyle.BoldAndItalic));
 
-        saveButton.onClick.AddListener(OnSave);
+        EnsureTmpCardPreview();
+        BuildFontRow();
+
+        // Bottom row.
+        saveButton.onClick.AddListener(OnQuickSave);
+        saveAsButton.onClick.AddListener(OnSaveAsClicked);
+        manageSavesButton.onClick.AddListener(OnManageSavesClicked);
         closeButton.onClick.AddListener(OnClose);
 
+        // Saves sub-panel.
+        importButton.onClick.AddListener(OnImportClicked);
+        exportSelectedButton.onClick.AddListener(OnExportSelectedClicked);
+        loadSelectedButton.onClick.AddListener(OnLoadSelectedClicked);
+        deleteSelectedButton.onClick.AddListener(OnDeleteSelectedClicked);
+        savesPanelCloseButton.onClick.AddListener(() => savesPanelRoot.SetActive(false));
+
+        // Save As prompt.
+        saveAsConfirmButton.onClick.AddListener(OnSaveAsConfirm);
+        saveAsCancelButton.onClick.AddListener(()  => saveAsPromptRoot.SetActive(false));
+        saveAsNameInput.onSubmit.AddListener(_     => OnSaveAsConfirm());
+
+        // Overwrite confirm.
+        overwriteConfirmButton.onClick.AddListener(OnOverwriteConfirm);
+        overwriteCancelButton.onClick.AddListener(()  => overwriteConfirmRoot.SetActive(false));
+
+        // Initial state.
         toastText.gameObject.SetActive(false);
-        LoadCardStyleFromPrefs();
-        UpdatePreview();
+        savesPanelRoot.SetActive(false);
+        saveAsPromptRoot.SetActive(false);
+        overwriteConfirmRoot.SetActive(false);
+
+        LoadActivePresetOrDefaults();
     }
 
     /// <summary>Show the panel. Wire to a "Visuals" button via Button.onClick.</summary>
     public void Open()
     {
+        gameObject.SetActive(true);
         panelRoot.SetActive(true);
+        // Always pull the latest state from the active save (or PlayerPrefs
+        // fallback) so the editor reflects the currently-active preset rather
+        // than whatever was left in memory from a previous open.
+        LoadActivePresetOrDefaults();
     }
 
+    // Loads the editor state from the named JSON save selected as active in
+    // the main menu. If no save is active (or the file no longer exists),
+    // falls back to the per-emotion paths + card style stored in PlayerPrefs
+    // — the implicit "untitled" working state from a Quick Save.
+    void LoadActivePresetOrDefaults()
+    {
+        activeSaveName = PlayerPrefs.GetString(ActiveSaveNameKey, "");
+
+        if (!string.IsNullOrEmpty(activeSaveName))
+        {
+            var save = VisualsSaveStore.Load(activeSaveName);
+            if (save != null)
+            {
+                ApplySaveToUI(save);
+                activeSaveName = save.name;
+                UpdateActiveSaveLabel();
+                return;
+            }
+            // The named save was deleted out from under us — clear the stale
+            // pref and fall through to the PlayerPrefs defaults.
+            activeSaveName = "";
+            PlayerPrefs.DeleteKey(ActiveSaveNameKey);
+            PlayerPrefs.Save();
+        }
+
+        UpdateActiveSaveLabel();
+
+        foreach (var slot in emotionSlots)
+        {
+            string saved = PlayerPrefs.GetString(CharacterPathKey(slot.emotionName), "");
+            slot.pathInput.text = saved;
+            if (!string.IsNullOrEmpty(saved))
+            {
+                LoadImageInto(saved, slot.preview);
+            }
+            else
+            {
+                slot.preview.sprite = null;
+                slot.preview.color  = new Color(1f, 1f, 1f, 0.10f);
+            }
+        }
+        LoadCardStyleFromPrefs();
+        UpdatePreview();
+    }
+
+    // The PresetsButton in the main menu opens this panel by SetActive(true) on
+    // the controller's GameObject, so closing must deactivate the same object
+    // (not just panelRoot). Otherwise re-clicking PresetsButton is a no-op
+    // because the parent is still active and the inner panelRoot stays hidden.
     void OnClose()
     {
-        panelRoot.SetActive(false);
+        savesPanelRoot.SetActive(false);
+        saveAsPromptRoot.SetActive(false);
+        overwriteConfirmRoot.SetActive(false);
+        gameObject.SetActive(false);
     }
 
     // -----------------------------------------------------------------------
@@ -206,19 +347,7 @@ public class VisualsMenuController : MonoBehaviour
         try
         {
             byte[] data = File.ReadAllBytes(path);
-            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!tex.LoadImage(data))
-            {
-                ShowToast("Could not decode image: " + Path.GetFileName(path));
-                return;
-            }
-            tex.filterMode = FilterMode.Bilinear;
-            target.sprite = Sprite.Create(
-                tex,
-                new Rect(0, 0, tex.width, tex.height),
-                new Vector2(0.5f, 0.5f));
-            target.color = Color.white;
-            target.preserveAspect = true;
+            ApplyBytesToImage(data, target);
         }
         catch (Exception e)
         {
@@ -226,9 +355,265 @@ public class VisualsMenuController : MonoBehaviour
         }
     }
 
+    bool ApplyBytesToImage(byte[] data, Image target)
+    {
+        var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+        if (!tex.LoadImage(data))
+        {
+            ShowToast("Could not decode embedded image.");
+            return false;
+        }
+        tex.filterMode = FilterMode.Bilinear;
+        target.sprite  = Sprite.Create(tex,
+            new Rect(0, 0, tex.width, tex.height),
+            new Vector2(0.5f, 0.5f));
+        target.color   = Color.white;
+        target.preserveAspect = true;
+        return true;
+    }
+
     // -----------------------------------------------------------------------
     // Card style edits
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Live card preview (TMP overlay) — lets the preview render any
+    // TMP_FontAsset chosen in the font picker. Built once over the legacy
+    // cardPreviewText, which then gets disabled.
+    // -----------------------------------------------------------------------
+
+    void EnsureTmpCardPreview()
+    {
+        if (cardPreviewTmp != null || cardPreviewText == null) return;
+
+        var go = new GameObject("CardPreviewTmp", typeof(RectTransform));
+        go.transform.SetParent(cardPreviewText.transform.parent, false);
+
+        // Mirror the legacy Text's RectTransform so the TMP overlay sits
+        // exactly on top of where the legacy text used to render.
+        var src = cardPreviewText.rectTransform;
+        var dst = (RectTransform)go.transform;
+        dst.anchorMin        = src.anchorMin;
+        dst.anchorMax        = src.anchorMax;
+        dst.pivot            = src.pivot;
+        dst.anchoredPosition = src.anchoredPosition;
+        dst.sizeDelta        = src.sizeDelta;
+        dst.offsetMin        = src.offsetMin;
+        dst.offsetMax        = src.offsetMax;
+
+        cardPreviewTmp = go.AddComponent<TextMeshProUGUI>();
+        cardPreviewTmp.text          = cardPreviewText.text;
+        cardPreviewTmp.fontSize      = cardPreviewText.fontSize;
+        cardPreviewTmp.alignment     = ToTmpAlignment(cardPreviewText.alignment);
+        cardPreviewTmp.color         = textColor;
+        cardPreviewTmp.fontStyle     = ToTmpFontStyles(fontStyle);
+        cardPreviewTmp.enableWordWrapping = true;
+        cardPreviewTmp.overflowMode  = TextOverflowModes.Truncate;
+        cardPreviewTmp.raycastTarget = false;
+
+        cardPreviewText.enabled = false;
+    }
+
+    static FontStyles ToTmpFontStyles(FontStyle s)
+    {
+        switch (s)
+        {
+            case FontStyle.Bold:          return FontStyles.Bold;
+            case FontStyle.Italic:        return FontStyles.Italic;
+            case FontStyle.BoldAndItalic: return FontStyles.Bold | FontStyles.Italic;
+            default:                      return FontStyles.Normal;
+        }
+    }
+
+    static TextAlignmentOptions ToTmpAlignment(TextAnchor a)
+    {
+        switch (a)
+        {
+            case TextAnchor.UpperLeft:    return TextAlignmentOptions.TopLeft;
+            case TextAnchor.UpperCenter:  return TextAlignmentOptions.Top;
+            case TextAnchor.UpperRight:   return TextAlignmentOptions.TopRight;
+            case TextAnchor.MiddleLeft:   return TextAlignmentOptions.Left;
+            case TextAnchor.MiddleRight:  return TextAlignmentOptions.Right;
+            case TextAnchor.LowerLeft:    return TextAlignmentOptions.BottomLeft;
+            case TextAnchor.LowerCenter:  return TextAlignmentOptions.Bottom;
+            case TextAnchor.LowerRight:   return TextAlignmentOptions.BottomRight;
+            default:                      return TextAlignmentOptions.Center;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Font picker (auto-built; not part of VisualsMenuUIBuilder)
+    // -----------------------------------------------------------------------
+
+    void BuildFontRow()
+    {
+        if (panelRoot == null) return;
+
+        // Place in the gap between the live card preview (~y=-340 bottom) and
+        // the bottom action button row (top edge at y=-455). Anchor centered.
+        var row = new GameObject("FontRow", typeof(RectTransform));
+        row.transform.SetParent(panelRoot.transform, false);
+        var rt = (RectTransform)row.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(0f, -395f);
+        rt.sizeDelta        = new Vector2(1700f, 60f);
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(row.transform, false);
+        var labelRT = (RectTransform)labelGO.transform;
+        labelRT.anchorMin = labelRT.anchorMax = labelRT.pivot = new Vector2(0.5f, 0.5f);
+        labelRT.anchoredPosition = new Vector2(-260f, 0f);
+        labelRT.sizeDelta        = new Vector2(1000f, 50f);
+        fontDisplayLabel = labelGO.AddComponent<Text>();
+        fontDisplayLabel.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        fontDisplayLabel.fontSize  = 22;
+        fontDisplayLabel.alignment = TextAnchor.MiddleLeft;
+        fontDisplayLabel.color     = new Color(0.85f, 0.88f, 0.93f, 1f);
+        fontDisplayLabel.text      = "Font:  (default)";
+
+        fontPrevButton     = AddFontRowButton(row.transform, "Prev",  "<",  new Vector2( 350f, 0f), new Vector2(60f, 50f));
+        fontNextButton     = AddFontRowButton(row.transform, "Next",  ">",  new Vector2( 420f, 0f), new Vector2(60f, 50f));
+        fontLoadFileButton = AddFontRowButton(row.transform, "Load",  "Load Font File…",
+                                              new Vector2(640f, 0f), new Vector2(280f, 50f));
+
+        fontPrevButton.onClick.AddListener(() => CycleFont(-1));
+        fontNextButton.onClick.AddListener(() => CycleFont(+1));
+        fontLoadFileButton.onClick.AddListener(OnLoadFontFileClicked);
+    }
+
+    static Button AddFontRowButton(Transform parent, string name, string label,
+                                   Vector2 anchoredPos, Vector2 size)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = anchoredPos;
+        rt.sizeDelta        = size;
+
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.20f, 0.45f, 0.65f, 1f);
+        var btn = go.AddComponent<Button>();
+        btn.targetGraphic = img;
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(go.transform, false);
+        var labelRT = (RectTransform)labelGO.transform;
+        labelRT.anchorMin = Vector2.zero;
+        labelRT.anchorMax = Vector2.one;
+        labelRT.offsetMin = Vector2.zero;
+        labelRT.offsetMax = Vector2.zero;
+        var t = labelGO.AddComponent<Text>();
+        t.text       = label;
+        t.font       = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        t.fontSize   = 22;
+        t.fontStyle  = FontStyle.Bold;
+        t.alignment  = TextAnchor.MiddleCenter;
+        t.color      = Color.white;
+        return btn;
+    }
+
+    void CycleFont(int delta)
+    {
+        // Slot 0 is "(default)" — no override. Slots 1..N follow FontRegistry.All.
+        var all = FontRegistry.All;
+        int total = all.Count + 1;
+        if (total <= 1) return;
+
+        int current = string.IsNullOrEmpty(fontIdentifier) ? 0 : 1 + IndexOf(all, fontIdentifier);
+        if (current < 0) current = 0;
+
+        int next = ((current + delta) % total + total) % total;
+        fontIdentifier = (next == 0) ? "" : all[next - 1].Identifier;
+        UpdateFontDisplay();
+    }
+
+    static int IndexOf(IReadOnlyList<FontEntry> all, string identifier)
+    {
+        for (int i = 0; i < all.Count; i++)
+            if (all[i].Identifier == identifier) return i;
+        return -1;
+    }
+
+    void UpdateFontDisplay()
+    {
+        FontEntry entry = string.IsNullOrEmpty(fontIdentifier) ? null : FontRegistry.Resolve(fontIdentifier);
+
+        if (fontDisplayLabel != null)
+        {
+            if (string.IsNullOrEmpty(fontIdentifier))
+                fontDisplayLabel.text = "Font:  (default)";
+            else
+                fontDisplayLabel.text = "Font:  " +
+                    (entry != null ? entry.DisplayName : fontIdentifier + "  (unresolved)");
+        }
+
+        // Live preview reflects the current pick; null falls back to the TMP
+        // default so the preview never goes blank after picking "(default)".
+        if (cardPreviewTmp != null)
+            cardPreviewTmp.font = entry?.Asset ?? TMP_Settings.defaultFontAsset;
+    }
+
+    void OnLoadFontFileClicked()
+    {
+        string picked = TryPickFontPath();
+        if (string.IsNullOrEmpty(picked)) return;
+
+        FontEntry entry = FontRegistry.LoadFromFile(picked);
+        if (entry == null)
+        {
+            ShowToast("Could not load font. Runtime file loading is Windows-only " +
+                      "and the file's family name should match its file name.");
+            return;
+        }
+        fontIdentifier = entry.Identifier;
+        UpdateFontDisplay();
+        ShowToast("Loaded font:  " + entry.DisplayName);
+    }
+
+    static string TryPickFontPath()
+    {
+#if STANDALONE_FILE_BROWSER
+        var ext = new[] { new SFB.ExtensionFilter("Font Files", "ttf", "otf") };
+        var picked = SFB.StandaloneFileBrowser.OpenFilePanel("Pick font file", "", ext, false);
+        return (picked != null && picked.Length > 0) ? picked[0] : "";
+#elif UNITY_EDITOR
+        return UnityEditor.EditorUtility.OpenFilePanel("Pick font file", "", "ttf,otf");
+#else
+        return "";
+#endif
+    }
+
+    // -----------------------------------------------------------------------
+    // Color-wheel picker
+    // -----------------------------------------------------------------------
+
+    void AttachColorPicker(Image swatch, Func<Color> getCurrent, Action<Color> onPicked)
+    {
+        if (swatch == null) return;
+        var btn = swatch.GetComponent<Button>();
+        if (btn == null) btn = swatch.gameObject.AddComponent<Button>();
+        btn.targetGraphic = swatch;
+        btn.onClick.RemoveAllListeners();
+        btn.onClick.AddListener(() =>
+            ColorWheelPopup.GetOrCreate(panelRoot.transform).Show(getCurrent(), onPicked));
+    }
+
+    void ApplyPickedBgColor(Color c)
+    {
+        bgColor             = c;
+        bgColorSwatch.color = c;
+        bgColorInput.text   = ColorToHex(c);
+        UpdatePreview();
+    }
+
+    void ApplyPickedTextColor(Color c)
+    {
+        textColor             = c;
+        textColorSwatch.color = c;
+        textColorInput.text   = ColorToHex(c);
+        UpdatePreview();
+    }
 
     void OnBgColorEdited(string hex)
     {
@@ -285,17 +670,20 @@ public class VisualsMenuController : MonoBehaviour
             cardPreviewText.color     = textColor;
             cardPreviewText.fontStyle = fontStyle;
         }
+        if (cardPreviewTmp != null)
+        {
+            cardPreviewTmp.color     = textColor;
+            cardPreviewTmp.fontStyle = ToTmpFontStyles(fontStyle);
+        }
 
-        // Highlight the active font-style button.
         SetButtonTint(fontNormalButton,     fontStyle == FontStyle.Normal);
         SetButtonTint(fontBoldButton,       fontStyle == FontStyle.Bold);
         SetButtonTint(fontItalicButton,     fontStyle == FontStyle.Italic);
         SetButtonTint(fontBoldItalicButton, fontStyle == FontStyle.BoldAndItalic);
 
-        // Note: the corner-radius value is shown as a preview indicator only.
-        // Rendering an actual rounded-corner UI Image requires a custom shader
-        // or a generated rounded sprite; that wiring belongs in the recording
-        // scene's card system, not in this menu.
+        // Corner-radius value is shown numerically only — rendering an actual
+        // rounded-corner UI Image needs a custom shader / generated sprite,
+        // which lives in the recording scene's card system.
     }
 
     static void SetButtonTint(Button btn, bool active)
@@ -319,10 +707,10 @@ public class VisualsMenuController : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
-    // Persistence
+    // Quick-save (PlayerPrefs)
     // -----------------------------------------------------------------------
 
-    void OnSave()
+    void OnQuickSave()
     {
         foreach (var slot in emotionSlots)
         {
@@ -332,8 +720,27 @@ public class VisualsMenuController : MonoBehaviour
         PlayerPrefs.SetFloat (CardCornerKey,    cornerRadius);
         PlayerPrefs.SetString(CardTextColorKey, ColorToHex(textColor));
         PlayerPrefs.SetInt   (CardFontStyleKey, (int)fontStyle);
+        PlayerPrefs.SetString(CardFontNameKey,  fontIdentifier ?? "");
         PlayerPrefs.Save();
-        ShowToast("Saved.");
+
+        // Mirror into the active named save's JSON so edits flow through to the
+        // recording (which loads from the JSON, not PlayerPrefs). Without this,
+        // a user editing an already-loaded preset would only see changes after
+        // re-running Save As. Skipped silently when nothing is active.
+        if (!string.IsNullOrEmpty(activeSaveName) && VisualsSaveStore.Exists(activeSaveName))
+        {
+            try
+            {
+                VisualsSaveStore.Save(CaptureCurrentState(activeSaveName));
+                ShowToast("Quick-saved (mirrored to \"" + activeSaveName + "\").");
+                return;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[VisualsMenu] Quick-save mirror failed: {e.Message}");
+            }
+        }
+        ShowToast("Quick-saved (active state).");
     }
 
     void LoadCardStyleFromPrefs()
@@ -342,8 +749,10 @@ public class VisualsMenuController : MonoBehaviour
             bgColor = bg;
         if (TryParseHex(PlayerPrefs.GetString(CardTextColorKey, ColorToHex(textColor)), out Color txt))
             textColor = txt;
-        cornerRadius = PlayerPrefs.GetFloat(CardCornerKey, cornerRadius);
-        fontStyle    = (FontStyle)PlayerPrefs.GetInt(CardFontStyleKey, (int)fontStyle);
+        cornerRadius   = PlayerPrefs.GetFloat (CardCornerKey,    cornerRadius);
+        fontStyle      = (FontStyle)PlayerPrefs.GetInt(CardFontStyleKey, (int)fontStyle);
+        fontIdentifier = PlayerPrefs.GetString(CardFontNameKey,  "");
+        UpdateFontDisplay();
 
         bgColorInput.text          = ColorToHex(bgColor);
         bgColorSwatch.color        = bgColor;
@@ -354,14 +763,423 @@ public class VisualsMenuController : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
+    // Save As flow
+    // -----------------------------------------------------------------------
+
+    void OnSaveAsClicked()
+    {
+        saveAsNameInput.text = !string.IsNullOrEmpty(activeSaveName)
+            ? activeSaveName : "MyVisuals";
+        saveAsPromptRoot.SetActive(true);
+        saveAsNameInput.Select();
+        saveAsNameInput.ActivateInputField();
+    }
+
+    void OnSaveAsConfirm()
+    {
+        string name = (saveAsNameInput.text ?? "").Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            ShowToast("Name cannot be empty.");
+            return;
+        }
+        if (VisualsSaveStore.Exists(name))
+        {
+            ShowOverwritePrompt(name, () => DoSaveAs(name));
+        }
+        else
+        {
+            DoSaveAs(name);
+        }
+    }
+
+    void DoSaveAs(string name)
+    {
+        try
+        {
+            var data = CaptureCurrentState(name);
+            VisualsSaveStore.Save(data);
+            activeSaveName = name;
+            UpdateActiveSaveLabel();
+            PlayerPrefs.SetString(ActiveSaveNameKey, name);
+            PlayerPrefs.Save();
+            saveAsPromptRoot.SetActive(false);
+            ShowToast("Saved: " + name);
+        }
+        catch (Exception e)
+        {
+            ShowToast("Save failed: " + e.Message);
+        }
+    }
+
+    VisualsSaveFile CaptureCurrentState(string saveName)
+    {
+        var data = new VisualsSaveFile
+        {
+            schemaVersion = 1,
+            name          = saveName,
+            card = new CardStyleData
+            {
+                bgColorHex   = ColorToHex(bgColor),
+                cornerRadius = cornerRadius,
+                textColorHex = ColorToHex(textColor),
+                fontStyle    = (int)fontStyle,
+                fontName     = fontIdentifier ?? "",
+            },
+        };
+
+        foreach (var slot in emotionSlots)
+        {
+            var entry = new EmotionImageData
+            {
+                emotion      = slot.emotionName,
+                originalPath = slot.pathInput.text ?? "",
+            };
+            if (!string.IsNullOrEmpty(entry.originalPath) && File.Exists(entry.originalPath))
+            {
+                try
+                {
+                    entry.imageBase64 = Convert.ToBase64String(File.ReadAllBytes(entry.originalPath));
+                    entry.extension   = Path.GetExtension(entry.originalPath).TrimStart('.').ToLowerInvariant();
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[VisualsMenu] Could not embed {slot.emotionName}: {e.Message}");
+                }
+            }
+            data.emotions.Add(entry);
+        }
+        return data;
+    }
+
+    // -----------------------------------------------------------------------
+    // Overwrite confirm overlay
+    // -----------------------------------------------------------------------
+
+    /// <summary>Generic yes/no confirm using the overwrite dialog overlay.</summary>
+    void ShowConfirmPrompt(string message, Action onConfirm)
+    {
+        overwriteConfirmMessage.text = message;
+        pendingOverwriteAction = onConfirm;
+        overwriteConfirmRoot.SetActive(true);
+    }
+
+    void ShowOverwritePrompt(string name, Action onConfirm) =>
+        ShowConfirmPrompt("\"" + name + "\" already exists.\nOverwrite it?", onConfirm);
+
+    void OnOverwriteConfirm()
+    {
+        overwriteConfirmRoot.SetActive(false);
+        var pending = pendingOverwriteAction;
+        pendingOverwriteAction = null;
+        pending?.Invoke();
+    }
+
+    // -----------------------------------------------------------------------
+    // Manage Saves sub-panel
+    // -----------------------------------------------------------------------
+
+    void OnManageSavesClicked()
+    {
+        selectedSaveName = activeSaveName;
+        savesPanelRoot.SetActive(true);
+        RefreshSavesList();
+    }
+
+    void RefreshSavesList()
+    {
+        // Tear down old rows.
+        for (int i = savesListContent.childCount - 1; i >= 0; i--)
+        {
+            Destroy(savesListContent.GetChild(i).gameObject);
+        }
+
+        var names = VisualsSaveStore.ListSaveNames();
+        savesEmptyLabel.gameObject.SetActive(names.Length == 0);
+
+        // Verify the selection still exists; clear if not.
+        if (!string.IsNullOrEmpty(selectedSaveName))
+        {
+            bool stillExists = false;
+            foreach (var n in names) { if (n == selectedSaveName) { stillExists = true; break; } }
+            if (!stillExists) selectedSaveName = "";
+        }
+
+        foreach (var name in names)
+        {
+            BuildSaveRow(name);
+        }
+    }
+
+    void BuildSaveRow(string name)
+    {
+        var row = new GameObject(name + "Row", typeof(RectTransform));
+        row.transform.SetParent(savesListContent, false);
+
+        var img = row.AddComponent<Image>();
+        img.color = (name == selectedSaveName) ? RowSelected : RowUnselected;
+
+        var btn = row.AddComponent<Button>();
+        var btnColors = btn.colors;
+        btnColors.normalColor      = img.color;
+        btnColors.highlightedColor = new Color(img.color.r + 0.04f, img.color.g + 0.04f, img.color.b + 0.04f, 1f);
+        btnColors.pressedColor     = new Color(img.color.r - 0.04f, img.color.g - 0.04f, img.color.b - 0.04f, 1f);
+        btn.colors = btnColors;
+        btn.targetGraphic = img;
+
+        string captured = name;
+        btn.onClick.AddListener(() => SelectSave(captured));
+
+        var le = row.AddComponent<LayoutElement>();
+        le.preferredHeight = 50f;
+        le.minHeight       = 50f;
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(row.transform, false);
+        var t = labelGO.AddComponent<Text>();
+        t.text      = (name == activeSaveName) ? name + "   ★ active" : name;
+        t.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        t.fontSize  = 22;
+        t.alignment = TextAnchor.MiddleLeft;
+        t.color     = Color.white;
+        var trt = t.rectTransform;
+        trt.anchorMin = Vector2.zero;
+        trt.anchorMax = Vector2.one;
+        trt.offsetMin = new Vector2(16, 0);
+        trt.offsetMax = new Vector2(-16, 0);
+    }
+
+    void SelectSave(string name)
+    {
+        selectedSaveName = name;
+        RefreshSavesList();
+    }
+
+    void OnLoadSelectedClicked()
+    {
+        if (string.IsNullOrEmpty(selectedSaveName))
+        {
+            ShowToast("Select a save first.");
+            return;
+        }
+        var data = VisualsSaveStore.Load(selectedSaveName);
+        if (data == null)
+        {
+            ShowToast("Could not load: " + selectedSaveName);
+            return;
+        }
+        ApplySaveToUI(data);
+        activeSaveName = data.name;
+        UpdateActiveSaveLabel();
+        PlayerPrefs.SetString(ActiveSaveNameKey, activeSaveName);
+        PlayerPrefs.Save();
+        savesPanelRoot.SetActive(false);
+        ShowToast("Loaded: " + activeSaveName);
+    }
+
+    void OnDeleteSelectedClicked()
+    {
+        if (string.IsNullOrEmpty(selectedSaveName))
+        {
+            ShowToast("Select a save first.");
+            return;
+        }
+        string toDelete = selectedSaveName;
+        ShowConfirmPrompt(
+            "Delete \"" + toDelete + "\"?\nThis cannot be undone.",
+            () =>
+            {
+                VisualsSaveStore.Delete(toDelete);
+                if (activeSaveName == toDelete)
+                {
+                    activeSaveName = "";
+                    UpdateActiveSaveLabel();
+                    PlayerPrefs.DeleteKey(ActiveSaveNameKey);
+                    PlayerPrefs.Save();
+                }
+                selectedSaveName = "";
+                ShowToast("Deleted: " + toDelete);
+                RefreshSavesList();
+            });
+    }
+
+    // -----------------------------------------------------------------------
+    // Apply a loaded save to the UI / state
+    // -----------------------------------------------------------------------
+
+    void ApplySaveToUI(VisualsSaveFile data)
+    {
+        if (TryParseHex(data.card.bgColorHex,   out Color bg)) bgColor   = bg;
+        if (TryParseHex(data.card.textColorHex, out Color tx)) textColor = tx;
+        cornerRadius   = data.card.cornerRadius;
+        fontStyle      = (FontStyle)data.card.fontStyle;
+        fontIdentifier = data.card.fontName ?? "";
+        UpdateFontDisplay();
+
+        bgColorInput.text          = ColorToHex(bgColor);
+        bgColorSwatch.color        = bgColor;
+        textColorInput.text        = ColorToHex(textColor);
+        textColorSwatch.color      = textColor;
+        cornerRadiusSlider.SetValueWithoutNotify(cornerRadius);
+        cornerRadiusLabel.text     = Mathf.RoundToInt(cornerRadius) + " px";
+        UpdatePreview();
+
+        foreach (var slot in emotionSlots)
+        {
+            var emo = data.emotions.Find(e => e.emotion == slot.emotionName);
+            if (emo == null) continue;
+
+            slot.pathInput.text = emo.originalPath ?? "";
+
+            // Prefer the live path so source-file edits propagate; fall back
+            // to embedded bytes if the path no longer exists on this machine.
+            if (!string.IsNullOrEmpty(emo.originalPath) && File.Exists(emo.originalPath))
+            {
+                LoadImageInto(emo.originalPath, slot.preview);
+            }
+            else if (!string.IsNullOrEmpty(emo.imageBase64))
+            {
+                try
+                {
+                    byte[] bytes = Convert.FromBase64String(emo.imageBase64);
+                    ApplyBytesToImage(bytes, slot.preview);
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[VisualsMenu] Embedded {slot.emotionName} unreadable: {e.Message}");
+                    slot.preview.sprite = null;
+                    slot.preview.color  = new Color(1f, 1f, 1f, 0.10f);
+                }
+            }
+            else
+            {
+                slot.preview.sprite = null;
+                slot.preview.color  = new Color(1f, 1f, 1f, 0.10f);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Import / Export
+    // -----------------------------------------------------------------------
+
+    void OnExportSelectedClicked()
+    {
+        if (string.IsNullOrEmpty(selectedSaveName))
+        {
+            ShowToast("Select a save first.");
+            return;
+        }
+        var data = VisualsSaveStore.Load(selectedSaveName);
+        if (data == null)
+        {
+            ShowToast("Could not load: " + selectedSaveName);
+            return;
+        }
+        string path = TryPickSavePath(selectedSaveName + ".json");
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            VisualsSaveStore.ExportTo(data, path);
+            ShowToast("Exported: " + Path.GetFileName(path));
+        }
+        catch (Exception e)
+        {
+            ShowToast("Export failed: " + e.Message);
+        }
+    }
+
+    void OnImportClicked()
+    {
+        string path = TryPickJsonOpenPath();
+        if (string.IsNullOrEmpty(path)) return;
+        VisualsSaveFile data;
+        try { data = VisualsSaveStore.LoadFromFile(path); }
+        catch (Exception e) { ShowToast("Import failed: " + e.Message); return; }
+        if (data == null)
+        {
+            ShowToast("Not a valid visuals save.");
+            return;
+        }
+        if (string.IsNullOrEmpty(data.name))
+            data.name = Path.GetFileNameWithoutExtension(path);
+
+        if (VisualsSaveStore.Exists(data.name))
+        {
+            ShowOverwritePrompt(data.name, () => DoImport(data));
+        }
+        else
+        {
+            DoImport(data);
+        }
+    }
+
+    void DoImport(VisualsSaveFile data)
+    {
+        try
+        {
+            VisualsSaveStore.Save(data);
+            selectedSaveName = data.name;
+            ShowToast("Imported: " + data.name);
+            RefreshSavesList();
+        }
+        catch (Exception e)
+        {
+            ShowToast("Import failed: " + e.Message);
+        }
+    }
+
+    static string TryPickSavePath(string defaultFileName)
+    {
+#if STANDALONE_FILE_BROWSER
+        var ext = new[] { new SFB.ExtensionFilter("Visuals Save", "json") };
+        return SFB.StandaloneFileBrowser.SaveFilePanel(
+            "Export Visuals Save", "", defaultFileName, ext);
+#elif UNITY_EDITOR
+        return UnityEditor.EditorUtility.SaveFilePanel(
+            "Export Visuals Save", "", defaultFileName, "json");
+#else
+        return "";
+#endif
+    }
+
+    static string TryPickJsonOpenPath()
+    {
+#if STANDALONE_FILE_BROWSER
+        var ext = new[] { new SFB.ExtensionFilter("Visuals Save", "json") };
+        var picked = SFB.StandaloneFileBrowser.OpenFilePanel(
+            "Import Visuals Save", "", ext, false);
+        return (picked != null && picked.Length > 0) ? picked[0] : "";
+#elif UNITY_EDITOR
+        return UnityEditor.EditorUtility.OpenFilePanel(
+            "Import Visuals Save", "", "json");
+#else
+        return "";
+#endif
+    }
+
+    // -----------------------------------------------------------------------
+    // Active save label
+    // -----------------------------------------------------------------------
+
+    void UpdateActiveSaveLabel()
+    {
+        if (string.IsNullOrEmpty(activeSaveName))
+        {
+            activeSaveLabel.text  = "Editing:  Untitled";
+            activeSaveLabel.color = new Color(0.55f, 0.58f, 0.64f, 1f);
+        }
+        else
+        {
+            activeSaveLabel.text  = "Editing:  " + activeSaveName;
+            activeSaveLabel.color = new Color(0.85f, 0.88f, 0.93f, 1f);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Public read API for the recording scene
     // -----------------------------------------------------------------------
 
-    /// <summary>
-    /// Path the user picked for the given emotion ("Neutral", "Excited", …),
-    /// or empty if none. HybridAvatarSystem (or wherever you wire this) can
-    /// read this on Awake to override its serialized sprite.
-    /// </summary>
     public static string GetSavedCharacterPath(string emotion) =>
         PlayerPrefs.GetString(CharacterPathKey(emotion), "");
 

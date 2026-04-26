@@ -26,12 +26,45 @@ public static class ContentCardUIBuilder
     private static readonly Color LightTertiary  = new Color(1f, 1f, 1f, 0.6f);
 
     /// <summary>
-    /// Primary text color — automatically switches to charcoal on light preset
-    /// backgrounds (luminance > 0.5) and white on dark backgrounds.
+    /// Primary text color — user override from the active VisualsSave wins;
+    /// otherwise switches to charcoal on light preset backgrounds (luminance
+    /// > 0.5) and white on dark backgrounds.
     /// </summary>
-    public static Color TextPrimary => IsActivePresetLight() ? DarkPrimary : LightPrimary;
-    public static Color TextSecondary => IsActivePresetLight() ? DarkSecondary : LightSecondary;
-    public static Color TextTertiary => IsActivePresetLight() ? DarkTertiary : LightTertiary;
+    public static Color TextPrimary
+    {
+        get
+        {
+            if (VisualsRuntimeApplier.CardTextColorOverride.HasValue)
+                return VisualsRuntimeApplier.CardTextColorOverride.Value;
+            return IsActivePresetLight() ? DarkPrimary : LightPrimary;
+        }
+    }
+    public static Color TextSecondary
+    {
+        get
+        {
+            if (VisualsRuntimeApplier.CardTextColorOverride.HasValue)
+            {
+                Color c = VisualsRuntimeApplier.CardTextColorOverride.Value;
+                c.a *= 0.85f;
+                return c;
+            }
+            return IsActivePresetLight() ? DarkSecondary : LightSecondary;
+        }
+    }
+    public static Color TextTertiary
+    {
+        get
+        {
+            if (VisualsRuntimeApplier.CardTextColorOverride.HasValue)
+            {
+                Color c = VisualsRuntimeApplier.CardTextColorOverride.Value;
+                c.a *= 0.70f;
+                return c;
+            }
+            return IsActivePresetLight() ? DarkTertiary : LightTertiary;
+        }
+    }
 
     private static bool IsActivePresetLight()
     {
@@ -113,13 +146,36 @@ public static class ContentCardUIBuilder
         go.transform.SetParent(parent, false);
 
         TextMeshProUGUI tmp = go.AddComponent<TextMeshProUGUI>();
+        if (VisualsRuntimeApplier.CardFontOverride != null)
+            tmp.font = VisualsRuntimeApplier.CardFontOverride;
         tmp.color = color;
         tmp.fontSize = fontSize;
-        tmp.fontStyle = style;
+        tmp.fontStyle = ResolveFontStyle(style);
         tmp.alignment = alignment;
         tmp.raycastTarget = false;
 
         return tmp;
+    }
+
+    // User VisualsSave font style (when set) wins over the per-call default.
+    // Bold/italic flags from the caller are preserved by ORing them in, so a
+    // headline asking for Bold stays bold even if the user picks Italic.
+    static FontStyles ResolveFontStyle(FontStyles requested)
+    {
+        if (!VisualsRuntimeApplier.CardFontStyleOverride.HasValue) return requested;
+        FontStyles userMask = ConvertFontStyle(VisualsRuntimeApplier.CardFontStyleOverride.Value);
+        return requested | userMask;
+    }
+
+    static FontStyles ConvertFontStyle(FontStyle f)
+    {
+        switch (f)
+        {
+            case FontStyle.Bold:          return FontStyles.Bold;
+            case FontStyle.Italic:        return FontStyles.Italic;
+            case FontStyle.BoldAndItalic: return FontStyles.Bold | FontStyles.Italic;
+            default:                      return FontStyles.Normal;
+        }
     }
 
     /// <summary>Creates an Image child.</summary>
