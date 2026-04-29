@@ -23,7 +23,22 @@ namespace MugsTech.Style
         public string backgroundVideoPath = "";
         public CardStyleData       card     = new CardStyleData();
         public BigTextStyleData    bigText  = new BigTextStyleData();
+        public BackgroundMusicData music    = new BackgroundMusicData();
         public List<EmotionImageData> emotions = new List<EmotionImageData>();
+    }
+
+    /// <summary>
+    /// Background music playlist that travels with the preset. The runtime
+    /// player loops through <see cref="filePaths"/> in order, applies
+    /// loudness normalization per clip so different masters sound balanced,
+    /// then scales by <see cref="volume"/>. Default volume is 15% — soft
+    /// enough to live underneath the script's voice without competing.
+    /// </summary>
+    [Serializable]
+    public class BackgroundMusicData
+    {
+        public List<string> filePaths = new List<string>();
+        public float        volume    = 0.15f;
     }
 
     [Serializable]

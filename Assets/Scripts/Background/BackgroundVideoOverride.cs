@@ -12,23 +12,39 @@ namespace MugsTech.Background
     ///
     /// The recording scene's background video plays via a raw <see cref="VideoPlayer"/>
     /// component (configured directly in the Inspector with a VideoClip + RenderTexture).
-    /// <see cref="BackgroundVideoLoop"/> isn't attached, so the PlayerPrefs override
-    /// keys it reads have nowhere to fire. This class fills that gap: on every
-    /// scene load it finds RenderTexture-mode <see cref="VideoPlayer"/>s in the
-    /// active scene and, if either the main-menu override or the
+    /// On every scene load this class finds RenderTexture-mode VideoPlayers in
+    /// the active scene and, if either the main-menu override or the
     /// visuals-preset path is set, swaps their source to that file URL.
     ///
-    /// Resolution matches BackgroundVideoLoop (so the precedence stays
-    /// consistent for users who have both wired up):
-    ///   1. <see cref="BackgroundVideoLoop.OverridePathPrefKey"/> — main menu
-    ///   2. <see cref="BackgroundVideoLoop.PresetPathPrefKey"/> — visuals preset
-    ///   3. Leave the VideoPlayer alone (whatever the inspector configured).
+    /// Resolution precedence:
+    ///   1. <see cref="OverridePathPrefKey"/> — set by main menu
+    ///   2. <see cref="PresetPathPrefKey"/>   — written by VisualsRuntimeApplier from active save
+    ///   3. Leave the VideoPlayer alone (whatever the inspector configured)
     ///
     /// VideoPlayers with renderMode = CameraNearPlane/CameraFarPlane are skipped
     /// (those are typically compositing/transparency setups, not the background).
     /// </summary>
     public static class BackgroundVideoOverride
     {
+        /// <summary>Set by the main menu's "Background Video Override" field.</summary>
+        public const string OverridePathPrefKey = "AutoAvatarGen.BackgroundVideoOverride";
+
+        /// <summary>Written by VisualsRuntimeApplier from the active VisualsSave.</summary>
+        public const string PresetPathPrefKey   = "AutoAvatarGen.BackgroundVideoPreset";
+
+        // Hijacked players currently in their Prepare() phase. MediaPresentation
+        // waits on this to avoid kicking off recording before the swapped-in
+        // mp4 has rendered its first frame.
+        static int s_pendingPrepares;
+
+        /// <summary>
+        /// True when every hijacked VideoPlayer has finished preparing. False
+        /// only between starting a Prepare() in <see cref="ApplyToActiveScene"/>
+        /// and receiving the corresponding prepareCompleted callback.
+        /// </summary>
+        public static bool AllPrepared => s_pendingPrepares == 0;
+
+
         // VisualsRuntimeApplier explicitly invokes ApplyToActiveScene() at the
         // end of its sceneLoaded work, after writing PresetPathPrefKey — that's
         // the only hookup needed during runtime. The bootstrap below covers
@@ -44,8 +60,8 @@ namespace MugsTech.Background
 
         public static void ApplyToActiveScene()
         {
-            string overridePath = PlayerPrefs.GetString(BackgroundVideoLoop.OverridePathPrefKey, "");
-            string presetPath   = PlayerPrefs.GetString(BackgroundVideoLoop.PresetPathPrefKey,   "");
+            string overridePath = PlayerPrefs.GetString(OverridePathPrefKey, "");
+            string presetPath   = PlayerPrefs.GetString(PresetPathPrefKey,   "");
 
             string path, sourceLabel;
             if (!string.IsNullOrWhiteSpace(overridePath))
@@ -95,6 +111,7 @@ namespace MugsTech.Background
                 vp.isLooping = true;
                 vp.errorReceived    += OnVideoError;
                 vp.prepareCompleted += OnVideoPrepared;
+                s_pendingPrepares++;
                 vp.Prepare();
                 hijacked++;
             }
@@ -106,12 +123,15 @@ namespace MugsTech.Background
         static void OnVideoPrepared(VideoPlayer source)
         {
             source.prepareCompleted -= OnVideoPrepared;
+            if (s_pendingPrepares > 0) s_pendingPrepares--;
             source.Play();
             Debug.Log($"[BgVideoDiag] Hijacked VideoPlayer on '{source.gameObject.name}' is now playing url='{source.url}'.");
         }
 
         static void OnVideoError(VideoPlayer source, string message)
         {
+            // Decrement the pending counter so MediaPresentation doesn't wait forever on a failed prepare.
+            if (s_pendingPrepares > 0) s_pendingPrepares--;
             Debug.LogError($"[BgVideoDiag] Hijacked VideoPlayer on '{source.gameObject.name}' error: {message} " +
                            $"(url='{source.url}')");
         }

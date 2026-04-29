@@ -18,6 +18,107 @@ using UnityEngine.UI;
 /// </summary>
 public static class MainMenuUIBuilder
 {
+    // Non-destructive patch — adds just the Browse… button next to the existing
+    // PathInput and wires MainMenuController.pathBrowseButton. Use this instead
+    // of "Build Main Menu UI" when you've hand-tweaked the canvas and don't
+    // want a full rebuild to wipe those edits.
+    [MenuItem("Tools/AutoAvatarGen/Add Path Browse Button")]
+    static void AddPathBrowseButton()
+    {
+        var controller = Object.FindFirstObjectByType<MainMenuController>();
+        if (controller == null)
+        {
+            EditorUtility.DisplayDialog(
+                "Add Path Browse Button",
+                "No MainMenuController found in the open scene.\n\n" +
+                "Open Assets/Scenes/MainMenu.unity first, then re-run this command.",
+                "OK");
+            return;
+        }
+
+        Transform canvas = controller.transform.Find("MainMenuCanvas");
+        if (canvas == null)
+        {
+            EditorUtility.DisplayDialog(
+                "Add Path Browse Button",
+                "No 'MainMenuCanvas' child found under '" + controller.name +
+                "'. Run 'Build Main Menu UI' first to create the base canvas.",
+                "OK");
+            return;
+        }
+
+        Transform pathInputTf = canvas.Find("PathInput");
+        if (pathInputTf == null)
+        {
+            EditorUtility.DisplayDialog(
+                "Add Path Browse Button",
+                "Could not find 'PathInput' under MainMenuCanvas. Has it been " +
+                "renamed? Expected a child named exactly 'PathInput'.",
+                "OK");
+            return;
+        }
+
+        if (canvas.Find("PathBrowseButton") != null)
+        {
+            // Already there — just rewire the controller field in case it got
+            // disconnected, then bail.
+            var existingBtn = canvas.Find("PathBrowseButton").GetComponent<Button>();
+            WirePathBrowseButton(controller, existingBtn);
+            EditorUtility.DisplayDialog(
+                "Add Path Browse Button",
+                "PathBrowseButton already exists — nothing to add. " +
+                "Re-wired the controller reference in case it was missing.",
+                "OK");
+            return;
+        }
+
+        Undo.SetCurrentGroupName("Add Path Browse Button");
+        int undoGroup = Undo.GetCurrentGroup();
+
+        // Shrink PathInput and shift it left so the new button has room.
+        var inputRT = pathInputTf.GetComponent<RectTransform>();
+        Undo.RecordObject(inputRT, "Resize PathInput");
+        Vector2 inputAnchorMin = inputRT.anchorMin;
+        Vector2 inputAnchorMax = inputRT.anchorMax;
+        Vector2 inputPivot     = inputRT.pivot;
+        Vector2 inputPos       = inputRT.anchoredPosition;
+        inputRT.sizeDelta        = new Vector2(920, inputRT.sizeDelta.y);
+        inputRT.anchoredPosition = new Vector2(inputPos.x - 90, inputPos.y);
+
+        // Build the Browse button using the same helpers/styling as the rest.
+        var browseBtn = CreateButton("PathBrowseButton", canvas,
+            "Browse…", new Color(0.20f, 0.45f, 0.65f), labelSize: 26);
+        SetRect(browseBtn.GetComponent<RectTransform>(),
+            inputAnchorMin, inputAnchorMax, inputPivot,
+            new Vector2(inputPos.x + 460, inputPos.y), new Vector2(160, 56));
+
+        // Place it just after the input in sibling order so it draws together.
+        browseBtn.transform.SetSiblingIndex(pathInputTf.GetSiblingIndex() + 1);
+
+        WirePathBrowseButton(controller, browseBtn);
+
+        Undo.CollapseUndoOperations(undoGroup);
+        EditorSceneManager.MarkSceneDirty(controller.gameObject.scene);
+        Selection.activeGameObject = browseBtn.gameObject;
+
+        Debug.Log("[MainMenuUIBuilder] Added PathBrowseButton next to PathInput. " +
+                  "Save the scene (Ctrl+S) to persist.");
+    }
+
+    static void WirePathBrowseButton(MainMenuController controller, Button btn)
+    {
+        var so = new SerializedObject(controller);
+        var prop = so.FindProperty("pathBrowseButton");
+        if (prop == null)
+        {
+            Debug.LogError("[MainMenuUIBuilder] MainMenuController has no " +
+                           "'pathBrowseButton' field — did the script fail to compile?");
+            return;
+        }
+        prop.objectReferenceValue = btn;
+        so.ApplyModifiedProperties();
+    }
+
     [MenuItem("Tools/AutoAvatarGen/Build Main Menu UI")]
     static void Build()
     {
@@ -83,7 +184,7 @@ public static class MainMenuUIBuilder
 
         // ---------- Python output folder row ----------
         var pathLabel = CreateText("PathLabel", canvasObj.transform,
-            "Python output folder (relative to Assets/):",
+            "Python output folder (absolute path or relative to Assets/):",
             24, TextAlignmentOptions.Center, FontStyles.Normal);
         pathLabel.color = new Color(0.82f, 0.85f, 0.9f, 1f);
         SetRect(pathLabel.rectTransform,
@@ -91,10 +192,17 @@ public static class MainMenuUIBuilder
             new Vector2(0, 180), new Vector2(1100, 32));
 
         var pathInput = CreateInputField("PathInput", canvasObj.transform,
-            MainMenuController.DefaultPythonOutputFolder, "e.g. Python/output");
+            MainMenuController.DefaultPythonOutputFolder,
+            "e.g. Python/output  or  D:/MyOutputs/elevenlabs");
         SetRect(pathInput.GetComponent<RectTransform>(),
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(0, 125), new Vector2(1100, 56));
+            new Vector2(-90, 125), new Vector2(920, 56));
+
+        var pathBrowseBtn = CreateButton("PathBrowseButton", canvasObj.transform,
+            "Browse…", new Color(0.20f, 0.45f, 0.65f), labelSize: 26);
+        SetRect(pathBrowseBtn.GetComponent<RectTransform>(),
+            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+            new Vector2(460, 125), new Vector2(160, 56));
 
         // ---------- Background video override row (NEW) ----------
         var videoLabel = CreateText("VideoLabel", canvasObj.transform,
@@ -174,6 +282,7 @@ public static class MainMenuUIBuilder
         so.FindProperty("statusText").objectReferenceValue       = statusText;
         so.FindProperty("pathText").objectReferenceValue         = pathText;
         so.FindProperty("pathInput").objectReferenceValue        = pathInput;
+        so.FindProperty("pathBrowseButton").objectReferenceValue = pathBrowseBtn;
         so.FindProperty("startButton").objectReferenceValue      = startBtn;
         so.FindProperty("quitButton").objectReferenceValue       = quitBtn;
         so.FindProperty("videoPathInput").objectReferenceValue   = videoPathInput;

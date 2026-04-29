@@ -89,9 +89,11 @@ namespace MugsTech.Style
             CardFontStyleOverride = null;
             CardFontOverride      = null;
             BigText.Reset();
-            // Clear the preset video pref unconditionally — ApplyBackgroundVideo
-            // (below) re-writes it from whichever source has a path.
-            PlayerPrefs.DeleteKey(BackgroundVideoLoop.PresetPathPrefKey);
+            // Clear preset prefs unconditionally — the Apply* methods below
+            // re-write them from whichever source has a value.
+            PlayerPrefs.DeleteKey(MugsTech.Background.BackgroundVideoOverride.PresetPathPrefKey);
+            PlayerPrefs.DeleteKey(MugsTech.Background.BackgroundMusicPlayer.PresetListPrefKey);
+            PlayerPrefs.DeleteKey(MugsTech.Background.BackgroundMusicPlayer.PresetVolumePrefKey);
 
             if (save != null)
             {
@@ -100,18 +102,50 @@ namespace MugsTech.Style
                 ApplyAvatarSprites(save);
             }
 
-            // Bg video is intentionally not preset-bound: even without an
-            // active named save, a path picked in the visuals menu should
-            // apply at recording time. Active save's path wins; otherwise
-            // fall back to the visuals-menu working state PlayerPref.
+            // Bg video and music are intentionally not strictly preset-bound:
+            // even without an active named save, a path/playlist picked in
+            // the visuals menu should apply at recording time.
             ApplyBackgroundVideo(save);
+            ApplyBackgroundMusic(save);
             PlayerPrefs.Save();
 
-            // Explicitly hand off to the override hijacker AFTER the prefs are
-            // written, so ordering relative to its own sceneLoaded subscription
-            // doesn't matter — by the time it runs here, PresetPathPrefKey is
-            // current.
+            // Explicitly hand off to the runtime hijackers AFTER the prefs are
+            // written, so ordering relative to their own sceneLoaded callbacks
+            // doesn't matter — by the time they run here, the prefs are current.
             MugsTech.Background.BackgroundVideoOverride.ApplyToActiveScene();
+            MugsTech.Background.BackgroundMusicPlayer.ApplyToActiveScene();
+        }
+
+        static void ApplyBackgroundMusic(VisualsSaveFile save)
+        {
+            // Active save's playlist is authoritative; otherwise fall back to
+            // the visuals-menu working state PlayerPref so untitled edits
+            // still apply.
+            string serializedList;
+            float  volume;
+            string source;
+            if (save != null && save.music != null)
+            {
+                serializedList = MugsTech.Background.BackgroundMusicPlayer.SerializePathList(save.music.filePaths);
+                volume         = save.music.volume;
+                source         = $"save '{save.name}'";
+            }
+            else
+            {
+                serializedList = PlayerPrefs.GetString(VisualsMenuController.MusicListWorkingKey, "");
+                volume         = PlayerPrefs.GetFloat (VisualsMenuController.MusicVolumeWorkingKey,
+                                                       MugsTech.Background.BackgroundMusicPlayer.DefaultVolume);
+                source         = "PlayerPrefs working state";
+            }
+
+            Debug.Log($"[BgMusic] ApplyBackgroundMusic: source={source} volume={volume:F2} " +
+                      $"playlist=\"{serializedList.Replace("\n", " | ")}\"");
+
+            if (!string.IsNullOrWhiteSpace(serializedList))
+            {
+                PlayerPrefs.SetString(MugsTech.Background.BackgroundMusicPlayer.PresetListPrefKey,   serializedList);
+                PlayerPrefs.SetFloat (MugsTech.Background.BackgroundMusicPlayer.PresetVolumePrefKey, volume);
+            }
         }
 
         static void ApplyBackgroundVideo(VisualsSaveFile save)
@@ -137,7 +171,7 @@ namespace MugsTech.Style
 
             if (!string.IsNullOrWhiteSpace(path))
             {
-                PlayerPrefs.SetString(BackgroundVideoLoop.PresetPathPrefKey, path.Trim());
+                PlayerPrefs.SetString(MugsTech.Background.BackgroundVideoOverride.PresetPathPrefKey, path.Trim());
                 Debug.Log($"[BgVideoDiag]   wrote PresetPathPrefKey='{path.Trim()}'");
             }
             else

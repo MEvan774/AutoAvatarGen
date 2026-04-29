@@ -36,9 +36,13 @@ public class VisualsMenuController : MonoBehaviour
     public const string CardTextColorKey  = KeyPrefix + "Card.TextColor";
     public const string CardFontStyleKey  = KeyPrefix + "Card.FontStyle";
     public const string CardFontNameKey   = KeyPrefix + "Card.FontName";
-    public const string BgVideoPathKey    = KeyPrefix + "BgVideoPath";   // editor working state only
-    public const string BigTextStyleKey   = KeyPrefix + "BigText.Style"; // JSON-serialized BigTextStyleData
-    public const string ActiveSaveNameKey = KeyPrefix + "ActiveSaveName";
+    public const string BgVideoPathKey       = KeyPrefix + "BgVideoPath";   // editor working state only
+    public const string BigTextStyleKey      = KeyPrefix + "BigText.Style"; // JSON-serialized BigTextStyleData
+    // Music: list of paths (newline-separated) and volume — also working state only.
+    // VisualsRuntimeApplier reads these as a fallback when no preset is active.
+    public const string MusicListWorkingKey   = KeyPrefix + "MusicList";
+    public const string MusicVolumeWorkingKey = KeyPrefix + "MusicVolume";
+    public const string ActiveSaveNameKey     = KeyPrefix + "ActiveSaveName";
 
     /// <summary>
     /// Canonical emotion list. Must match HybridAvatarSystem's hardcoded
@@ -143,6 +147,10 @@ public class VisualsMenuController : MonoBehaviour
     Button           bgVideoLoadButton;
     Button           bgVideoClearButton;
 
+    // Background music — playlist of paths + volume (default 0.25 per README).
+    BackgroundMusicData musicData = new BackgroundMusicData();
+    Button              musicEditButton;
+
     // Auto-built font picker controls (runtime, no scene wiring required).
     Text   fontDisplayLabel;
     Button fontPrevButton;
@@ -193,6 +201,7 @@ public class VisualsMenuController : MonoBehaviour
         BuildFontRow();
         BuildBigTextEditButton();
         BuildBgVideoRow();
+        BuildMusicEditButton();
 
         // Bottom row.
         saveButton.onClick.AddListener(OnQuickSave);
@@ -601,6 +610,53 @@ public class VisualsMenuController : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
+    // Background music editor (preset-saved playlist, with main-menu override)
+    // -----------------------------------------------------------------------
+
+    void BuildMusicEditButton()
+    {
+        if (panelRoot == null) return;
+        // Tucked next to the Big Text edit button at y=-395 so it shares the
+        // bottom strip with the other compound editors.
+        musicEditButton = AddFontRowButton(panelRoot.transform, "MusicEditButton",
+            "Edit Music…", new Vector2(-340f, -395f), new Vector2(280f, 50f));
+        musicEditButton.onClick.AddListener(OnMusicEditClicked);
+    }
+
+    void OnMusicEditClicked()
+    {
+        if (panelRoot == null) return;
+        MusicEditPopup.GetOrCreate(panelRoot.transform)
+                      .Show(musicData, OnMusicChanged);
+    }
+
+    // Mirror to PlayerPrefs (working state) and to the active named save's
+    // JSON so the playlist + volume flow into the next recording without
+    // requiring a Quick Save.
+    void OnMusicChanged()
+    {
+        PlayerPrefs.SetString(MusicListWorkingKey,
+            MugsTech.Background.BackgroundMusicPlayer.SerializePathList(musicData.filePaths));
+        PlayerPrefs.SetFloat (MusicVolumeWorkingKey, musicData.volume);
+        PlayerPrefs.Save();
+
+        if (!string.IsNullOrEmpty(activeSaveName) && VisualsSaveStore.Exists(activeSaveName))
+        {
+            try { VisualsSaveStore.Save(CaptureCurrentState(activeSaveName)); }
+            catch (Exception e) { Debug.LogWarning($"[VisualsMenu] Music mirror failed: {e.Message}"); }
+        }
+    }
+
+    static BackgroundMusicData CloneMusicData(BackgroundMusicData src)
+    {
+        return new BackgroundMusicData
+        {
+            filePaths = src.filePaths != null ? new List<string>(src.filePaths) : new List<string>(),
+            volume    = src.volume,
+        };
+    }
+
+    // -----------------------------------------------------------------------
     // Background video (preset-saved, overridden by main menu's field)
     // -----------------------------------------------------------------------
 
@@ -910,8 +966,10 @@ public class VisualsMenuController : MonoBehaviour
         PlayerPrefs.SetString(CardTextColorKey, ColorToHex(textColor));
         PlayerPrefs.SetInt   (CardFontStyleKey, (int)fontStyle);
         PlayerPrefs.SetString(CardFontNameKey,  fontIdentifier ?? "");
-        PlayerPrefs.SetString(BgVideoPathKey,   backgroundVideoPath ?? "");
-        PlayerPrefs.SetString(BigTextStyleKey,  JsonUtility.ToJson(bigTextStyle));
+        PlayerPrefs.SetString(BgVideoPathKey,        backgroundVideoPath ?? "");
+        PlayerPrefs.SetString(MusicListWorkingKey,   MugsTech.Background.BackgroundMusicPlayer.SerializePathList(musicData.filePaths));
+        PlayerPrefs.SetFloat (MusicVolumeWorkingKey, musicData.volume);
+        PlayerPrefs.SetString(BigTextStyleKey,       JsonUtility.ToJson(bigTextStyle));
         PlayerPrefs.Save();
 
         // Mirror into the active named save's JSON so edits flow through to the
@@ -947,6 +1005,14 @@ public class VisualsMenuController : MonoBehaviour
 
         backgroundVideoPath = PlayerPrefs.GetString(BgVideoPathKey, "");
         UpdateBgVideoLabel();
+
+        musicData = new BackgroundMusicData
+        {
+            filePaths = MugsTech.Background.BackgroundMusicPlayer.ParsePathList(
+                            PlayerPrefs.GetString(MusicListWorkingKey, "")),
+            volume    = PlayerPrefs.GetFloat(MusicVolumeWorkingKey,
+                            MugsTech.Background.BackgroundMusicPlayer.DefaultVolume),
+        };
 
         string bigJson = PlayerPrefs.GetString(BigTextStyleKey, "");
         if (!string.IsNullOrEmpty(bigJson))
@@ -1029,6 +1095,7 @@ public class VisualsMenuController : MonoBehaviour
                 fontName     = fontIdentifier ?? "",
             },
             bigText = CloneBigTextStyle(bigTextStyle),
+            music   = CloneMusicData(musicData),
         };
 
         foreach (var slot in emotionSlots)
@@ -1224,6 +1291,8 @@ public class VisualsMenuController : MonoBehaviour
 
         backgroundVideoPath = data.backgroundVideoPath ?? "";
         UpdateBgVideoLabel();
+
+        musicData = data.music != null ? CloneMusicData(data.music) : new BackgroundMusicData();
 
         bgColorInput.text          = ColorToHex(bgColor);
         bgColorSwatch.color        = bgColor;

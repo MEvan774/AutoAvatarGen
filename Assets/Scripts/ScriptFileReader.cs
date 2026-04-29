@@ -26,14 +26,15 @@ public class ScriptFileReader : MonoBehaviour
 
     [Header("Auto-Load From ElevenLabs Output")]
     [Tooltip("When true, auto-discovers the ElevenLabs pre-processor output in " +
-             "'Assets/<pythonOutputFolder>'. If a manifest.json is present, all " +
-             "numbered segments are loaded and stitched into one seamless clip. " +
-             "Otherwise a single '<SLUG>_timed.txt' + '<SLUG>.mp3' pair is loaded. " +
-             "The discovered slug is used as the recorded video's title.")]
+             "the folder specified by 'Python Output Folder'. If a manifest.json " +
+             "is present, all numbered segments are loaded and stitched into one " +
+             "seamless clip. Otherwise a single '<SLUG>_timed.txt' + '<SLUG>.mp3' " +
+             "pair is loaded. The discovered slug is used as the recorded video's title.")]
     public bool autoLoadFromPythonOutput = true;
 
-    [Tooltip("Folder (relative to Assets/) that contains the ElevenLabs pre-processor output. " +
-             "Default matches elevenlabs_tts_processor.py's default --out_dir.")]
+    [Tooltip("Folder containing the ElevenLabs pre-processor output. May be an " +
+             "absolute path (e.g. 'D:/MyOutputs/elevenlabs') or a path relative " +
+             "to Unity's Assets/ folder (e.g. 'Python/output').")]
     public string pythonOutputFolder = "Python/output";
 
     [Tooltip("Leave empty to load the first '*_timed.txt' found (alphabetically). Otherwise specify " +
@@ -60,7 +61,7 @@ public class ScriptFileReader : MonoBehaviour
 
         if (autoLoadFromPythonOutput)
         {
-            string folder = Path.Combine(Application.dataPath, pythonOutputFolder);
+            string folder = ResolveOutputFolder(pythonOutputFolder);
 
             // Manifest-driven multi-segment path takes precedence unless the
             // user explicitly overrides the slug (which targets a single pair).
@@ -79,6 +80,18 @@ public class ScriptFileReader : MonoBehaviour
         }
 
         ProcessScript();
+    }
+
+    // Absolute paths are used as-is; anything else is treated as relative to
+    // Application.dataPath (the Assets/ folder) for backwards compatibility
+    // with the old "Python/output" default.
+    static string ResolveOutputFolder(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+            return Application.dataPath;
+        return Path.IsPathRooted(folder)
+            ? folder
+            : Path.Combine(Application.dataPath, folder);
     }
 
     // -----------------------------------------------------------------------
@@ -123,7 +136,7 @@ public class ScriptFileReader : MonoBehaviour
     {
         scriptPath = audioPath = slug = null;
 
-        string folder = Path.Combine(Application.dataPath, pythonOutputFolder);
+        string folder = ResolveOutputFolder(pythonOutputFolder);
         if (!Directory.Exists(folder))
         {
             Debug.LogWarning($"[ScriptFileReader] Python output folder not found: {folder}");
