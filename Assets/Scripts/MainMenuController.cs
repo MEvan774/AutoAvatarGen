@@ -15,9 +15,15 @@ using MugsTech.Style;
 /// Also exposes:
 ///   - A text field for the Python pre-processor output folder. ScriptFileReader
 ///     reads the same PlayerPrefs key and overrides its own pythonOutputFolder.
+///   - A text field + Browse button for the external media root folder
+///     (containing BRoll / Images / Logos subfolders). MediaPresentationSystem
+///     reads the same PlayerPrefs key and overrides its own externalMediaRoot.
 ///   - A text field + Load button for a runtime background-video override.
 ///     BackgroundVideoOverride reads the same PlayerPrefs key and hijacks the
 ///     scene's VideoPlayer with it.
+///
+/// All path fields auto-save to PlayerPrefs on edit (onEndEdit) and on Browse,
+/// so once a folder is linked the user doesn't have to relink it next session.
 ///
 /// The UI itself lives as authored GameObjects in MainMenu.unity. Re-build
 /// the hierarchy with: Tools -> AutoAvatarGen -> Build Main Menu UI
@@ -28,6 +34,10 @@ public class MainMenuController : MonoBehaviour
     // Shared with ScriptFileReader. If you rename this, rename it there too.
     public const string PythonOutputFolderPrefKey = "AutoAvatarGen.PythonOutputFolder";
     public const string DefaultPythonOutputFolder = "Python/output";
+
+    // Shared with MediaPresentationSystem. Empty string = use the inspector default
+    // (which is empty too, meaning "fall back to Resources/Media").
+    public const string MediaRootFolderPrefKey = MediaPresentationSystem.MediaRootFolderPrefKey;
 
     // Shared with BackgroundVideoOverride. Empty string = use the scene's default.
     public const string BackgroundVideoOverridePrefKey = MugsTech.Background.BackgroundVideoOverride.OverridePathPrefKey;
@@ -48,6 +58,11 @@ public class MainMenuController : MonoBehaviour
     [SerializeField] Button         videoLoadButton;
     [SerializeField] Button         videoClearButton;
 
+    [Header("External Media Root (BRoll / Images / Logos)")]
+    [Tooltip("Optional. If left null, the controller spawns its own row at runtime.")]
+    [SerializeField] TMP_InputField mediaRootInput;
+    [SerializeField] Button         mediaRootBrowseButton;
+
     // Music override row is built at runtime — keep it null-safe so existing
     // scenes don't need a rebuild.
     Text   musicOverrideLabel;
@@ -60,6 +75,8 @@ public class MainMenuController : MonoBehaviour
     [SerializeField] TMP_Text activeSaveLabel;
     [SerializeField] Button   activeSavePrevButton;
     [SerializeField] Button   activeSaveNextButton;
+    [SerializeField] Button   activeSaveExportButton;
+    [SerializeField] Button   activeSaveImportButton;
 
     // Cycle state. availableSaves[0] is always "" (= "(none)"); the rest are the
     // discovered named saves under VisualsSaveStore.SavesDir.
@@ -81,9 +98,20 @@ public class MainMenuController : MonoBehaviour
         videoLoadButton.onClick.AddListener(OnVideoLoadClicked);
         videoClearButton.onClick.AddListener(OnVideoClearClicked);
 
+        EnsureMediaRootControls();
+        if (mediaRootInput != null)
+        {
+            mediaRootInput.onEndEdit.AddListener(OnMediaRootChanged);
+            mediaRootInput.text = PlayerPrefs.GetString(MediaRootFolderPrefKey, "");
+        }
+        if (mediaRootBrowseButton != null)
+            mediaRootBrowseButton.onClick.AddListener(OnMediaRootBrowseClicked);
+
         EnsureActiveSaveControls();
         if (activeSavePrevButton != null) activeSavePrevButton.onClick.AddListener(() => CycleActiveSave(-1));
         if (activeSaveNextButton != null) activeSaveNextButton.onClick.AddListener(() => CycleActiveSave(+1));
+        if (activeSaveExportButton != null) activeSaveExportButton.onClick.AddListener(OnExportActiveSaveClicked);
+        if (activeSaveImportButton != null) activeSaveImportButton.onClick.AddListener(OnImportSaveClicked);
         RefreshActiveSaves();
 
         BuildMusicOverrideRow();
@@ -143,6 +171,7 @@ public class MainMenuController : MonoBehaviour
         // Flush field values in case the user typed but didn't click out before hitting Start.
         OnPathChanged(pathInput.text);
         OnVideoPathChanged(videoPathInput.text);
+        if (mediaRootInput != null) OnMediaRootChanged(mediaRootInput.text);
         Debug.Log($"[BgVideoDiag] MainMenu OnStartClicked — videoPathInput.text='{videoPathInput.text}' " +
                   $"OverridePref='{PlayerPrefs.GetString(BackgroundVideoOverridePrefKey, "")}'");
         RecordingSession.Begin();
@@ -241,6 +270,154 @@ public class MainMenuController : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
+    // External media root (BRoll / Images / Logos)
+    //
+    // Mirrors the Python output folder pattern: typing a path or picking one
+    // via Browse… auto-saves to PlayerPrefs. MediaPresentationSystem reads the
+    // same key in Start() and overrides its inspector value, so the link
+    // persists across sessions and scenes.
+    // -----------------------------------------------------------------------
+
+    void OnMediaRootChanged(string value)
+    {
+        // Empty / whitespace = "no override" (system falls back to Resources/Media).
+        string trimmed = string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
+        PlayerPrefs.SetString(MediaRootFolderPrefKey, trimmed);
+        PlayerPrefs.Save();
+        if (mediaRootInput != null && mediaRootInput.text != trimmed)
+            mediaRootInput.text = trimmed;
+    }
+
+    void OnMediaRootBrowseClicked()
+    {
+        string current = mediaRootInput != null ? mediaRootInput.text : "";
+        string startDir = !string.IsNullOrWhiteSpace(current) && Directory.Exists(current)
+            ? current
+            : "";
+        string picked = TryPickFolderPath(
+            "Pick media folder (must contain BRoll / Images / Logos)", startDir);
+        if (string.IsNullOrEmpty(picked)) return;
+        OnMediaRootChanged(picked);
+    }
+
+    // Builds the media-root row at runtime if it hasn't been hand-wired in the
+    // inspector. Same trick as EnsureActiveSaveControls / BuildMusicOverrideRow:
+    // existing scenes don't need a UI rebuild to get the new controls.
+    void EnsureMediaRootControls()
+    {
+        if (mediaRootInput != null) return; // already wired in the inspector
+
+        Canvas canvas = GetComponentInChildren<Canvas>();
+        if (canvas == null) return;
+
+        // Row container, anchored top-center, sitting below the music override row.
+        var row = new GameObject("MediaRootRow", typeof(RectTransform));
+        row.transform.SetParent(canvas.transform, false);
+        var rowRT = (RectTransform)row.transform;
+        rowRT.anchorMin = rowRT.anchorMax = rowRT.pivot = new Vector2(0.5f, 1f);
+        rowRT.anchoredPosition = new Vector2(0f, -56f);
+        rowRT.sizeDelta        = new Vector2(1500f, 80f);
+
+        // Label
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(row.transform, false);
+        var labelRT = (RectTransform)labelGO.transform;
+        labelRT.anchorMin = labelRT.anchorMax = labelRT.pivot = new Vector2(0.5f, 1f);
+        labelRT.anchoredPosition = new Vector2(0f, 0f);
+        labelRT.sizeDelta        = new Vector2(1100f, 28f);
+        var label = labelGO.AddComponent<TextMeshProUGUI>();
+        label.text       = "Media folder (contains BRoll / Images / Logos):";
+        label.fontSize   = 22;
+        label.alignment  = TextAlignmentOptions.Center;
+        label.color      = new Color(0.82f, 0.85f, 0.9f, 1f);
+
+        // Input field
+        var inputGO = new GameObject("MediaRootInput", typeof(RectTransform));
+        inputGO.transform.SetParent(row.transform, false);
+        var inputRT = (RectTransform)inputGO.transform;
+        inputRT.anchorMin = inputRT.anchorMax = inputRT.pivot = new Vector2(0.5f, 1f);
+        inputRT.anchoredPosition = new Vector2(-90f, -34f);
+        inputRT.sizeDelta        = new Vector2(920f, 44f);
+
+        var bg = inputGO.AddComponent<Image>();
+        bg.color = new Color(0.15f, 0.17f, 0.21f, 1f);
+
+        var input = inputGO.AddComponent<TMP_InputField>();
+
+        var textArea = new GameObject("Text Area", typeof(RectTransform));
+        textArea.transform.SetParent(inputGO.transform, false);
+        var taRT = (RectTransform)textArea.transform;
+        taRT.anchorMin = Vector2.zero;
+        taRT.anchorMax = Vector2.one;
+        taRT.offsetMin = new Vector2(14f, 4f);
+        taRT.offsetMax = new Vector2(-14f, -4f);
+        textArea.AddComponent<RectMask2D>();
+
+        var textGO = new GameObject("Text", typeof(RectTransform));
+        textGO.transform.SetParent(textArea.transform, false);
+        var textRT = (RectTransform)textGO.transform;
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = Vector2.zero;
+        textRT.offsetMax = Vector2.zero;
+        var text = textGO.AddComponent<TextMeshProUGUI>();
+        text.text      = "";
+        text.fontSize  = 22;
+        text.alignment = TextAlignmentOptions.Left;
+        text.color     = Color.white;
+        text.richText  = false;
+
+        var phGO = new GameObject("Placeholder", typeof(RectTransform));
+        phGO.transform.SetParent(textArea.transform, false);
+        var phRT = (RectTransform)phGO.transform;
+        phRT.anchorMin = Vector2.zero;
+        phRT.anchorMax = Vector2.one;
+        phRT.offsetMin = Vector2.zero;
+        phRT.offsetMax = Vector2.zero;
+        var ph = phGO.AddComponent<TextMeshProUGUI>();
+        ph.text      = "C:\\path\\to\\media-root  (leave blank for Resources/Media)";
+        ph.fontSize  = 22;
+        ph.fontStyle = FontStyles.Italic;
+        ph.alignment = TextAlignmentOptions.Left;
+        ph.color     = new Color(0.55f, 0.58f, 0.64f, 1f);
+
+        input.textViewport  = taRT;
+        input.textComponent = text;
+        input.placeholder   = ph;
+        input.targetGraphic = bg;
+
+        mediaRootInput = input;
+
+        // Browse button
+        var btnGO = new GameObject("MediaRootBrowseButton", typeof(RectTransform));
+        btnGO.transform.SetParent(row.transform, false);
+        var btnRT = (RectTransform)btnGO.transform;
+        btnRT.anchorMin = btnRT.anchorMax = btnRT.pivot = new Vector2(0.5f, 1f);
+        btnRT.anchoredPosition = new Vector2(460f, -34f);
+        btnRT.sizeDelta        = new Vector2(160f, 44f);
+        var btnImg = btnGO.AddComponent<Image>();
+        btnImg.color = new Color(0.20f, 0.45f, 0.65f, 1f);
+        var btn = btnGO.AddComponent<Button>();
+        btn.targetGraphic = btnImg;
+
+        var btnLabelGO = new GameObject("Label", typeof(RectTransform));
+        btnLabelGO.transform.SetParent(btnGO.transform, false);
+        var btnLabelRT = (RectTransform)btnLabelGO.transform;
+        btnLabelRT.anchorMin = Vector2.zero;
+        btnLabelRT.anchorMax = Vector2.one;
+        btnLabelRT.offsetMin = Vector2.zero;
+        btnLabelRT.offsetMax = Vector2.zero;
+        var btnLabel = btnLabelGO.AddComponent<TextMeshProUGUI>();
+        btnLabel.text       = "Browse…";
+        btnLabel.fontSize   = 24;
+        btnLabel.fontStyle  = FontStyles.Bold;
+        btnLabel.alignment  = TextAlignmentOptions.Center;
+        btnLabel.color      = Color.white;
+
+        mediaRootBrowseButton = btn;
+    }
+
+    // -----------------------------------------------------------------------
     // Active visuals save selector
     // -----------------------------------------------------------------------
 
@@ -264,6 +441,118 @@ public class MainMenuController : MonoBehaviour
             PlayerPrefs.Save();
         }
         UpdateActiveSaveLabel();
+    }
+
+    // -----------------------------------------------------------------------
+    // Active save export / import — lets users back up the currently selected
+    // visuals save to a JSON file before installing a new build, then restore
+    // it after the new install. Same JSON format as VisualsMenuController's
+    // export, so files are interchangeable between the two screens.
+    // -----------------------------------------------------------------------
+
+    void OnExportActiveSaveClicked()
+    {
+        string current = (availableSaves != null && currentSaveIndex < availableSaves.Length)
+            ? availableSaves[currentSaveIndex] : "";
+        if (string.IsNullOrEmpty(current))
+        {
+            FlashMessage("No save selected to export. Pick one with the < > buttons.");
+            return;
+        }
+
+        var data = VisualsSaveStore.Load(current);
+        if (data == null)
+        {
+            FlashMessage($"Could not load save '{current}'.");
+            return;
+        }
+
+        string path = TryPickSaveJsonPath(current + ".json");
+        if (string.IsNullOrEmpty(path)) return;
+
+        try
+        {
+            VisualsSaveStore.ExportTo(data, path);
+            FlashMessage("Exported to: " + path);
+            Debug.Log($"[MainMenu] Exported visuals save '{current}' to {path}");
+        }
+        catch (Exception e)
+        {
+            FlashMessage("Export failed: " + e.Message);
+            Debug.LogError($"[MainMenu] Export failed: {e}");
+        }
+    }
+
+    void OnImportSaveClicked()
+    {
+        string path = TryPickOpenJsonPath();
+        if (string.IsNullOrEmpty(path)) return;
+
+        VisualsSaveFile data;
+        try { data = VisualsSaveStore.LoadFromFile(path); }
+        catch (Exception e) { FlashMessage("Import failed: " + e.Message); return; }
+
+        if (data == null)
+        {
+            FlashMessage("Not a valid visuals save file.");
+            return;
+        }
+
+        if (string.IsNullOrEmpty(data.name))
+            data.name = Path.GetFileNameWithoutExtension(path);
+
+        try
+        {
+            VisualsSaveStore.Save(data); // overwrites if same name already exists
+            // Make the imported save the active one so the next recording picks it up.
+            PlayerPrefs.SetString(VisualsMenuController.ActiveSaveNameKey, data.name);
+            PlayerPrefs.Save();
+            RefreshActiveSaves();
+            FlashMessage("Imported save: " + data.name);
+            Debug.Log($"[MainMenu] Imported visuals save '{data.name}' from {path}");
+        }
+        catch (Exception e)
+        {
+            FlashMessage("Import failed: " + e.Message);
+            Debug.LogError($"[MainMenu] Import failed: {e}");
+        }
+    }
+
+    // Pushes a short message into the result panel so users see export / import
+    // feedback. Gets overwritten by the next RefreshResult() call (e.g. after a
+    // recording completes), which is fine.
+    void FlashMessage(string text)
+    {
+        if (pathText != null) pathText.text = text;
+    }
+
+    static string TryPickSaveJsonPath(string defaultFileName)
+    {
+#if STANDALONE_FILE_BROWSER
+        var ext = new[] { new SFB.ExtensionFilter("Visuals Save", "json") };
+        return SFB.StandaloneFileBrowser.SaveFilePanel(
+            "Export Visuals Save", "", defaultFileName, ext);
+#elif UNITY_EDITOR
+        return UnityEditor.EditorUtility.SaveFilePanel(
+            "Export Visuals Save", "", defaultFileName, "json");
+#else
+        return "";
+#endif
+    }
+
+    static string TryPickOpenJsonPath()
+    {
+#if STANDALONE_FILE_BROWSER
+        var ext = new[] { new SFB.ExtensionFilter("Visuals Save", "json") };
+        var picked = SFB.StandaloneFileBrowser.OpenFilePanel(
+            "Import Visuals Save", "", ext, false);
+        return (picked != null && picked.Length > 0) ? picked[0] : "";
+#elif UNITY_EDITOR
+        return UnityEditor.EditorUtility.OpenFilePanel(
+            "Import Visuals Save", "", "json");
+#else
+        return "";
+#endif
     }
 
     void CycleActiveSave(int delta)
@@ -291,6 +580,8 @@ public class MainMenuController : MonoBehaviour
         activeSaveLabel.text = "Active save:  " + (none ? "(none)" : current);
         if (activeSavePrevButton != null) activeSavePrevButton.interactable = availableSaves.Length > 1;
         if (activeSaveNextButton != null) activeSaveNextButton.interactable = availableSaves.Length > 1;
+        // Export only makes sense when a real save is selected (not "(none)").
+        if (activeSaveExportButton != null) activeSaveExportButton.interactable = !none;
     }
 
     // The active-save row is created at runtime (rather than in MainMenuUIBuilder)
@@ -310,14 +601,14 @@ public class MainMenuController : MonoBehaviour
         rowRT.anchorMax = new Vector2(0.5f, 1f);
         rowRT.pivot     = new Vector2(0.5f, 1f);
         rowRT.anchoredPosition = new Vector2(0f, -50f);
-        rowRT.sizeDelta = new Vector2(800f, 50f);
+        rowRT.sizeDelta = new Vector2(1280f, 50f);
 
         var labelGO = new GameObject("Label", typeof(RectTransform));
         labelGO.transform.SetParent(row.transform, false);
         var labelRT = (RectTransform)labelGO.transform;
         labelRT.anchorMin = labelRT.anchorMax = labelRT.pivot = new Vector2(0.5f, 0.5f);
         labelRT.anchoredPosition = Vector2.zero;
-        labelRT.sizeDelta = new Vector2(560f, 50f);
+        labelRT.sizeDelta = new Vector2(440f, 50f);
         var label = labelGO.AddComponent<TextMeshProUGUI>();
         label.text       = "Active save:  (none)";
         label.fontSize   = 26;
@@ -325,8 +616,44 @@ public class MainMenuController : MonoBehaviour
         label.color      = new Color(0.82f, 0.85f, 0.9f, 1f);
         activeSaveLabel  = label;
 
-        activeSavePrevButton = BuildCycleButton(rowRT, "Prev", "<", -340f);
-        activeSaveNextButton = BuildCycleButton(rowRT, "Next", ">",  340f);
+        activeSavePrevButton = BuildCycleButton(rowRT, "Prev", "<", -280f);
+        activeSaveNextButton = BuildCycleButton(rowRT, "Next", ">",  280f);
+
+        // Export saves the currently-active visuals save to a JSON file the user
+        // picks — so they can keep their tweaks across new builds. Import re-loads
+        // a previously exported JSON back into the local save store.
+        activeSaveExportButton = BuildWideTextButton(rowRT, "ExportSave", "Export…",  470f, new Color(0.20f, 0.45f, 0.65f, 1f));
+        activeSaveImportButton = BuildWideTextButton(rowRT, "ImportSave", "Import…", -470f, new Color(0.32f, 0.34f, 0.40f, 1f));
+    }
+
+    static Button BuildWideTextButton(RectTransform parent, string name, string label, float xOffset, Color tint)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(xOffset, 0f);
+        rt.sizeDelta = new Vector2(160f, 44f);
+
+        var img = go.AddComponent<Image>();
+        img.color = tint;
+        var btn = go.AddComponent<Button>();
+        btn.targetGraphic = img;
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(go.transform, false);
+        var labelRT = (RectTransform)labelGO.transform;
+        labelRT.anchorMin = Vector2.zero;
+        labelRT.anchorMax = Vector2.one;
+        labelRT.offsetMin = Vector2.zero;
+        labelRT.offsetMax = Vector2.zero;
+        var t = labelGO.AddComponent<TextMeshProUGUI>();
+        t.text       = label;
+        t.fontSize   = 22;
+        t.fontStyle  = FontStyles.Bold;
+        t.alignment  = TextAlignmentOptions.Center;
+        t.color      = Color.white;
+        return btn;
     }
 
     static Button BuildCycleButton(RectTransform parent, string name, string glyph, float xOffset)

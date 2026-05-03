@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using UnityEngine.Video;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
 using System.Text.RegularExpressions;
 
 // ============================================================================
@@ -97,7 +98,25 @@ public class MediaPresentationSystem : MonoBehaviour
     public BlackPanelController blackPanelController;
 
     [Header("Media Settings")]
+    [Tooltip("Legacy fallback — Resources subfolder used only if external folders below are blank or a file can't be found on disk.")]
     public string mediaFolderPath = "Media";
+
+    [Header("External Media Folders (absolute paths outside the project)")]
+    [Tooltip("Root folder on disk that contains the BRoll / Images / Logos subfolders. Leave blank to fall back to Resources. Overridden at runtime by the main menu's 'Media folder' input (saved to PlayerPrefs).")]
+    public string externalMediaRoot = "";
+    [Tooltip("Subfolder under the root that holds video b-roll files. Looked up by {Video:name,...}.")]
+    public string bRollSubfolder = "BRoll";
+    [Tooltip("Subfolder under the root that holds general images/screenshots. Searched first by {Image:name,...}.")]
+    public string imagesSubfolder = "Images";
+    [Tooltip("Subfolder under the root that holds company logos. Searched after Images by {Image:name,...}.")]
+    public string logosSubfolder = "Logos";
+
+    // Kept in sync with MainMenuController.MediaRootFolderPrefKey. If you
+    // rename one, rename the other.
+    public const string MediaRootFolderPrefKey = "AutoAvatarGen.ExternalMediaRoot";
+
+    static readonly string[] ImageExtensions = { ".png", ".jpg", ".jpeg" };
+    static readonly string[] VideoExtensions = { ".mp4", ".mov", ".webm", ".avi" };
 
     // --- Existing state (unchanged) ---
     private List<MediaMarkerData> mediaMarkers;
@@ -166,6 +185,16 @@ public class MediaPresentationSystem : MonoBehaviour
 
     void Start()
     {
+        // Honor any override saved from the main menu's "Media folder" input.
+        // Scenes don't share MonoBehaviour state directly, so we pass the value
+        // via PlayerPrefs — same pattern as ScriptFileReader's pythonOutputFolder.
+        string overrideRoot = PlayerPrefs.GetString(MediaRootFolderPrefKey, "");
+        if (!string.IsNullOrWhiteSpace(overrideRoot))
+        {
+            externalMediaRoot = overrideRoot;
+            Debug.Log($"[MediaPresentation] External media root overridden via main menu: {externalMediaRoot}");
+        }
+
         // Store default camera size for zoom reset
         if (mainCamera != null)
             defaultCameraSize = mainCamera.orthographicSize;
@@ -864,10 +893,25 @@ public class MediaPresentationSystem : MonoBehaviour
     IEnumerator DisplayMedia(MediaMarkerData marker)
     {
         mediaDisplay.gameObject.SetActive(true);
+        Texture2D loadedDiskTexture = null;
 
         if (marker.mediaType == MediaType.IMAGE)
         {
-            Texture2D image = Resources.Load<Texture2D>($"{mediaFolderPath}/{marker.mediaName}");
+            string diskPath = ResolveImagePath(marker.mediaName);
+            Texture2D image = null;
+
+            if (diskPath != null)
+            {
+                image = LoadTextureFromDisk(diskPath);
+                if (image != null)
+                {
+                    loadedDiskTexture = image;
+                    Debug.Log($"Loaded image from disk: {diskPath}");
+                }
+            }
+
+            if (image == null)
+                image = Resources.Load<Texture2D>($"{mediaFolderPath}/{marker.mediaName}");
 
             if (image != null)
             {
@@ -879,17 +923,37 @@ public class MediaPresentationSystem : MonoBehaviour
             }
             else
             {
-                Debug.LogError($"Image not found: {mediaFolderPath}/{marker.mediaName}");
+                Debug.LogError($"Image not found on disk or in Resources: {marker.mediaName}");
             }
+
+            if (loadedDiskTexture != null)
+                Destroy(loadedDiskTexture);
         }
         else if (marker.mediaType == MediaType.VIDEO)
         {
-            VideoClip clip = Resources.Load<VideoClip>($"{mediaFolderPath}/{marker.mediaName}");
+            string diskPath = ResolveVideoPath(marker.mediaName);
+            bool playingFromDisk = diskPath != null;
+            VideoClip clip = null;
 
-            if (clip != null)
+            if (!playingFromDisk)
+                clip = Resources.Load<VideoClip>($"{mediaFolderPath}/{marker.mediaName}");
+
+            if (playingFromDisk || clip != null)
             {
                 videoPlayer.gameObject.SetActive(true);
-                videoPlayer.clip = clip;
+
+                if (playingFromDisk)
+                {
+                    videoPlayer.source = VideoSource.Url;
+                    videoPlayer.url = "file:///" + diskPath.Replace('\\', '/');
+                    videoPlayer.clip = null;
+                    Debug.Log($"Playing video from disk: {diskPath}");
+                }
+                else
+                {
+                    videoPlayer.source = VideoSource.VideoClip;
+                    videoPlayer.clip = clip;
+                }
 
                 RenderTexture rt = new RenderTexture(1920, 1080, 24);
                 videoPlayer.targetTexture = rt;
@@ -922,11 +986,68 @@ public class MediaPresentationSystem : MonoBehaviour
             }
             else
             {
-                Debug.LogError($"Video not found: {mediaFolderPath}/{marker.mediaName}");
+                Debug.LogError($"Video not found on disk or in Resources: {marker.mediaName}");
             }
         }
 
         mediaDisplay.gameObject.SetActive(false);
+    }
+
+    // -----------------------------------------------------------------------
+    // External-folder resolution. {Image:name} searches Images then Logos;
+    // {Video:name} searches BRoll. Names may include or omit an extension —
+    // if omitted, common extensions are tried. Returns null if not found or
+    // if externalMediaRoot is blank.
+    // -----------------------------------------------------------------------
+
+    string ResolveImagePath(string mediaName)
+    {
+        if (string.IsNullOrWhiteSpace(externalMediaRoot)) return null;
+
+        string fromImages = FindFileInFolder(Path.Combine(externalMediaRoot, imagesSubfolder), mediaName, ImageExtensions);
+        if (fromImages != null) return fromImages;
+
+        return FindFileInFolder(Path.Combine(externalMediaRoot, logosSubfolder), mediaName, ImageExtensions);
+    }
+
+    string ResolveVideoPath(string mediaName)
+    {
+        if (string.IsNullOrWhiteSpace(externalMediaRoot)) return null;
+        return FindFileInFolder(Path.Combine(externalMediaRoot, bRollSubfolder), mediaName, VideoExtensions);
+    }
+
+    static string FindFileInFolder(string folder, string mediaName, string[] extensions)
+    {
+        if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) return null;
+
+        // Exact name (with extension) first
+        string exact = Path.Combine(folder, mediaName);
+        if (File.Exists(exact)) return exact;
+
+        // Try each extension
+        foreach (string ext in extensions)
+        {
+            string withExt = Path.Combine(folder, mediaName + ext);
+            if (File.Exists(withExt)) return withExt;
+        }
+
+        return null;
+    }
+
+    static Texture2D LoadTextureFromDisk(string path)
+    {
+        try
+        {
+            byte[] data = File.ReadAllBytes(path);
+            Texture2D tex = new Texture2D(2, 2);
+            if (tex.LoadImage(data)) return tex;
+            Object.Destroy(tex);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"Failed to load image from disk '{path}': {e.Message}");
+        }
+        return null;
     }
 
     // -----------------------------------------------------------------------

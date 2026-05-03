@@ -204,53 +204,74 @@ public static class MainMenuUIBuilder
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
             new Vector2(460, 125), new Vector2(160, 56));
 
-        // ---------- Background video override row (NEW) ----------
+        // ---------- External media root row (BRoll / Images / Logos) ----------
+        var mediaRootLabel = CreateText("MediaRootLabel", canvasObj.transform,
+            "Media folder (contains BRoll / Images / Logos):",
+            24, TextAlignmentOptions.Center, FontStyles.Normal);
+        mediaRootLabel.color = new Color(0.82f, 0.85f, 0.9f, 1f);
+        SetRect(mediaRootLabel.rectTransform,
+            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+            new Vector2(0, 55), new Vector2(1100, 32));
+
+        var mediaRootInput = CreateInputField("MediaRootInput", canvasObj.transform,
+            "", "C:\\path\\to\\media-root  (leave blank for Resources/Media)");
+        SetRect(mediaRootInput.GetComponent<RectTransform>(),
+            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+            new Vector2(-90, 0), new Vector2(920, 56));
+
+        var mediaRootBrowseBtn = CreateButton("MediaRootBrowseButton", canvasObj.transform,
+            "Browse…", new Color(0.20f, 0.45f, 0.65f), labelSize: 26);
+        SetRect(mediaRootBrowseBtn.GetComponent<RectTransform>(),
+            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+            new Vector2(460, 0), new Vector2(160, 56));
+
+        // ---------- Background video override row ----------
         var videoLabel = CreateText("VideoLabel", canvasObj.transform,
             "Background video override (leave blank for default):",
             24, TextAlignmentOptions.Center, FontStyles.Normal);
         videoLabel.color = new Color(0.82f, 0.85f, 0.9f, 1f);
         SetRect(videoLabel.rectTransform,
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(0, 55), new Vector2(1100, 32));
+            new Vector2(0, -75), new Vector2(1100, 32));
 
         var videoPathInput = CreateInputField("VideoPathInput", canvasObj.transform,
             "", "C:\\path\\to\\background.mp4");
         SetRect(videoPathInput.GetComponent<RectTransform>(),
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(-90, 0), new Vector2(920, 56));
+            new Vector2(-90, -130), new Vector2(920, 56));
 
         var videoLoadBtn = CreateButton("VideoLoadButton", canvasObj.transform,
             "Load…", new Color(0.20f, 0.45f, 0.65f), labelSize: 26);
         SetRect(videoLoadBtn.GetComponent<RectTransform>(),
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(440, 0), new Vector2(140, 56));
+            new Vector2(440, -130), new Vector2(140, 56));
 
         var videoClearBtn = CreateButton("VideoClearButton", canvasObj.transform,
             "Clear", new Color(0.32f, 0.34f, 0.40f), labelSize: 26);
         SetRect(videoClearBtn.GetComponent<RectTransform>(),
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(580, 0), new Vector2(110, 56));
+            new Vector2(580, -130), new Vector2(110, 56));
 
         // ---------- Start button ----------
         var startBtn = CreateButton("StartButton", canvasObj.transform,
             "Start Recording", new Color(0.18f, 0.62f, 0.34f));
         SetRect(startBtn.GetComponent<RectTransform>(),
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(0, -100), new Vector2(560, 100));
+            new Vector2(0, -240), new Vector2(560, 100));
 
         // ---------- Quit button ----------
         var quitBtn = CreateButton("QuitButton", canvasObj.transform,
             "Quit", new Color(0.58f, 0.17f, 0.17f));
         SetRect(quitBtn.GetComponent<RectTransform>(),
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(0, -220), new Vector2(560, 100));
+            new Vector2(0, -360), new Vector2(560, 100));
 
         // ---------- Result panel ----------
         Image resultPanel = CreateImage("ResultPanel", canvasObj.transform);
         resultPanel.color = new Color(1f, 1f, 1f, 0.06f);
         SetRect(resultPanel.rectTransform,
             new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-            new Vector2(0, 80), new Vector2(1500, 170));
+            new Vector2(0, 40), new Vector2(1500, 130));
 
         var statusText = CreateText("Status", resultPanel.transform, "Ready to record.",
             42, TextAlignmentOptions.Top, FontStyles.Bold);
@@ -288,6 +309,8 @@ public static class MainMenuUIBuilder
         so.FindProperty("videoPathInput").objectReferenceValue   = videoPathInput;
         so.FindProperty("videoLoadButton").objectReferenceValue  = videoLoadBtn;
         so.FindProperty("videoClearButton").objectReferenceValue = videoClearBtn;
+        so.FindProperty("mediaRootInput").objectReferenceValue        = mediaRootInput;
+        so.FindProperty("mediaRootBrowseButton").objectReferenceValue = mediaRootBrowseBtn;
         so.ApplyModifiedProperties();
 
         Undo.CollapseUndoOperations(undoGroup);
