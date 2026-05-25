@@ -12,6 +12,8 @@ using System.Collections;
 /// </summary>
 public class ExcerptCard : ContentCard
 {
+    protected override ContentCardType CardType => ContentCardType.Excerpt;
+
     [Header("Highlight Settings")]
     public float highlightWipeDuration = 0.4f;
     public float autoHighlightDelay = 1.5f;

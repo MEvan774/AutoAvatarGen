@@ -1,0 +1,422 @@
+[
+  {
+    "word": "[slowing",
+    "start": 0.0,
+    "end": 0.499
+  },
+  {
+    "word": "down,",
+    "start": 0.546,
+    "end": 0.824
+  },
+  {
+    "word": "serious]",
+    "start": 0.882,
+    "end": 1.602
+  },
+  {
+    "word": "Here's",
+    "start": 2.415,
+    "end": 2.694
+  },
+  {
+    "word": "where",
+    "start": 2.717,
+    "end": 2.879
+  },
+  {
+    "word": "I",
+    "start": 2.914,
+    "end": 2.937
+  },
+  {
+    "word": "land",
+    "start": 3.03,
+    "end": 3.286
+  },
+  {
+    "word": "on",
+    "start": 3.355,
+    "end": 3.425
+  },
+  {
+    "word": "this.",
+    "start": 3.46,
+    "end": 3.866
+  },
+  {
+    "word": "Every",
+    "start": 4.563,
+    "end": 4.841
+  },
+  {
+    "word": "few",
+    "start": 4.899,
+    "end": 5.062
+  },
+  {
+    "word": "months",
+    "start": 5.12,
+    "end": 5.48
+  },
+  {
+    "word": "a",
+    "start": 5.561,
+    "end": 5.642
+  },
+  {
+    "word": "company",
+    "start": 5.759,
+    "end": 6.13
+  },
+  {
+    "word": "does",
+    "start": 6.2,
+    "end": 6.409
+  },
+  {
+    "word": "this",
+    "start": 6.455,
+    "end": 6.641
+  },
+  {
+    "word": "\u2014",
+    "start": 6.885,
+    "end": 6.931
+  },
+  {
+    "word": "quietly",
+    "start": 7.047,
+    "end": 7.465
+  },
+  {
+    "word": "rewrites",
+    "start": 7.546,
+    "end": 7.976
+  },
+  {
+    "word": "the",
+    "start": 8.022,
+    "end": 8.092
+  },
+  {
+    "word": "rules",
+    "start": 8.162,
+    "end": 8.533
+  },
+  {
+    "word": "while",
+    "start": 8.603,
+    "end": 8.812
+  },
+  {
+    "word": "nobody's",
+    "start": 8.858,
+    "end": 9.172
+  },
+  {
+    "word": "looking",
+    "start": 9.207,
+    "end": 9.497
+  },
+  {
+    "word": "\u2014",
+    "start": 9.671,
+    "end": 9.729
+  },
+  {
+    "word": "and",
+    "start": 10.008,
+    "end": 10.263
+  },
+  {
+    "word": "we",
+    "start": 10.344,
+    "end": 10.449
+  },
+  {
+    "word": "collectively",
+    "start": 10.507,
+    "end": 11.029
+  },
+  {
+    "word": "shrug",
+    "start": 11.111,
+    "end": 11.575
+  },
+  {
+    "word": "and",
+    "start": 11.691,
+    "end": 11.923
+  },
+  {
+    "word": "move",
+    "start": 11.981,
+    "end": 12.156
+  },
+  {
+    "word": "on.",
+    "start": 12.214,
+    "end": 12.655
+  },
+  {
+    "word": "Except",
+    "start": 13.468,
+    "end": 13.874
+  },
+  {
+    "word": "now",
+    "start": 13.932,
+    "end": 14.176
+  },
+  {
+    "word": "it's:",
+    "start": 14.327,
+    "end": 14.814
+  },
+  {
+    "word": "if",
+    "start": 14.93,
+    "end": 15.058
+  },
+  {
+    "word": "the",
+    "start": 15.105,
+    "end": 15.174
+  },
+  {
+    "word": "product",
+    "start": 15.221,
+    "end": 15.534
+  },
+  {
+    "word": "is",
+    "start": 15.581,
+    "end": 15.65
+  },
+  {
+    "word": "free,",
+    "start": 15.72,
+    "end": 16.115
+  },
+  {
+    "word": "your",
+    "start": 16.394,
+    "end": 16.545
+  },
+  {
+    "word": "content",
+    "start": 16.603,
+    "end": 17.113
+  },
+  {
+    "word": "trains",
+    "start": 17.172,
+    "end": 17.624
+  },
+  {
+    "word": "the",
+    "start": 17.74,
+    "end": 17.822
+  },
+  {
+    "word": "next",
+    "start": 17.88,
+    "end": 18.077
+  },
+  {
+    "word": "product.",
+    "start": 18.124,
+    "end": 18.716
+  },
+  {
+    "word": "[slowing",
+    "start": 19.319,
+    "end": 19.877
+  },
+  {
+    "word": "down,",
+    "start": 19.911,
+    "end": 20.213
+  },
+  {
+    "word": "serious]",
+    "start": 20.306,
+    "end": 20.91
+  },
+  {
+    "word": "That's",
+    "start": 21.607,
+    "end": 21.885
+  },
+  {
+    "word": "the",
+    "start": 21.932,
+    "end": 22.013
+  },
+  {
+    "word": "actual",
+    "start": 22.106,
+    "end": 22.57
+  },
+  {
+    "word": "transaction",
+    "start": 22.651,
+    "end": 23.487
+  },
+  {
+    "word": "happening",
+    "start": 23.615,
+    "end": 24.056
+  },
+  {
+    "word": "here.",
+    "start": 24.126,
+    "end": 24.497
+  },
+  {
+    "word": "And",
+    "start": 24.822,
+    "end": 24.973
+  },
+  {
+    "word": "look",
+    "start": 25.02,
+    "end": 25.24
+  },
+  {
+    "word": "\u2014",
+    "start": 25.287,
+    "end": 25.333
+  },
+  {
+    "word": "I'm",
+    "start": 25.38,
+    "end": 25.531
+  },
+  {
+    "word": "not",
+    "start": 25.577,
+    "end": 25.705
+  },
+  {
+    "word": "saying",
+    "start": 25.751,
+    "end": 25.995
+  },
+  {
+    "word": "delete",
+    "start": 26.123,
+    "end": 26.552
+  },
+  {
+    "word": "everything",
+    "start": 26.599,
+    "end": 27.075
+  },
+  {
+    "word": "and",
+    "start": 27.156,
+    "end": 27.284
+  },
+  {
+    "word": "go",
+    "start": 27.353,
+    "end": 27.481
+  },
+  {
+    "word": "live",
+    "start": 27.574,
+    "end": 27.771
+  },
+  {
+    "word": "in",
+    "start": 27.806,
+    "end": 27.853
+  },
+  {
+    "word": "the",
+    "start": 27.888,
+    "end": 27.957
+  },
+  {
+    "word": "woods.",
+    "start": 27.992,
+    "end": 28.503
+  },
+  {
+    "word": "But",
+    "start": 28.828,
+    "end": 29.095
+  },
+  {
+    "word": "some",
+    "start": 29.211,
+    "end": 29.42
+  },
+  {
+    "word": "people",
+    "start": 29.455,
+    "end": 29.687
+  },
+  {
+    "word": "are",
+    "start": 29.71,
+    "end": 29.803
+  },
+  {
+    "word": "making",
+    "start": 29.838,
+    "end": 30.093
+  },
+  {
+    "word": "different",
+    "start": 30.163,
+    "end": 30.442
+  },
+  {
+    "word": "choices.",
+    "start": 30.477,
+    "end": 31.138
+  },
+  {
+    "word": "And",
+    "start": 31.742,
+    "end": 32.125
+  },
+  {
+    "word": "I",
+    "start": 32.369,
+    "end": 32.427
+  },
+  {
+    "word": "think",
+    "start": 32.52,
+    "end": 32.671
+  },
+  {
+    "word": "that's",
+    "start": 32.717,
+    "end": 32.915
+  },
+  {
+    "word": "worth",
+    "start": 32.949,
+    "end": 33.158
+  },
+  {
+    "word": "paying",
+    "start": 33.205,
+    "end": 33.414
+  },
+  {
+    "word": "attention",
+    "start": 33.449,
+    "end": 33.809
+  },
+  {
+    "word": "to.",
+    "start": 33.855,
+    "end": 34.319
+  }
+]

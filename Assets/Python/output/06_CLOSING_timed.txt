@@ -1,0 +1,12 @@
+{Position:Center,Smooth,T=0.000} {Neutral,T=0.325}
+[sips coffee,T=0.325] That's the story. Tech company changes rules. Nobody reads them. Regulators wake up. Repeat.
+{Zoom:In,T=7.488}
+[slowing down, serious] The thing worth keeping in mind — these policies compound. Each one that goes unchallenged makes the next one easier to push through.
+{BigText:POLICIES+COMPOUND,T=11.500,D=4}
+{BigMedia:X,T=19.040,D=5}
+[tired but amused,T=19.040] If this kind of thing is on your radar, stick around. I cover it so you don't have to read the terms of service yourself.
+{Zoom:Reset,T=25.077}
+[dry,T=25.077] You're welcome.
+{Headline:"Wrong Millions of Times Per Hour — Most Users Don't Know","The New York Times / Oumi",T=26.180,D=5,bigCenter}
+[tired but amused,T=36.757] So here's what happened. An AI startup called Oumi ran Google's AI Overviews through a standardized accuracy benchmark — over four thousand searches, tested twice. Once when Google was running Gemini 2, and again after they upgraded to Gemini 3.
+{BigMedia:Google,T=48.500,D=3}

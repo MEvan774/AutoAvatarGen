@@ -1,16 +1,17 @@
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Video;
-using DG.Tweening;
 using System.Collections;
 
 /// <summary>
-/// Plays a b-roll video clip in the content zone with a Ken Burns effect.
+/// Plays a b-roll video clip in the content zone at a fixed scale.
 /// Tag: {BRoll:description,duration}
 /// Self-building: constructs its own UI hierarchy in Awake.
 /// </summary>
 public class BRollDisplay : ContentCard
 {
+    protected override ContentCardType CardType => ContentCardType.BRoll;
+
     private RawImage videoImage;
     private VideoPlayer videoPlayer;
     private RectTransform videoImageRect;
@@ -18,15 +19,16 @@ public class BRollDisplay : ContentCard
 
     private RenderTexture renderTexture;
     private float cardDuration;
-    private Tween kenBurnsTween;
 
     protected override void BuildUI()
     {
-        // Container with RectMask2D for Ken Burns clipping
+        // Container — kept for layout. RectMask2D clips the video to the card
+        // bounds (still useful at fixed scale because aspect-ratio mismatch
+        // could otherwise bleed past the card edges).
         videoContainer = ContentCardUIBuilder.CreateChild(rectTransform, "VideoContainer");
         videoContainer.gameObject.AddComponent<RectMask2D>();
 
-        // Video image (will be scaled for Ken Burns)
+        // Video image — fills the container at 1:1 scale (no Ken Burns).
         GameObject videoGO = new GameObject("VideoImage", typeof(RectTransform));
         videoGO.transform.SetParent(videoContainer, false);
         videoImage = videoGO.AddComponent<RawImage>();
@@ -50,7 +52,20 @@ public class BRollDisplay : ContentCard
     {
         cardDuration = data.duration;
 
+        // Tier 1 — ContentCardAssets b-roll dictionary (if an SO is wired up).
         VideoClip clip = assets != null ? assets.GetBRoll(data.primaryText) : null;
+
+        // Tier 2 — direct Resources lookup. Drop VideoTemp.mp4 into
+        // Assets/Resources/Media/ and {BRoll:VideoTemp,...} plays it without
+        // needing a ContentCardAssets SO. Unity imports .mp4 as a VideoClip
+        // automatically via VideoClipImporter.
+        if (clip == null)
+        {
+            string folder = (assets != null && !string.IsNullOrEmpty(assets.bigMediaResourcesFolder))
+                ? assets.bigMediaResourcesFolder
+                : "Media";
+            clip = Resources.Load<VideoClip>($"{folder}/{data.primaryText}");
+        }
 
         if (clip != null)
         {
@@ -62,7 +77,8 @@ public class BRollDisplay : ContentCard
         }
         else
         {
-            Debug.LogWarning($"BRollDisplay: No video clip found for \"{data.primaryText}\"");
+            Debug.LogWarning($"BRollDisplay: No video clip found for \"{data.primaryText}\" " +
+                             $"(checked ContentCardAssets.bRollClips and Resources.Load<VideoClip>)");
         }
     }
 
@@ -72,15 +88,14 @@ public class BRollDisplay : ContentCard
 
         if (videoPlayer.clip == null) return;
 
+        // Lock scale at 1:1 — the Ken Burns slow-zoom was removed by request,
+        // so the video plays at its natural framing for the full card duration.
+        videoImageRect.localScale = Vector3.one;
+
         if (videoPlayer.isPrepared)
-        {
             videoPlayer.Play();
-            StartKenBurns();
-        }
         else
-        {
             StartCoroutine(WaitForPrepareAndPlay());
-        }
     }
 
     private IEnumerator WaitForPrepareAndPlay()
@@ -89,13 +104,6 @@ public class BRollDisplay : ContentCard
             yield return null;
 
         videoPlayer.Play();
-        StartKenBurns();
-    }
-
-    private void StartKenBurns()
-    {
-        videoImageRect.localScale = Vector3.one;
-        kenBurnsTween = videoImageRect.DOScale(Vector3.one * 1.05f, cardDuration).SetEase(Ease.Linear);
     }
 
     public override void Hide(bool fast = false)
@@ -109,9 +117,6 @@ public class BRollDisplay : ContentCard
     protected override void OnDestroy()
     {
         base.OnDestroy();
-
-        if (kenBurnsTween != null && kenBurnsTween.IsActive())
-            kenBurnsTween.Kill();
 
         if (videoPlayer != null)
             videoPlayer.Stop();

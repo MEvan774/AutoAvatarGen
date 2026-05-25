@@ -1,0 +1,527 @@
+[
+  {
+    "word": "[slowing",
+    "start": 0.0,
+    "end": 0.511
+  },
+  {
+    "word": "down,",
+    "start": 0.557,
+    "end": 0.94
+  },
+  {
+    "word": "serious]",
+    "start": 1.068,
+    "end": 1.8
+  },
+  {
+    "word": "Here's",
+    "start": 2.125,
+    "end": 2.345
+  },
+  {
+    "word": "what",
+    "start": 2.368,
+    "end": 2.473
+  },
+  {
+    "word": "the",
+    "start": 2.508,
+    "end": 2.589
+  },
+  {
+    "word": "actual",
+    "start": 2.659,
+    "end": 3.053
+  },
+  {
+    "word": "policy",
+    "start": 3.146,
+    "end": 3.622
+  },
+  {
+    "word": "change",
+    "start": 3.692,
+    "end": 4.075
+  },
+  {
+    "word": "says.",
+    "start": 4.122,
+    "end": 4.748
+  },
+  {
+    "word": "\"Any",
+    "start": 4.83,
+    "end": 5.166
+  },
+  {
+    "word": "purpose.\"",
+    "start": 5.224,
+    "end": 5.77
+  },
+  {
+    "word": "They",
+    "start": 5.851,
+    "end": 6.014
+  },
+  {
+    "word": "wrote",
+    "start": 6.049,
+    "end": 6.385
+  },
+  {
+    "word": "\"any",
+    "start": 6.467,
+    "end": 6.815
+  },
+  {
+    "word": "purpose\"",
+    "start": 6.873,
+    "end": 7.303
+  },
+  {
+    "word": "and",
+    "start": 7.326,
+    "end": 7.477
+  },
+  {
+    "word": "published",
+    "start": 7.558,
+    "end": 7.93
+  },
+  {
+    "word": "it.",
+    "start": 7.976,
+    "end": 8.173
+  },
+  {
+    "word": "Sure.",
+    "start": 8.243,
+    "end": 8.638
+  },
+  {
+    "word": "And",
+    "start": 8.916,
+    "end": 9.067
+  },
+  {
+    "word": "it",
+    "start": 9.114,
+    "end": 9.16
+  },
+  {
+    "word": "gets",
+    "start": 9.207,
+    "end": 9.358
+  },
+  {
+    "word": "better.",
+    "start": 9.392,
+    "end": 9.706
+  },
+  {
+    "word": "The",
+    "start": 10.089,
+    "end": 10.205
+  },
+  {
+    "word": "change",
+    "start": 10.252,
+    "end": 10.612
+  },
+  {
+    "word": "went",
+    "start": 10.658,
+    "end": 10.844
+  },
+  {
+    "word": "live",
+    "start": 10.89,
+    "end": 11.215
+  },
+  {
+    "word": "on",
+    "start": 11.273,
+    "end": 11.389
+  },
+  {
+    "word": "a",
+    "start": 11.424,
+    "end": 11.447
+  },
+  {
+    "word": "Friday",
+    "start": 11.494,
+    "end": 11.773
+  },
+  {
+    "word": "afternoon.",
+    "start": 11.807,
+    "end": 12.283
+  },
+  {
+    "word": "No",
+    "start": 12.434,
+    "end": 12.55
+  },
+  {
+    "word": "announcement.",
+    "start": 12.608,
+    "end": 13.189
+  },
+  {
+    "word": "No",
+    "start": 13.282,
+    "end": 13.41
+  },
+  {
+    "word": "email.",
+    "start": 13.502,
+    "end": 13.967
+  },
+  {
+    "word": "No",
+    "start": 14.06,
+    "end": 14.211
+  },
+  {
+    "word": "pop-up.",
+    "start": 14.292,
+    "end": 14.919
+  },
+  {
+    "word": "Just",
+    "start": 15.198,
+    "end": 15.569
+  },
+  {
+    "word": "\u2014",
+    "start": 15.744,
+    "end": 15.976
+  },
+  {
+    "word": "updated.",
+    "start": 16.069,
+    "end": 16.649
+  },
+  {
+    "word": "{SocialPost:\"Twitter\",\"@privacywatch\",\"Just",
+    "start": 16.974,
+    "end": 21.119
+  },
+  {
+    "word": "checked",
+    "start": 21.154,
+    "end": 21.432
+  },
+  {
+    "word": "MegaCorp's",
+    "start": 21.549,
+    "end": 22.141
+  },
+  {
+    "word": "ToS.",
+    "start": 22.315,
+    "end": 22.918
+  },
+  {
+    "word": "They",
+    "start": 22.988,
+    "end": 23.162
+  },
+  {
+    "word": "can",
+    "start": 23.197,
+    "end": 23.302
+  },
+  {
+    "word": "now",
+    "start": 23.348,
+    "end": 23.522
+  },
+  {
+    "word": "use",
+    "start": 23.638,
+    "end": 23.87
+  },
+  {
+    "word": "your",
+    "start": 23.917,
+    "end": 24.056
+  },
+  {
+    "word": "photos,",
+    "start": 24.091,
+    "end": 24.544
+  },
+  {
+    "word": "videos,",
+    "start": 24.602,
+    "end": 25.008
+  },
+  {
+    "word": "and",
+    "start": 25.043,
+    "end": 25.217
+  },
+  {
+    "word": "messages",
+    "start": 25.275,
+    "end": 25.751
+  },
+  {
+    "word": "to",
+    "start": 25.821,
+    "end": 25.902
+  },
+  {
+    "word": "train",
+    "start": 25.972,
+    "end": 26.32
+  },
+  {
+    "word": "AI.",
+    "start": 26.703,
+    "end": 27.226
+  },
+  {
+    "word": "Retroactively.",
+    "start": 27.307,
+    "end": 28.155
+  },
+  {
+    "word": "No",
+    "start": 28.48,
+    "end": 28.77
+  },
+  {
+    "word": "opt-out.\",5}",
+    "start": 28.886,
+    "end": 30.21
+  },
+  {
+    "word": "I",
+    "start": 30.906,
+    "end": 30.953
+  },
+  {
+    "word": "mean",
+    "start": 31.034,
+    "end": 31.22
+  },
+  {
+    "word": "\u2014",
+    "start": 31.289,
+    "end": 31.521
+  },
+  {
+    "word": "at",
+    "start": 31.568,
+    "end": 31.707
+  },
+  {
+    "word": "least",
+    "start": 31.8,
+    "end": 32.021
+  },
+  {
+    "word": "someone",
+    "start": 32.056,
+    "end": 32.311
+  },
+  {
+    "word": "noticed.",
+    "start": 32.346,
+    "end": 32.787
+  },
+  {
+    "word": "Nobody",
+    "start": 32.961,
+    "end": 33.344
+  },
+  {
+    "word": "reads",
+    "start": 33.414,
+    "end": 33.635
+  },
+  {
+    "word": "these.",
+    "start": 33.658,
+    "end": 33.925
+  },
+  {
+    "word": "That's",
+    "start": 34.018,
+    "end": 34.32
+  },
+  {
+    "word": "the",
+    "start": 34.389,
+    "end": 34.517
+  },
+  {
+    "word": "whole",
+    "start": 34.587,
+    "end": 34.958
+  },
+  {
+    "word": "plan.",
+    "start": 35.028,
+    "end": 35.399
+  },
+  {
+    "word": "Point",
+    "start": 35.446,
+    "end": 35.678
+  },
+  {
+    "word": "three",
+    "start": 35.736,
+    "end": 35.945
+  },
+  {
+    "word": "percent.",
+    "start": 35.98,
+    "end": 36.549
+  },
+  {
+    "word": "The",
+    "start": 36.758,
+    "end": 36.874
+  },
+  {
+    "word": "rest",
+    "start": 36.932,
+    "end": 37.106
+  },
+  {
+    "word": "of",
+    "start": 37.152,
+    "end": 37.21
+  },
+  {
+    "word": "us",
+    "start": 37.257,
+    "end": 37.35
+  },
+  {
+    "word": "just",
+    "start": 37.419,
+    "end": 37.594
+  },
+  {
+    "word": "hit",
+    "start": 37.628,
+    "end": 37.803
+  },
+  {
+    "word": "\"I",
+    "start": 37.895,
+    "end": 38.046
+  },
+  {
+    "word": "Agree\"",
+    "start": 38.162,
+    "end": 38.511
+  },
+  {
+    "word": "and",
+    "start": 38.534,
+    "end": 38.638
+  },
+  {
+    "word": "move",
+    "start": 38.72,
+    "end": 38.929
+  },
+  {
+    "word": "on",
+    "start": 38.975,
+    "end": 39.056
+  },
+  {
+    "word": "with",
+    "start": 39.091,
+    "end": 39.196
+  },
+  {
+    "word": "our",
+    "start": 39.231,
+    "end": 39.312
+  },
+  {
+    "word": "lives.",
+    "start": 39.358,
+    "end": 39.916
+  },
+  {
+    "word": "Delete",
+    "start": 40.194,
+    "end": 40.577
+  },
+  {
+    "word": "your",
+    "start": 40.601,
+    "end": 40.728
+  },
+  {
+    "word": "account.",
+    "start": 40.763,
+    "end": 41.32
+  },
+  {
+    "word": "In",
+    "start": 41.471,
+    "end": 41.634
+  },
+  {
+    "word": "thirty",
+    "start": 41.75,
+    "end": 42.052
+  },
+  {
+    "word": "days.",
+    "start": 42.098,
+    "end": 42.597
+  },
+  {
+    "word": "Or",
+    "start": 42.923,
+    "end": 43.224
+  },
+  {
+    "word": "you've",
+    "start": 43.375,
+    "end": 43.573
+  },
+  {
+    "word": "agreed.",
+    "start": 43.596,
+    "end": 44.037
+  },
+  {
+    "word": "That's",
+    "start": 44.362,
+    "end": 44.606
+  },
+  {
+    "word": "the",
+    "start": 44.629,
+    "end": 44.699
+  },
+  {
+    "word": "opt-out.",
+    "start": 44.757,
+    "end": 45.21
+  },
+  {
+    "word": "That's",
+    "start": 45.256,
+    "end": 45.488
+  },
+  {
+    "word": "it.",
+    "start": 45.535,
+    "end": 45.929
+  }
+]

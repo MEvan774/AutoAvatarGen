@@ -71,13 +71,20 @@ public class ContentCardAssets : ScriptableObject
         if (logo != null) return logo;
 
         string folder = string.IsNullOrEmpty(bigMediaResourcesFolder) ? "Media" : bigMediaResourcesFolder;
+        string path = $"{folder}/{name}";
 
-        Sprite sprite = Resources.Load<Sprite>($"{folder}/{name}");
-        if (sprite != null) return sprite;
-
-        Texture2D tex = Resources.Load<Texture2D>($"{folder}/{name}");
+        // Try Texture2D first — Resources.Load<Sprite> returns null for PNGs
+        // imported with spriteMode = Multiple (sub-sprite is named "X_0", not
+        // "X"). Texture2D always loads the underlying image.
+        Texture2D tex = Resources.Load<Texture2D>(path);
         if (tex != null)
             return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+
+        Sprite sprite = Resources.Load<Sprite>(path);
+        if (sprite != null) return sprite;
+
+        Sprite[] all = Resources.LoadAll<Sprite>(path);
+        if (all != null && all.Length > 0) return all[0];
 
         Debug.LogWarning($"ContentCardAssets: No BigMedia asset found for \"{name}\"");
         return null;

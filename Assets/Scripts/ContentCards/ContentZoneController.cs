@@ -48,6 +48,12 @@ public class ContentZoneController : MonoBehaviour
 
     void Awake()
     {
+        // Make sure a CardEntryAnimator exists in the scene before any card
+        // tries to read from it. Adding it to ourselves keeps the timing/curve
+        // settings visible right next to the controller in the inspector.
+        if (FindObjectOfType<CardEntryAnimator>() == null)
+            gameObject.AddComponent<CardEntryAnimator>();
+
         // Auto-wire MediaPresentationSystem if not set
         if (mediaPresentationSystem == null)
         {

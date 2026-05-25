@@ -9,6 +9,8 @@ using DG.Tweening;
 /// </summary>
 public class QuoteCard : ContentCard
 {
+    protected override ContentCardType CardType => ContentCardType.Quote;
+
     private TextMeshProUGUI quoteText;
     private TextMeshProUGUI personName;
     private TextMeshProUGUI roleTitle;
@@ -88,12 +90,12 @@ public class QuoteCard : ContentCard
         if (openQuoteMark != null)
         {
             openQuoteMark.localScale = Vector3.one * 0.95f;
-            openQuoteMark.DOScale(Vector3.one, FADE_IN_DURATION).SetEase(Ease.OutQuad);
+            openQuoteMark.DOScale(Vector3.one, FadeInDuration).SetEase(Ease.OutQuad);
         }
         if (closeQuoteMark != null)
         {
             closeQuoteMark.localScale = Vector3.one * 0.95f;
-            closeQuoteMark.DOScale(Vector3.one, FADE_IN_DURATION).SetEase(Ease.OutQuad);
+            closeQuoteMark.DOScale(Vector3.one, FadeInDuration).SetEase(Ease.OutQuad);
         }
 
         base.Show();

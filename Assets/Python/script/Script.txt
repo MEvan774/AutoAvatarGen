@@ -1,7 +1,84 @@
 ## COLD OPEN
-
-{Concerned} Today we're breaking down how Google search went from the most reliable tool on the internet to something that recommends glue on pizza {Black:1} — and what's actually going on behind the decision. Let's get into it.
+{Position:Center,Cut} {Neutral}
+{BigText:ANOTHER ONE,3}
+[deadpan] A company did a thing. It was bad. Let's talk about it.
+{Zoom:In}
+[genuine disbelief] No — actually bad. Like, "read it twice to make sure" bad.
+{Headline:"Tech Giant Quietly Changes Privacy Policy","The Verge",5}
+[tired but amused] Here's the headline. Take a second.
 
 ## SETUP
+{Position:Left,Smooth} {Excited}
+[speeding up] So here's the background. This company has been around for fifteen years.
+{BigText:FIFTEEN YEARS,2.5}
+{Stat:"2.3 billion","Monthly Active Users","as of Q2 2025",5}
+[deadpan] Two point three billion people. That's not a user base, that's a small planet.
+{Logo:Google,4}
+[sips coffee] You know the logo. Everyone knows the logo.
+{Zoom:Out}
+[tired but amused] And now they've decided those two billion people don't need to know what happens to their data.
+{BigMedia:Google+Brave+X,4}
+{Headline:"Company Updates Terms of Service for the Fourth Time This Year","TechCrunch",5}
+[dry] Fourth time. This year. It's only August.
 
-{Position:Left,Cut} {Neutral} {Zoom:Reset} {Headline:"Google AI Overviews Wrong Millions of Times Per Hour — Most Users Don't Know","The New York Times / Oumi",5} [tired but amused] So here's what happened. An AI startup called Oumi ran Google's AI Overviews through a standardized accuracy benchmark — over four thousand searches, tested twice. Once when Google was running Gemini 2, and again after they upgraded to Gemini 3.
+## BREAKDOWN
+{Position:Left,Cut} {Serious}
+[slowing down, serious] Here's what the actual policy change says.
+{BigMedia:ArticleTemp,4}
+[dry] Right there. Page eleven. Buried under the cookie banner.
+{Excerpt:"Users hereby grant the company a perpetual, irrevocable, royalty-free license to use submitted content for any purpose, including training AI models.","training AI models","Official Terms of Service",6}
+[genuine disbelief] "Any purpose." They wrote "any purpose" and published it.
+{Quote:"We believe transparency is at the core of everything we do.","Sarah Mitchell","VP of Communications, MegaCorp",5}
+[deadpan] Sure.
+{Zoom:In}
+[speeding up] And it gets better. The change went live on a Friday afternoon. No announcement. No email. No pop-up. Just — updated.
+{BigText:QUIETLY UPDATED,3}
+{Quote:"Just checked MegaCorp's ToS. They can now use your photos, videos, and messages to train AI. Retroactively. No opt-out.","@privacywatch","Posted on Brave",5}
+{BigText:PHOTOS+VIDEOS+MESSAGES,4}
+{Logo:Brave,3}
+[catching himself] I mean — at least someone noticed.
+{BRoll:VideoTemp,4}
+[sotto voce] Nobody reads these. That's the whole plan.
+{Stat:"0.3%","Users Who Read Full ToS","based on Stanford study, 2023",5}
+[dry] Point three percent. The rest of us just hit "I Agree" and move on with our lives.
+{Excerpt:"Existing users who do not wish to be subject to the updated terms may request account deletion within 30 days.","request account deletion","MegaCorp Help Center",5}
+[speeding up] Delete your account. In thirty days. Or you've agreed. That's the opt-out. That's it.
+
+## TAKE
+{Position:Center,Smooth} {Concerned}
+[slowing down, serious] Here's where I land on this.
+{Zoom:In}
+[tired but amused] Every few months a company does this — quietly rewrites the rules while nobody's looking — and we collectively shrug and move on.
+{Quote:"If the product is free, you are the product.","Richard Serra","Artist — often misattributed",5}
+[deadpan] Except now it's: if the product is free, your content trains the next product.
+{BigText:YOUR DATA+→+THEIR MODEL,6}
+[slowing down, serious] That's the actual transaction happening here.
+{Zoom:Out}
+[catching himself] And look — I'm not saying delete everything and go live in the woods.
+{Headline:"GrapheneOS Sees 40% User Growth Following Privacy Controversies","Android Authority",5,bigCenter}
+[tired but amused] But some people are making different choices. And I think that's worth paying attention to.
+
+## RELATED CLOSER
+{Position:Right,Cut} {Neutral}
+[sips coffee] Meanwhile — same week — the EU opened a formal investigation into this exact policy change.
+{Stat:"€2.4 billion","Maximum Possible Fine","4% of global annual revenue",5}
+[dry] Four percent of global revenue. Which sounds scary until you remember they made sixty billion last year.
+{BigText:4% OF GLOBAL,2}
+{BRoll:VideoTemp,4}
+[deadpan] Brussels is aware. Brussels is not happy.
+{Headline:"European Data Protection Board Launches Emergency Review","Politico Europe",5}
+[tired but amused] Emergency review. They used the word emergency. For a privacy policy update. Welcome to 2025.
+
+## CLOSING
+{Position:Center,Smooth} {Neutral}
+[sips coffee] That's the story. Tech company changes rules. Nobody reads them. Regulators wake up. Repeat.
+{Zoom:In}
+[slowing down, serious] The thing worth keeping in mind — these policies compound. Each one that goes unchallenged makes the next one easier to push through.
+{BigText:POLICIES+COMPOUND,4}
+{BigMedia:X,5}
+[tired but amused] If this kind of thing is on your radar, stick around. I cover it so you don't have to read the terms of service yourself.
+{Zoom:Reset}
+[dry] You're welcome.
+{Headline:"Wrong Millions of Times Per Hour — Most Users Don't Know","The New York Times / Oumi",5,bigCenter}
+[tired but amused] So here's what happened. An AI startup called Oumi ran Google's AI Overviews through a standardized accuracy benchmark — over four thousand searches, tested twice. Once when Google was running Gemini 2, and again after they upgraded to Gemini 3.
+{BigMedia:Google,3}

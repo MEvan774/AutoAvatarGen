@@ -25,10 +25,38 @@ using DG.Tweening;
 /// </summary>
 public class BigMediaCard : ContentCard
 {
-    private const int MAX_LOGOS = 4;
-    private const float STAGGER_DELAY = 0.35f;
-    private const float POP_DURATION = 0.55f;
+    protected override ContentCardType CardType => ContentCardType.BigMedia;
+
+    // =====================================================================
+    // LAYOUT — slot count and horizontal spacing.
+    //
+    //   MAX_LOGOS              : maximum number of '+'-joined logos.
+    //   SLOT_HORIZONTAL_PADDING: pixel inset between sibling slots.
+    //   BAND_WIDTHS            : how much horizontal space the row occupies
+    //                            for each logo count (1 → 70%, 4 → 92%).
+    // =====================================================================
+    private const int   MAX_LOGOS               = 4;
     private const float SLOT_HORIZONTAL_PADDING = 32f;
+
+    // =====================================================================
+    // ALL TIMING / STAGGER KNOBS LIVE IN THE INSPECTOR
+    //
+    // Open the ContentZoneController GameObject → CardEntryAnimator
+    // component. There are three groups for this card:
+    //
+    //   • "Per-Card Settings" → BigMedia row
+    //         Pop duration override (Slide Duration) & Fade-In Duration
+    //         (Direction & Slide Distance Factor don't apply — BigMedia uses
+    //          a scale-pop, not a slide.)
+    //
+    //   • "BigMedia Card" group
+    //         Stagger Delay (seconds between consecutive logos popping in)
+    //
+    //   • "Overshoot Curve" at the top of the component
+    //         The shared overshoot curve used by every pop.
+    // =====================================================================
+    private CardEntryAnimator.BigMediaSettings BigMediaCfg
+        => CardEntryAnimator.Instance.bigMedia;
 
     // Per-count horizontal band of the parent: 1 logo gets 70%, 4 gets 92%.
     // Wider bands for higher counts keep individual logos legible.
@@ -141,19 +169,35 @@ public class BigMediaCard : ContentCard
 
         // Tier 2 — direct Resources lookup, so dropping a file into
         // Assets/Resources/Media/ is enough even without a ContentCardAssets SO.
+        //
+        // Important: try Texture2D BEFORE Sprite. Resources.Load<Sprite>(path)
+        // returns null for PNGs imported with spriteMode = Multiple (the sprite
+        // is named "X_0", not "X", so the load-by-asset-name fails). Texture2D
+        // loads the underlying image regardless of importer mode, and we wrap
+        // it in a Sprite — this is why ArticleTemp.jpeg worked but X.png /
+        // Brave.png / Google.png didn't.
         string folder = (assets != null && !string.IsNullOrEmpty(assets.bigMediaResourcesFolder))
             ? assets.bigMediaResourcesFolder
             : "Media";
         string path = $"{folder}/{name}";
-
-        Sprite sprite = Resources.Load<Sprite>(path);
-        if (sprite != null) { usedPath = $"Resources.Load<Sprite>(\"{path}\")"; return sprite; }
 
         Texture2D tex = Resources.Load<Texture2D>(path);
         if (tex != null)
         {
             usedPath = $"Resources.Load<Texture2D>(\"{path}\") + Sprite.Create";
             return Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f));
+        }
+
+        Sprite sprite = Resources.Load<Sprite>(path);
+        if (sprite != null) { usedPath = $"Resources.Load<Sprite>(\"{path}\")"; return sprite; }
+
+        // Last resort — Multiple-mode atlases where the sub-sprite is the
+        // first/only one in the file.
+        Sprite[] all = Resources.LoadAll<Sprite>(path);
+        if (all != null && all.Length > 0)
+        {
+            usedPath = $"Resources.LoadAll<Sprite>(\"{path}\")[0]";
+            return all[0];
         }
 
         return null;
@@ -193,14 +237,26 @@ public class BigMediaCard : ContentCard
         canvasGroup.alpha = 1f;
 
         Sequence seq = DOTween.Sequence();
+        float dur = SlideDuration;
+        float stagger = BigMediaCfg.staggerDelay;
+        AnimationCurve curve = OvershootCurve;
 
         for (int i = 0; i < activeSlotCount; i++)
         {
             RectTransform rt = slotContainers[i];
             rt.localEulerAngles = Vector3.zero;
             rt.localScale = Vector3.zero;
-            seq.Insert(STAGGER_DELAY * i,
-                rt.DOScale(Vector3.one, POP_DURATION).SetEase(OVERSHOOT_CURVE));
+
+            // Build the per-slot tween fully — ease + delay — BEFORE handing
+            // it to the sequence. Sequence.Insert with an AnimationCurve ease
+            // has been observed to silently drop the curve in some DOTween
+            // builds; Join + SetDelay applies the curve reliably.
+            Tween popTween = rt
+                .DOScale(Vector3.one, dur)
+                .SetEase(curve)
+                .SetDelay(stagger * i);
+
+            seq.Join(popTween);
         }
 
         currentSequence = seq;

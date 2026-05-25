@@ -674,43 +674,43 @@ MonoBehaviour:
     direction: 0
     slideDuration: 0
     fadeInDuration: 0
-    slideDistanceFactor: 2
+    slideDistanceFactor: 1
   - cardType: 1
     overrideDirection: 1
     direction: 0
     slideDuration: 0
     fadeInDuration: 0
-    slideDistanceFactor: 2
+    slideDistanceFactor: 1
   - cardType: 2
     overrideDirection: 1
     direction: 0
     slideDuration: 0
     fadeInDuration: 0
-    slideDistanceFactor: 2
+    slideDistanceFactor: 1
   - cardType: 3
     overrideDirection: 1
     direction: 0
     slideDuration: 0
     fadeInDuration: 0
-    slideDistanceFactor: 2
+    slideDistanceFactor: 1
   - cardType: 4
     overrideDirection: 1
     direction: 0
     slideDuration: 0
     fadeInDuration: 0
-    slideDistanceFactor: 2
+    slideDistanceFactor: 1
   - cardType: 5
     overrideDirection: 1
     direction: 0
     slideDuration: 0
     fadeInDuration: 0
-    slideDistanceFactor: 2
+    slideDistanceFactor: 1
   - cardType: 6
     overrideDirection: 1
     direction: 0
     slideDuration: 0
     fadeInDuration: 0
-    slideDistanceFactor: 2
+    slideDistanceFactor: 1
   - cardType: 7
     overrideDirection: 1
     direction: 3
@@ -722,7 +722,7 @@ MonoBehaviour:
     direction: 2
     slideDuration: 0
     fadeInDuration: 0
-    slideDistanceFactor: 0.5
+    slideDistanceFactor: 0.1
   bigCenter:
     panelSlideDuration: 0.4
     panelSlideDistance: 3000

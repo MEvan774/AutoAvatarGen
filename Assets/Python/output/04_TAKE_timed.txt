@@ -1,0 +1,12 @@
+{Position:Center,Smooth,T=0.000} {Concerned,T=0.546}
+[slowing down, serious] Here's where I land on this.
+{Zoom:In,T=4.563}
+[tired but amused,T=4.899] Every few months a company does this — quietly rewrites the rules while nobody's looking — and we collectively shrug and move on.
+{Quote:"If the product is free, you are the product.","Richard Serra","Artist — often misattributed",T=13.468,D=5}
+[deadpan,T=13.932] Except now it's: if the product is free, your content trains the next product.
+{BigText:YOUR DATA+→+THEIR MODEL,T=19.911,D=6}
+[slowing down, serious] That's the actual transaction happening here.
+{Zoom:Out,T=24.822}
+[catching himself,T=25.020] And look — I'm not saying delete everything and go live in the woods.
+{Headline:"GrapheneOS Sees 40% User Growth Following Privacy Controversies","Android Authority",T=28.828,D=5,bigCenter}
+[tired but amused,T=29.211] But some people are making different choices. And I think that's worth paying attention to.

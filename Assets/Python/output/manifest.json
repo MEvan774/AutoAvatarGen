@@ -6,9 +6,9 @@
       "name": "COLD OPEN",
       "audio_file": "01_COLD_OPEN.mp3",
       "script_file": "01_COLD_OPEN_timed.txt",
-      "duration": 13.142,
+      "duration": 10.17,
       "speech_start": 0.0,
-      "speech_end": 13.142
+      "speech_end": 10.17
     },
     {
       "order": 2,
@@ -16,9 +16,49 @@
       "name": "SETUP",
       "audio_file": "02_SETUP.mp3",
       "script_file": "02_SETUP_timed.txt",
-      "duration": 17.601,
+      "duration": 22.105,
       "speech_start": 0.0,
-      "speech_end": 17.601
+      "speech_end": 22.105
+    },
+    {
+      "order": 3,
+      "slug": "03_BREAKDOWN",
+      "name": "BREAKDOWN",
+      "audio_file": "03_BREAKDOWN.mp3",
+      "script_file": "03_BREAKDOWN_timed.txt",
+      "duration": 45.929,
+      "speech_start": 0.0,
+      "speech_end": 45.929
+    },
+    {
+      "order": 4,
+      "slug": "04_TAKE",
+      "name": "TAKE",
+      "audio_file": "04_TAKE.mp3",
+      "script_file": "04_TAKE_timed.txt",
+      "duration": 34.319,
+      "speech_start": 0.0,
+      "speech_end": 34.319
+    },
+    {
+      "order": 5,
+      "slug": "05_RELATED_CLOSER",
+      "name": "RELATED CLOSER",
+      "audio_file": "05_RELATED_CLOSER.mp3",
+      "script_file": "05_RELATED_CLOSER_timed.txt",
+      "duration": 26.563,
+      "speech_start": 0.0,
+      "speech_end": 26.563
+    },
+    {
+      "order": 6,
+      "slug": "06_CLOSING",
+      "name": "CLOSING",
+      "audio_file": "06_CLOSING.mp3",
+      "script_file": "06_CLOSING_timed.txt",
+      "duration": 53.545,
+      "speech_start": 0.0,
+      "speech_end": 53.545
     }
   ]
 }

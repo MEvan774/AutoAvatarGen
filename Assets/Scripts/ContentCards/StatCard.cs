@@ -15,6 +15,8 @@ using System.Text.RegularExpressions;
 /// </summary>
 public class StatCard : ContentCard
 {
+    protected override ContentCardType CardType => ContentCardType.Stat;
+
     [Header("Count-Up Settings")]
     public bool useCountUp = true;
     public float countUpDuration = 0.6f;
@@ -156,7 +158,7 @@ public class StatCard : ContentCard
         {
             Vector3 targetScale = arrowRect.localScale; // may be (1,-1,1) for up
             arrowRect.localScale = targetScale * 0.9f;
-            arrowRect.DOScale(targetScale, FADE_IN_DURATION).SetEase(Ease.OutBack);
+            arrowRect.DOScale(targetScale, FadeInDuration).SetEase(Ease.OutBack);
         }
 
         if (useCountUp && isNumeric)

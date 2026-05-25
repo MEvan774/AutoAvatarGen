@@ -2,201 +2,291 @@
   {
     "word": "So",
     "start": 0.0,
-    "end": 0.279
+    "end": 0.174
   },
   {
     "word": "here's",
-    "start": 0.36,
-    "end": 0.58
+    "start": 0.244,
+    "end": 0.453
   },
   {
-    "word": "what",
+    "word": "the",
+    "start": 0.499,
+    "end": 0.569
+  },
+  {
+    "word": "background.",
     "start": 0.615,
-    "end": 0.731
+    "end": 1.138
   },
   {
-    "word": "happened.",
-    "start": 0.778,
-    "end": 1.184
+    "word": "This",
+    "start": 1.219,
+    "end": 1.416
   },
   {
-    "word": "An",
-    "start": 1.231,
-    "end": 1.37
-  },
-  {
-    "word": "AI",
+    "word": "company",
     "start": 1.486,
-    "end": 1.741
+    "end": 1.916
   },
   {
-    "word": "startup",
-    "start": 1.823,
-    "end": 2.194
+    "word": "has",
+    "start": 2.067,
+    "end": 2.426
   },
   {
-    "word": "called",
-    "start": 2.264,
-    "end": 2.554
+    "word": "been",
+    "start": 2.543,
+    "end": 2.74
   },
   {
-    "word": "Oumi",
-    "start": 2.682,
-    "end": 3.088
+    "word": "around",
+    "start": 2.763,
+    "end": 2.995
   },
   {
-    "word": "ran",
-    "start": 3.262,
-    "end": 3.495
+    "word": "for",
+    "start": 3.065,
+    "end": 3.193
   },
   {
-    "word": "Google's",
-    "start": 3.611,
-    "end": 4.098
+    "word": "fifteen",
+    "start": 3.32,
+    "end": 4.238
   },
   {
-    "word": "AI",
-    "start": 4.214,
-    "end": 4.493
+    "word": "years.",
+    "start": 4.412,
+    "end": 5.062
   },
   {
-    "word": "Overviews",
-    "start": 4.574,
-    "end": 5.097
+    "word": "Two",
+    "start": 5.306,
+    "end": 5.492
   },
   {
-    "word": "through",
-    "start": 5.143,
-    "end": 5.329
+    "word": "point",
+    "start": 5.573,
+    "end": 5.793
+  },
+  {
+    "word": "three",
+    "start": 5.863,
+    "end": 6.095
+  },
+  {
+    "word": "billion",
+    "start": 6.269,
+    "end": 6.792
+  },
+  {
+    "word": "people.",
+    "start": 6.873,
+    "end": 7.477
+  },
+  {
+    "word": "That's",
+    "start": 7.86,
+    "end": 8.104
+  },
+  {
+    "word": "not",
+    "start": 8.15,
+    "end": 8.266
   },
   {
     "word": "a",
-    "start": 5.352,
-    "end": 5.375
+    "start": 8.313,
+    "end": 8.336
   },
   {
-    "word": "standardized",
-    "start": 5.422,
-    "end": 6.014
+    "word": "user",
+    "start": 8.429,
+    "end": 8.719
   },
   {
-    "word": "accuracy",
-    "start": 6.095,
-    "end": 6.594
+    "word": "base,",
+    "start": 8.777,
+    "end": 9.137
   },
   {
-    "word": "benchmark",
-    "start": 6.664,
-    "end": 7.152
+    "word": "that's",
+    "start": 9.195,
+    "end": 9.416
   },
   {
-    "word": "\u2014",
-    "start": 7.326,
-    "end": 7.407
+    "word": "a",
+    "start": 9.439,
+    "end": 9.462
   },
   {
-    "word": "over",
-    "start": 7.848,
-    "end": 8.115
+    "word": "small",
+    "start": 9.52,
+    "end": 9.776
   },
   {
-    "word": "four",
-    "start": 8.231,
-    "end": 8.58
+    "word": "planet.",
+    "start": 9.834,
+    "end": 10.484
   },
   {
-    "word": "thousand",
-    "start": 8.754,
-    "end": 9.253
+    "word": "You",
+    "start": 10.728,
+    "end": 10.832
   },
   {
-    "word": "searches,",
-    "start": 9.334,
-    "end": 9.88
+    "word": "know",
+    "start": 10.879,
+    "end": 10.995
   },
   {
-    "word": "tested",
-    "start": 9.938,
-    "end": 10.344
+    "word": "the",
+    "start": 11.041,
+    "end": 11.111
   },
   {
-    "word": "twice.",
-    "start": 10.403,
-    "end": 10.937
+    "word": "logo.",
+    "start": 11.157,
+    "end": 11.691
   },
   {
-    "word": "Once",
-    "start": 11.378,
-    "end": 11.703
+    "word": "Everyone",
+    "start": 11.807,
+    "end": 12.179
   },
   {
-    "word": "when",
-    "start": 11.749,
-    "end": 12.016
+    "word": "knows",
+    "start": 12.214,
+    "end": 12.388
   },
   {
-    "word": "Google",
-    "start": 12.144,
-    "end": 12.446
+    "word": "the",
+    "start": 12.434,
+    "end": 12.504
   },
   {
-    "word": "was",
-    "start": 12.469,
-    "end": 12.562
+    "word": "logo.",
+    "start": 12.55,
+    "end": 13.026
   },
   {
-    "word": "running",
-    "start": 12.632,
-    "end": 12.922
+    "word": "And",
+    "start": 13.119,
+    "end": 13.27
   },
   {
-    "word": "Gemini",
-    "start": 13.038,
-    "end": 13.421
+    "word": "now",
+    "start": 13.34,
+    "end": 13.456
   },
   {
-    "word": "2,",
-    "start": 13.537,
-    "end": 13.92
+    "word": "they've",
+    "start": 13.502,
+    "end": 13.7
   },
   {
-    "word": "and",
-    "start": 13.978,
-    "end": 14.327
+    "word": "decided",
+    "start": 13.735,
+    "end": 14.28
   },
   {
-    "word": "again",
-    "start": 14.443,
-    "end": 14.919
+    "word": "those",
+    "start": 14.721,
+    "end": 15.0
   },
   {
-    "word": "after",
-    "start": 15.302,
-    "end": 15.581
+    "word": "two",
+    "start": 15.046,
+    "end": 15.255
   },
   {
-    "word": "they",
-    "start": 15.627,
-    "end": 15.743
+    "word": "billion",
+    "start": 15.406,
+    "end": 15.813
   },
   {
-    "word": "upgraded",
-    "start": 15.801,
-    "end": 16.242
+    "word": "people",
+    "start": 15.882,
+    "end": 16.451
+  },
+  {
+    "word": "don't",
+    "start": 16.776,
+    "end": 17.032
+  },
+  {
+    "word": "need",
+    "start": 17.078,
+    "end": 17.252
   },
   {
     "word": "to",
-    "start": 16.289,
-    "end": 16.405
+    "start": 17.287,
+    "end": 17.345
   },
   {
-    "word": "Gemini",
-    "start": 16.521,
-    "end": 16.869
+    "word": "know",
+    "start": 17.403,
+    "end": 17.531
   },
   {
-    "word": "3.",
-    "start": 16.985,
-    "end": 17.601
+    "word": "what",
+    "start": 17.566,
+    "end": 17.682
+  },
+  {
+    "word": "happens",
+    "start": 17.728,
+    "end": 18.1
+  },
+  {
+    "word": "to",
+    "start": 18.146,
+    "end": 18.216
+  },
+  {
+    "word": "their",
+    "start": 18.274,
+    "end": 18.402
+  },
+  {
+    "word": "data.",
+    "start": 18.448,
+    "end": 18.878
+  },
+  {
+    "word": "Fourth",
+    "start": 19.261,
+    "end": 19.551
+  },
+  {
+    "word": "time.",
+    "start": 19.598,
+    "end": 19.946
+  },
+  {
+    "word": "This",
+    "start": 20.271,
+    "end": 20.468
+  },
+  {
+    "word": "year.",
+    "start": 20.515,
+    "end": 20.77
+  },
+  {
+    "word": "It's",
+    "start": 20.898,
+    "end": 21.107
+  },
+  {
+    "word": "only",
+    "start": 21.13,
+    "end": 21.316
+  },
+  {
+    "word": "August.",
+    "start": 21.362,
+    "end": 22.105
   }
 ]

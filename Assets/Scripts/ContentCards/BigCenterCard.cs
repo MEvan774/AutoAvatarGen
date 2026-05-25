@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using DG.Tweening;
+using MugsTech.Style;
 
 /// <summary>
 /// Fullscreen headline overlay — big centered text on a panel that covers the screen.
@@ -14,14 +15,42 @@ using DG.Tweening;
 /// </summary>
 public class BigCenterCard : ContentCard
 {
+    protected override ContentCardType CardType => ContentCardType.BigCenter;
+
     private RectTransform overlayPanel;
     private RectTransform headlineContainer;
     private TextMeshProUGUI headlineText;
     private TextMeshProUGUI sourceText;
     private Material patternMaterial;
 
-    private const float OVERLAY_SLIDE_DURATION = 0.5f;
-    private const float HEADLINE_DROP_DURATION = 0.55f;
+    // Tracked separately from currentSequence: managing two parallel tweens
+    // directly avoids the DOTween bug where Sequence.Join silently drops an
+    // AnimationCurve ease (which kills the headline overshoot).
+    private Tween panelTween;
+    private Tween headlineTween;
+
+    // =====================================================================
+    // ALL TIMING / DISTANCE / EASE KNOBS LIVE IN THE INSPECTOR
+    //
+    // Open the ContentZoneController GameObject → CardEntryAnimator
+    // component. There are three groups for this card:
+    //
+    //   • "Per-Card Settings" → BigCenter row
+    //         Direction the headline slides in from
+    //         Override Direction / Slide Duration / Fade-In Duration / Slide Distance Factor
+    //
+    //   • "BigCenter Card" group
+    //         Panel Slide Duration / Distance / Ease
+    //         Headline Travel Base
+    //
+    //   • "Overshoot Curve" at the top of the component
+    //         The shared overshoot curve used by the headline.
+    //
+    // The shorthand getters below just route to those inspector fields so
+    // this script stays readable.
+    // =====================================================================
+    private CardEntryAnimator.BigCenterSettings BigCenterCfg
+        => CardEntryAnimator.Instance.bigCenter;
 
     // Pattern texture is loaded from Resources at runtime. Drop a seamlessly
     // tileable texture at Assets/Resources/Patterns/Default.png (or change
@@ -30,7 +59,7 @@ public class BigCenterCard : ContentCard
     private const float PATTERN_TINT_ALPHA = 0.35f;
     private const float PATTERN_TILE_SCALE = 12f;
     private const float PATTERN_TILE_PADDING = 0.05f;
-    private const float PATTERN_SCROLL_SPEED = 0.36f;
+    private const float PATTERN_SCROLL_SPEED = -0.36f;
 
     protected override void BuildUI()
     {
@@ -99,9 +128,10 @@ public class BigCenterCard : ContentCard
     public override void Show()
     {
         KillCurrentSequence();
+        KillSlideTweens();
 
-        // The entrance is the overlay+headline sliding in, not a fade. Flip to
-        // fully visible immediately (base Awake set alpha to 0).
+        // The entrance is the overlay + headline sliding in, not a fade. Flip
+        // to fully visible immediately (base Awake set alpha to 0).
         canvasGroup.alpha = 1f;
 
         // Flatten any preset rotation — a big centered overlay reads cleanest
@@ -109,16 +139,56 @@ public class BigCenterCard : ContentCard
         rectTransform.localEulerAngles = Vector3.zero;
         headlineContainer.localEulerAngles = Vector3.zero;
 
-        float screenHeight = rectTransform.rect.height > 1f ? rectTransform.rect.height : 1080f;
-        float headlineDropDistance = screenHeight * 0.5f + 240f;
+        var cfg = BigCenterCfg;
 
-        // Overlay panel starts fully below the screen, headline fully above it.
-        overlayPanel.anchoredPosition = new Vector2(0f, -screenHeight);
-        headlineContainer.anchoredPosition = new Vector2(0f, headlineDropDistance);
+        // ----- Background panel — settings come from CardEntryAnimator
+        // → BigCenter Card group. Uses a smooth (non-overshoot) ease.
+        // Starts fully below the viewport (panelSlideDistance pixels). Fixed
+        // pixel distance so it's reliable on the first frame.
+        overlayPanel.anchoredPosition = new Vector2(0f, -cfg.panelSlideDistance);
 
-        currentSequence = DOTween.Sequence()
-            .Join(overlayPanel.DOAnchorPosY(0f, OVERLAY_SLIDE_DURATION).SetEase(Ease.OutQuad))
-            .Join(headlineContainer.DOAnchorPos(Vector2.zero, HEADLINE_DROP_DURATION).SetEase(OVERSHOOT_CURVE));
+        // ----- Headline text — direction & distance factor come from the
+        // BigCenter row in Per-Card Settings; actual pixel distance is
+        // headlineTravelBase × that factor.
+        Vector2 headlineOffset = HeadlineEntryOffset(
+            ResolvedEntryDirection, cfg.headlineTravelBase, SlideDistanceFactor);
+        headlineContainer.anchoredPosition = headlineOffset;
+
+        // Run the two tweens in parallel WITHOUT a Sequence. DOTween's
+        // Sequence.Join/Insert can silently drop an AnimationCurve ease,
+        // which would kill the headline overshoot. Independent tweens are
+        // immune to that — the curve is reliably applied.
+        panelTween = overlayPanel
+            .DOAnchorPosY(0f, cfg.panelSlideDuration)
+            .SetEase(cfg.panelSlideEase);
+
+        headlineTween = headlineContainer
+            .DOAnchorPos(Vector2.zero, SlideDuration)
+            .SetEase(OvershootCurve);
+    }
+
+    private void KillSlideTweens()
+    {
+        if (panelTween    != null && panelTween.IsActive())    panelTween.Kill();
+        if (headlineTween != null && headlineTween.IsActive()) headlineTween.Kill();
+        panelTween = null;
+        headlineTween = null;
+    }
+
+    // Resolves the headline's off-screen start offset. Uses the configured
+    // travel base (from CardEntryAnimator → BigCenter Card group), scaled by
+    // the per-card Slide Distance Factor.
+    private static Vector2 HeadlineEntryOffset(EntryDirection dir, float travelBase, float factor)
+    {
+        float d = travelBase * factor;
+        switch (dir)
+        {
+            case EntryDirection.FromLeft:   return new Vector2(-d, 0f);
+            case EntryDirection.FromRight:  return new Vector2( d, 0f);
+            case EntryDirection.FromBottom: return new Vector2(0f, -d);
+            case EntryDirection.FromTop:    return new Vector2(0f,  d);
+            default:                        return new Vector2(0f,  d);
+        }
     }
 
     // Adds a RawImage child that fills the parent and samples a repeating
@@ -173,19 +243,27 @@ public class BigCenterCard : ContentCard
         }
 
         KillCurrentSequence();
+        KillSlideTweens();
 
-        float screenHeight = rectTransform.rect.height > 1f ? rectTransform.rect.height : 1080f;
-        float headlineExit = screenHeight * 0.5f + 240f;
+        var cfg = BigCenterCfg;
+        float fadeDur = FadeOutDuration;
+
+        // Mirror the entrance: panel exits straight down by panelSlideDistance
+        // (smooth ease, no overshoot), headline exits in the same direction it
+        // came from (so it leaves the way it arrived).
+        Vector2 headlineExit = HeadlineEntryOffset(
+            ResolvedEntryDirection, cfg.headlineTravelBase, SlideDistanceFactor);
 
         currentSequence = DOTween.Sequence()
-            .Join(canvasGroup.DOFade(0f, FADE_OUT_DURATION).SetEase(Ease.InQuad))
-            .Join(overlayPanel.DOAnchorPosY(-screenHeight, FADE_OUT_DURATION).SetEase(Ease.InQuad))
-            .Join(headlineContainer.DOAnchorPosY(headlineExit, FADE_OUT_DURATION).SetEase(Ease.InQuad))
+            .Join(canvasGroup.DOFade(0f, fadeDur).SetEase(Ease.InQuad))
+            .Join(overlayPanel.DOAnchorPosY(-cfg.panelSlideDistance, fadeDur).SetEase(Ease.InQuad))
+            .Join(headlineContainer.DOAnchorPos(headlineExit, fadeDur).SetEase(Ease.InQuad))
             .OnComplete(() => OnHideComplete?.Invoke());
     }
 
     protected override void OnDestroy()
     {
+        KillSlideTweens();
         if (patternMaterial != null)
         {
             Destroy(patternMaterial);

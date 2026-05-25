@@ -13,22 +13,50 @@ using MugsTech.Style;
 /// Tag: {BigText:line,duration}  or  {BigText:line1+line2+...,duration}
 ///
 /// Lines joined by '+' produce up to <see cref="MAX_LINES"/> stacked lines.
-/// Each line slides in from below the screen with the OVERSHOOT_CURVE,
-/// staggered by <see cref="STAGGER_DELAY"/> so additional lines appear to
-/// "count up" beneath the first — the same rhythm as <see cref="BigMediaCard"/>.
+/// Each line slides in using the central overshoot curve from
+/// <see cref="CardEntryAnimator"/>, from the configured direction, staggered
+/// by <see cref="STAGGER_DELAY"/> so additional lines appear to "count up"
+/// beneath the first — the same rhythm as <see cref="BigMediaCard"/>.
 ///
 /// Lives in the fullscreen feature-media zone so the text renders over
 /// the character, matching <see cref="BigCenterCard"/> and <see cref="BigMediaCard"/>.
 /// </summary>
 public class BigTextCard : ContentCard
 {
-    private const int MAX_LINES = 4;
-    private const float STAGGER_DELAY = 0.35f;
-    private const float SLIDE_DURATION = 0.55f;
+    protected override ContentCardType CardType => ContentCardType.BigText;
 
-    private const float LINE_HEIGHT = 200f;
-    private const float LINE_GAP = 24f;
+    // =====================================================================
+    // LAYOUT — sizes of each line and the spacing between them.
+    //
+    //   MAX_LINES                : maximum number of '+'-joined lines.
+    //   LINE_HEIGHT              : pixel height of each line container.
+    //   LINE_GAP                 : pixel gap between stacked lines.
+    //   LINE_HORIZONTAL_PADDING  : pixel inset on the left/right of each line.
+    // =====================================================================
+    private const int   MAX_LINES               = 4;
+    private const float LINE_HEIGHT             = 200f;
+    private const float LINE_GAP                = 24f;
     private const float LINE_HORIZONTAL_PADDING = 80f;
+
+    // =====================================================================
+    // ALL TIMING / DISTANCE KNOBS LIVE IN THE INSPECTOR
+    //
+    // Open the ContentZoneController GameObject → CardEntryAnimator
+    // component. There are three groups for this card:
+    //
+    //   • "Per-Card Settings" → BigText row
+    //         Direction the lines slide in from
+    //         Override Direction / Slide Duration / Fade-In Duration / Slide Distance Factor
+    //
+    //   • "BigText Card" group
+    //         Stagger Delay (seconds between lines)
+    //         Line Travel Base (pixel off-screen distance, before factor)
+    //
+    //   • "Overshoot Curve" at the top of the component
+    //         The shared overshoot curve used by every line.
+    // =====================================================================
+    private CardEntryAnimator.BigTextSettings BigTextCfg
+        => CardEntryAnimator.Instance.bigText;
 
     private readonly List<RectTransform> lineContainers = new List<RectTransform>(MAX_LINES);
     private readonly List<TextMeshProUGUI> lineTexts = new List<TextMeshProUGUI>(MAX_LINES);
@@ -131,12 +159,20 @@ public class BigTextCard : ContentCard
 
         // BigText owns its own entry — flatten any preset rotation and force
         // the CanvasGroup fully visible, then slide each line in turn from
-        // below the screen up to its stacked resting position.
+        // the resolved direction up to its stacked resting position.
         rectTransform.localEulerAngles = Vector3.zero;
         canvasGroup.alpha = 1f;
 
-        float screenHeight = rectTransform.rect.height > 1f ? rectTransform.rect.height : 1080f;
-        float offscreenDrop = screenHeight * 0.5f + 240f;
+        var cfg = BigTextCfg;
+
+        // Off-screen offset uses lineTravelBase × the per-card Slide Distance
+        // Factor (both from CardEntryAnimator). Fixed base distance keeps the
+        // slide reliable even on the first frame (when rect.height isn't
+        // resolved).
+        Vector2 offset = LineEntryOffset(ResolvedEntryDirection, cfg.lineTravelBase, SlideDistanceFactor);
+        float dur = SlideDuration;
+        float stagger = cfg.staggerDelay;
+        AnimationCurve curve = OvershootCurve;
 
         Sequence seq = DOTween.Sequence();
 
@@ -146,13 +182,38 @@ public class BigTextCard : ContentCard
             rt.localEulerAngles = Vector3.zero;
 
             Vector2 endPos = rt.anchoredPosition;
-            rt.anchoredPosition = new Vector2(endPos.x, endPos.y - offscreenDrop);
+            rt.anchoredPosition = endPos + offset;
 
-            seq.Insert(STAGGER_DELAY * i,
-                rt.DOAnchorPos(endPos, SLIDE_DURATION).SetEase(OVERSHOOT_CURVE));
+            // Build the per-line tween fully — ease + delay — BEFORE handing it
+            // to the sequence. Sequence.Insert with an AnimationCurve ease has
+            // been observed to silently drop the curve in some DOTween builds;
+            // Join + SetDelay applies the curve reliably.
+            Tween lineTween = rt
+                .DOAnchorPos(endPos, dur)
+                .SetEase(curve)
+                .SetDelay(stagger * i);
+
+            seq.Join(lineTween);
         }
 
         currentSequence = seq;
+    }
+
+    // Each line's off-screen start offset = travelBase × per-card factor,
+    // applied along the resolved direction. Fixed base distance (from the
+    // animator's BigText group) ensures the entrance works on the first
+    // frame regardless of layout state.
+    private static Vector2 LineEntryOffset(EntryDirection dir, float travelBase, float factor)
+    {
+        float d = travelBase * factor;
+        switch (dir)
+        {
+            case EntryDirection.FromLeft:   return new Vector2(-d, 0f);
+            case EntryDirection.FromRight:  return new Vector2( d, 0f);
+            case EntryDirection.FromTop:    return new Vector2(0f,  d);
+            case EntryDirection.FromBottom: return new Vector2(0f, -d);
+            default:                        return new Vector2(0f, -d);
+        }
     }
 
     // Reads VisualsRuntimeApplier.BigText overrides (populated from the
@@ -243,17 +304,20 @@ public class BigTextCard : ContentCard
 
         KillCurrentSequence();
 
-        float screenHeight = rectTransform.rect.height > 1f ? rectTransform.rect.height : 1080f;
-        float offscreenDrop = screenHeight * 0.5f + 240f;
+        // Mirror the entrance: lines exit in the same direction they came
+        // from (using the same fixed travel base × per-card factor).
+        Vector2 offset = LineEntryOffset(
+            ResolvedEntryDirection, BigTextCfg.lineTravelBase, SlideDistanceFactor);
+        float fadeDur = FadeOutDuration;
 
         Sequence seq = DOTween.Sequence();
-        seq.Join(canvasGroup.DOFade(0f, FADE_OUT_DURATION).SetEase(Ease.InQuad));
+        seq.Join(canvasGroup.DOFade(0f, fadeDur).SetEase(Ease.InQuad));
 
         for (int i = 0; i < activeLineCount; i++)
         {
             RectTransform rt = lineContainers[i];
             Vector2 startPos = rt.anchoredPosition;
-            seq.Join(rt.DOAnchorPosY(startPos.y - offscreenDrop, FADE_OUT_DURATION)
+            seq.Join(rt.DOAnchorPos(startPos + offset, fadeDur)
                 .SetEase(Ease.InQuad));
         }
 

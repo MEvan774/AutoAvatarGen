@@ -9,6 +9,8 @@ using TMPro;
 /// </summary>
 public class HeadlineCard : ContentCard
 {
+    protected override ContentCardType CardType => ContentCardType.Headline;
+
     private TextMeshProUGUI headlineText;
     private TextMeshProUGUI sourceText;
     private Image sourceLogo;

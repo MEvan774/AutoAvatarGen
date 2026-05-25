@@ -8,27 +8,15 @@ using MugsTech.Style;
 /// Self-building: each card constructs its own UI hierarchy in Awake.
 /// Handles fade in/out animations via DOTween, duration timing, and self-cleanup.
 ///
-/// When a <see cref="StyleManager"/> with an active preset is present, the card
-/// applies the preset's rotation variance, wobble, and entry direction.
-/// Without a preset, slides in from off-screen left with a small overshoot.
+/// Animation timing & overshoot curve come from <see cref="CardEntryAnimator"/>.
+/// To tweak the curve, slide duration, fade duration, or pick an entry direction
+/// per card type, edit the CardEntryAnimator component (lives on the
+/// ContentZoneController GameObject by default).
 /// </summary>
 [RequireComponent(typeof(CanvasGroup))]
 [RequireComponent(typeof(RectTransform))]
 public abstract class ContentCard : MonoBehaviour
 {
-    protected const float FADE_IN_DURATION = 0.3f;
-    protected const float FADE_OUT_DURATION = 0.3f;
-    protected const float FAST_FADE_DURATION = 0.15f;
-    protected const float SLIDE_UP_DISTANCE = 20f;
-    protected const float ENTRY_SLIDE_DISTANCE = 80f; // distance for preset-driven entries
-    protected const float ENTRY_SLIDE_DURATION = 0.35f; // from-left overshoot entry duration
-
-    // Overshoot curve copied from the CSS linear() keyframes:
-    //   linear(0, 0.221 2.5%, 0.421 5.2%, …, 1.109 32.8%, 1.109 36.1%, …, 1 87.9%, 1)
-    // Peaks at ~1.109 around 33% of the duration, then settles back to 1.0 by 88%.
-    // Built once and reused across every card.
-    protected static readonly AnimationCurve OVERSHOOT_CURVE = BuildOvershootCurve();
-
     protected CanvasGroup canvasGroup;
     protected RectTransform rectTransform;
 
@@ -37,10 +25,25 @@ public abstract class ContentCard : MonoBehaviour
 
     protected Sequence currentSequence;
 
-    // Entry direction set by ContentZoneController before Show() is called.
-    // Defaults to FromBottom if not explicitly set.
-    private EntryDirection entryDirection = EntryDirection.FromBottom;
-    private bool entryDirectionExplicitlySet = false;
+    // Direction set by ContentZoneController before Show() is called. Used as
+    // a fallback when the animator's per-card row has Override Direction off.
+    private EntryDirection runtimeDirection = EntryDirection.FromBottom;
+
+    /// <summary>
+    /// Concrete card type — used by <see cref="CardEntryAnimator"/> to look up
+    /// per-card direction & timing.
+    /// </summary>
+    protected abstract ContentCardType CardType { get; }
+
+    // ---- Convenience accessors that route through the central animator ----
+    protected AnimationCurve OvershootCurve => CardEntryAnimator.Instance.Curve;
+    protected float FadeInDuration  => CardEntryAnimator.Instance.GetFadeInDuration(CardType);
+    protected float SlideDuration   => CardEntryAnimator.Instance.GetSlideDuration(CardType);
+    protected float FadeOutDuration => CardEntryAnimator.Instance.fadeOutDuration;
+    protected float FastFadeDuration => CardEntryAnimator.Instance.fastFadeOutDuration;
+    protected float SlideDistanceFactor => CardEntryAnimator.Instance.GetSlideDistanceFactor(CardType);
+    protected EntryDirection ResolvedEntryDirection
+        => CardEntryAnimator.Instance.ResolveDirection(CardType, runtimeDirection);
 
     protected virtual void Awake()
     {
@@ -76,19 +79,17 @@ public abstract class ContentCard : MonoBehaviour
     /// <summary>
     /// Set the entry direction for the next Show() call. Called by
     /// ContentZoneController based on the active preset and character position.
+    /// Used only when the animator's per-card row has Override Direction off.
     /// </summary>
     public void SetEntryDirection(EntryDirection direction)
     {
-        entryDirection = direction;
-        entryDirectionExplicitlySet = true;
+        runtimeDirection = direction;
     }
 
     /// <summary>
-    /// Fade in. With no active preset: slide in from off-screen left with a
-    /// small overshoot (CSS linear() curve, peaks ~13% past the rest position
-    /// around 32% of the duration, then settles back). Fade runs in 0.3s, slide
-    /// in 0.5s. With active preset: random Z rotation, slide from preset's
-    /// entry direction using preset's animation curve, optional elastic wobble.
+    /// Fade in + slide from the resolved direction with the central overshoot
+    /// curve. With an active style preset, also applies a small random Z
+    /// rotation and an optional elastic wobble.
     /// </summary>
     public virtual void Show()
     {
@@ -96,14 +97,10 @@ public abstract class ContentCard : MonoBehaviour
 
         ChannelStylePreset preset = StyleManager.Instance != null ? StyleManager.Instance.ActivePreset : null;
 
-        // Always slide in from off-screen left with the CSS-derived overshoot
-        // curve, whether or not a preset is active. Preset only contributes
-        // the optional rotation and wobble.
+        EntryDirection dir = ResolvedEntryDirection;
         Vector2 endPos = rectTransform.anchoredPosition;
-        float slideDistance = rectTransform.rect.width > 1f
-            ? rectTransform.rect.width
-            : 400f; // fallback if layout hasn't resolved yet
-        rectTransform.anchoredPosition = endPos - new Vector2(slideDistance, 0f);
+        Vector2 startOffset = ComputeStartOffset(dir, rectTransform, SlideDistanceFactor);
+        rectTransform.anchoredPosition = endPos + startOffset;
 
         if (preset != null)
         {
@@ -112,27 +109,28 @@ public abstract class ContentCard : MonoBehaviour
         }
 
         Sequence seq = DOTween.Sequence()
-            .Join(canvasGroup.DOFade(1f, FADE_IN_DURATION).SetEase(Ease.OutQuad))
-            .Join(rectTransform.DOAnchorPos(endPos, ENTRY_SLIDE_DURATION).SetEase(OVERSHOOT_CURVE));
+            .Join(canvasGroup.DOFade(1f, FadeInDuration).SetEase(Ease.OutQuad))
+            .Join(rectTransform.DOAnchorPos(endPos, SlideDuration).SetEase(OvershootCurve));
 
         if (preset != null && preset.wobbleIntensity > 0.001f)
         {
             float w = preset.wobbleIntensity * 0.15f;
             seq.Join(rectTransform
-                .DOPunchScale(new Vector3(w, w, 0f), FADE_IN_DURATION + 0.1f, vibrato: 4, elasticity: 0.7f));
+                .DOPunchScale(new Vector3(w, w, 0f), FadeInDuration + 0.1f, vibrato: 4, elasticity: 0.7f));
         }
 
         currentSequence = seq;
     }
 
     /// <summary>
-    /// Fade out. Normal = 0.3s, fast = 0.15s. Invokes OnHideComplete when done.
+    /// Fade out. Normal vs fast duration come from the animator.
+    /// Invokes OnHideComplete when done.
     /// </summary>
     public virtual void Hide(bool fast = false)
     {
         KillCurrentSequence();
 
-        float duration = fast ? FAST_FADE_DURATION : FADE_OUT_DURATION;
+        float duration = fast ? FastFadeDuration : FadeOutDuration;
 
         currentSequence = DOTween.Sequence()
             .Append(canvasGroup.DOFade(0f, duration).SetEase(Ease.InQuad))
@@ -143,27 +141,23 @@ public abstract class ContentCard : MonoBehaviour
     // Helpers
     // -----------------------------------------------------------------------
 
-    private static Vector2 GetEntryOffset(EntryDirection direction, float distance)
+    /// <summary>
+    /// Translate an EntryDirection into an off-screen offset. Horizontal
+    /// directions use the rect's width; vertical directions use its height.
+    /// The factor scales the off-screen distance (1 = exactly off the edge).
+    /// </summary>
+    protected static Vector2 ComputeStartOffset(EntryDirection dir, RectTransform rt, float factor)
     {
-        switch (direction)
-        {
-            case EntryDirection.FromLeft:   return new Vector2(-distance, 0f);
-            case EntryDirection.FromRight:  return new Vector2(distance, 0f);
-            case EntryDirection.FromTop:    return new Vector2(0f, distance);
-            case EntryDirection.FromBottom: return new Vector2(0f, -distance);
-            default:                        return new Vector2(0f, -distance);
-        }
-    }
+        float w = rt.rect.width  > 1f ? rt.rect.width  : 400f;
+        float h = rt.rect.height > 1f ? rt.rect.height : 400f;
 
-    private static Ease ConvertCurve(EntryAnimationCurve c)
-    {
-        switch (c)
+        switch (dir)
         {
-            case EntryAnimationCurve.Elastic:     return Ease.OutElastic;
-            case EntryAnimationCurve.EaseOut:     return Ease.OutQuad;
-            case EntryAnimationCurve.EaseOutBack: return Ease.OutBack;
-            case EntryAnimationCurve.Linear:      return Ease.Linear;
-            default:                              return Ease.OutQuad;
+            case EntryDirection.FromLeft:   return new Vector2(-w * factor, 0f);
+            case EntryDirection.FromRight:  return new Vector2( w * factor, 0f);
+            case EntryDirection.FromTop:    return new Vector2(0f,  h * factor);
+            case EntryDirection.FromBottom: return new Vector2(0f, -h * factor);
+            default:                        return new Vector2(0f, -h * factor);
         }
     }
 
@@ -174,70 +168,6 @@ public abstract class ContentCard : MonoBehaviour
             currentSequence.Kill();
             currentSequence = null;
         }
-    }
-
-    // Translates the CSS linear() keyframes into a Unity AnimationCurve. Each
-    // keyframe's in/out tangents are set to the slope of the surrounding
-    // segment so Unity's Hermite interpolation collapses to (near-)linear
-    // between keys, matching CSS linear() semantics.
-    private static AnimationCurve BuildOvershootCurve()
-    {
-        // (time 0..1, value) — lifted 1:1 from the CSS snippet.
-        float[,] pts =
-        {
-            { 0.000f, 0.000f },
-            { 0.025f, 0.221f },
-            { 0.052f, 0.421f },
-            { 0.080f, 0.592f },
-            { 0.109f, 0.733f },
-            { 0.140f, 0.852f },
-            { 0.156f, 0.901f },
-            { 0.173f, 0.946f },
-            { 0.190f, 0.984f },
-            { 0.208f, 1.017f },
-            { 0.227f, 1.045f },
-            { 0.247f, 1.068f },
-            { 0.272f, 1.089f },
-            { 0.299f, 1.102f },
-            { 0.328f, 1.109f },
-            { 0.361f, 1.109f },
-            { 0.391f, 1.105f },
-            { 0.425f, 1.096f },
-            { 0.547f, 1.052f },
-            { 0.598f, 1.035f },
-            { 0.642f, 1.024f },
-            { 0.686f, 1.015f },
-            { 0.743f, 1.007f },
-            { 0.807f, 1.002f },
-            { 0.879f, 1.000f },
-            { 1.000f, 1.000f },
-        };
-
-        int n = pts.GetLength(0);
-        Keyframe[] frames = new Keyframe[n];
-        for (int i = 0; i < n; i++)
-        {
-            float t = pts[i, 0];
-            float v = pts[i, 1];
-
-            float inTangent = 0f;
-            if (i > 0)
-            {
-                float dt = t - pts[i - 1, 0];
-                if (dt > 0f) inTangent = (v - pts[i - 1, 1]) / dt;
-            }
-
-            float outTangent = 0f;
-            if (i < n - 1)
-            {
-                float dt = pts[i + 1, 0] - t;
-                if (dt > 0f) outTangent = (pts[i + 1, 1] - v) / dt;
-            }
-
-            frames[i] = new Keyframe(t, v, inTangent, outTangent);
-        }
-
-        return new AnimationCurve(frames);
     }
 
     protected virtual void OnDestroy()

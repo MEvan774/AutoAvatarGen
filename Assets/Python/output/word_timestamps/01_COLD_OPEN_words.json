@@ -1,182 +1,152 @@
 [
   {
-    "word": "Today",
+    "word": "A",
     "start": 0.0,
-    "end": 0.406
+    "end": 0.093
   },
   {
-    "word": "we're",
-    "start": 0.58,
-    "end": 0.789
+    "word": "company",
+    "start": 0.209,
+    "end": 0.708
   },
   {
-    "word": "breaking",
-    "start": 0.813,
-    "end": 1.103
+    "word": "did",
+    "start": 1.405,
+    "end": 1.591
   },
   {
-    "word": "down",
-    "start": 1.161,
-    "end": 1.405
+    "word": "a",
+    "start": 1.637,
+    "end": 1.66
   },
   {
-    "word": "how",
-    "start": 1.498,
-    "end": 1.649
+    "word": "thing.",
+    "start": 1.718,
+    "end": 2.009
   },
   {
-    "word": "Google",
-    "start": 1.765,
-    "end": 2.125
+    "word": "It",
+    "start": 2.032,
+    "end": 2.159
   },
   {
-    "word": "search",
-    "start": 2.159,
-    "end": 2.415
+    "word": "was",
+    "start": 2.206,
+    "end": 2.299
   },
   {
-    "word": "went",
-    "start": 2.473,
-    "end": 2.67
-  },
-  {
-    "word": "from",
-    "start": 2.728,
-    "end": 2.879
-  },
-  {
-    "word": "the",
-    "start": 2.937,
-    "end": 3.007
-  },
-  {
-    "word": "most",
-    "start": 3.042,
-    "end": 3.228
-  },
-  {
-    "word": "reliable",
-    "start": 3.297,
-    "end": 3.82
-  },
-  {
-    "word": "tool",
-    "start": 3.855,
-    "end": 4.075
-  },
-  {
-    "word": "on",
-    "start": 4.122,
-    "end": 4.18
-  },
-  {
-    "word": "the",
-    "start": 4.214,
-    "end": 4.284
-  },
-  {
-    "word": "internet",
-    "start": 4.319,
-    "end": 4.725
-  },
-  {
-    "word": "to",
-    "start": 5.05,
-    "end": 5.166
-  },
-  {
-    "word": "something",
-    "start": 5.236,
-    "end": 5.538
-  },
-  {
-    "word": "that",
-    "start": 5.584,
-    "end": 5.7
-  },
-  {
-    "word": "recommends",
-    "start": 5.77,
-    "end": 6.281
-  },
-  {
-    "word": "glue",
-    "start": 6.455,
-    "end": 6.931
-  },
-  {
-    "word": "on",
-    "start": 7.024,
-    "end": 7.233
-  },
-  {
-    "word": "pizza",
-    "start": 7.349,
-    "end": 7.837
-  },
-  {
-    "word": "\u2014",
-    "start": 7.988,
-    "end": 8.046
-  },
-  {
-    "word": "and",
-    "start": 8.557,
-    "end": 8.975
-  },
-  {
-    "word": "what's",
-    "start": 9.218,
-    "end": 9.485
-  },
-  {
-    "word": "actually",
-    "start": 9.532,
-    "end": 9.903
-  },
-  {
-    "word": "going",
-    "start": 9.95,
-    "end": 10.159
-  },
-  {
-    "word": "on",
-    "start": 10.228,
-    "end": 10.356
-  },
-  {
-    "word": "behind",
-    "start": 10.426,
-    "end": 10.89
-  },
-  {
-    "word": "the",
-    "start": 10.971,
-    "end": 11.053
-  },
-  {
-    "word": "decision.",
-    "start": 11.099,
-    "end": 11.668
+    "word": "bad.",
+    "start": 2.38,
+    "end": 2.74
   },
   {
     "word": "Let's",
-    "start": 12.051,
-    "end": 12.249
+    "start": 2.775,
+    "end": 2.984
   },
   {
-    "word": "get",
-    "start": 12.283,
-    "end": 12.399
+    "word": "talk",
+    "start": 3.019,
+    "end": 3.204
   },
   {
-    "word": "into",
-    "start": 12.446,
-    "end": 12.608
+    "word": "about",
+    "start": 3.251,
+    "end": 3.448
   },
   {
     "word": "it.",
-    "start": 12.69,
-    "end": 13.142
+    "start": 3.483,
+    "end": 3.622
+  },
+  {
+    "word": "No",
+    "start": 3.657,
+    "end": 3.82
+  },
+  {
+    "word": "\u2014",
+    "start": 3.855,
+    "end": 3.913
+  },
+  {
+    "word": "actually",
+    "start": 4.087,
+    "end": 4.47
+  },
+  {
+    "word": "bad.",
+    "start": 4.54,
+    "end": 4.841
+  },
+  {
+    "word": "Like,",
+    "start": 4.865,
+    "end": 5.248
+  },
+  {
+    "word": "\"read",
+    "start": 5.573,
+    "end": 5.886
+  },
+  {
+    "word": "it",
+    "start": 5.933,
+    "end": 6.002
+  },
+  {
+    "word": "twice",
+    "start": 6.049,
+    "end": 6.455
+  },
+  {
+    "word": "to",
+    "start": 6.49,
+    "end": 6.56
+  },
+  {
+    "word": "make",
+    "start": 6.629,
+    "end": 6.792
+  },
+  {
+    "word": "sure\"",
+    "start": 6.838,
+    "end": 7.338
+  },
+  {
+    "word": "bad.",
+    "start": 7.848,
+    "end": 8.394
+  },
+  {
+    "word": "Here's",
+    "start": 8.51,
+    "end": 8.719
+  },
+  {
+    "word": "the",
+    "start": 8.742,
+    "end": 8.812
+  },
+  {
+    "word": "headline.",
+    "start": 8.835,
+    "end": 9.242
+  },
+  {
+    "word": "Take",
+    "start": 9.311,
+    "end": 9.52
+  },
+  {
+    "word": "a",
+    "start": 9.543,
+    "end": 9.567
+  },
+  {
+    "word": "second.",
+    "start": 9.601,
+    "end": 10.17
   }
 ]

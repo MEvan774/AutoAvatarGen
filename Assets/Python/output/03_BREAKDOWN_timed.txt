@@ -1,0 +1,21 @@
+{Position:Left,Cut,T=0.000} {Serious,T=0.557}
+[slowing down, serious] Here's what the actual policy change says.
+{BigMedia:ArticleTemp,T=2.500,D=4}
+[dry] Right there. Page eleven. Buried under the cookie banner.
+{Excerpt:"Users hereby grant the company a perpetual, irrevocable, royalty-free license to use submitted content for any purpose, including training AI models.","training AI models","Official Terms of Service",T=4.830,D=6}
+[genuine disbelief,T=5.224] "Any purpose." They wrote "any purpose" and published it.
+{Quote:"We believe transparency is at the core of everything we do.","Sarah Mitchell","VP of Communications, MegaCorp",T=8.243,D=5}
+[deadpan,T=8.916] Sure.
+{Zoom:In,T=8.916}
+[speeding up,T=9.114] And it gets better. The change went live on a Friday afternoon. No announcement. No email. No pop-up. Just — updated.
+{BigText:QUIETLY UPDATED,T=13.500,D=3}
+{Quote:"Just checked MegaCorp's ToS. They can now use your photos, videos, and messages to train AI. Retroactively. No opt-out.","@privacywatch","Posted on Brave",T=17.000,D=5}
+{BigText:PHOTOS+VIDEOS+MESSAGES,T=22.500,D=4}
+{Logo:Brave,T=27.000,D=3}
+[catching himself,T=31.034] I mean — at least someone noticed.
+{BRoll:VideoTemp,T=32.961,D=4}
+[sotto voce,T=33.414] Nobody reads these. That's the whole plan.
+{Stat:"0.3%","Users Who Read Full ToS","based on Stanford study, 2023",T=35.446,D=5}
+[dry,T=35.736] Point three percent. The rest of us just hit "I Agree" and move on with our lives.
+{Excerpt:"Existing users who do not wish to be subject to the updated terms may request account deletion within 30 days.","request account deletion","MegaCorp Help Center",T=40.194,D=5}
+[speeding up,T=40.601] Delete your account. In thirty days. Or you've agreed. That's the opt-out. That's it.
