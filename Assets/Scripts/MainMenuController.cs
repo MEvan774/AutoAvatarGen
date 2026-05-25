@@ -115,8 +115,86 @@ public class MainMenuController : MonoBehaviour
         RefreshActiveSaves();
 
         BuildMusicOverrideRow();
+        BuildGenerateAudioButton();
 
         RefreshResult();
+    }
+
+    // -----------------------------------------------------------------------
+    // Generate Audio button — opens TtsPanelController as a modal overlay.
+    // Self-instantiated next to the Python-output-folder Browse button so the
+    // visual cue (button right next to the folder it writes into) is obvious.
+    // Existing scenes don't need a UI rebuild to get the new control.
+    // -----------------------------------------------------------------------
+
+    Button generateAudioButton;
+    MugsTech.Tts.TtsPanelController ttsPanel;
+
+    void BuildGenerateAudioButton()
+    {
+        // Reuse the existing Browse button as our positioning anchor — TTS
+        // writes into the same folder the user just picked.
+        if (pathBrowseButton == null) return;
+        Canvas canvas = GetComponentInChildren<Canvas>();
+        if (canvas == null) return;
+
+        // Already built?
+        var existing = canvas.transform.Find("GenerateAudioButton");
+        if (existing != null)
+        {
+            generateAudioButton = existing.GetComponent<Button>();
+            if (generateAudioButton != null)
+                generateAudioButton.onClick.AddListener(OnGenerateAudioClicked);
+            return;
+        }
+
+        var browseRT = (RectTransform)pathBrowseButton.transform;
+        Vector2 browsePos = browseRT.anchoredPosition;
+
+        var btnGO = new GameObject("GenerateAudioButton", typeof(RectTransform));
+        btnGO.transform.SetParent(pathBrowseButton.transform.parent, false);
+        btnGO.transform.SetSiblingIndex(pathBrowseButton.transform.GetSiblingIndex() + 1);
+
+        var rt = (RectTransform)btnGO.transform;
+        rt.anchorMin = browseRT.anchorMin;
+        rt.anchorMax = browseRT.anchorMax;
+        rt.pivot     = browseRT.pivot;
+        rt.sizeDelta = new Vector2(260f, browseRT.sizeDelta.y);
+        // Sit just to the right of the Browse button (160 wide + 12 gap).
+        rt.anchoredPosition = new Vector2(browsePos.x + 160f * 0.5f + 260f * 0.5f + 12f, browsePos.y);
+
+        var img = btnGO.AddComponent<Image>();
+        img.color = new Color(0.25f, 0.55f, 0.35f, 1f);
+        var btn = btnGO.AddComponent<Button>();
+        btn.targetGraphic = img;
+
+        var lblGO = new GameObject("Label", typeof(RectTransform));
+        lblGO.transform.SetParent(btnGO.transform, false);
+        var lrt = (RectTransform)lblGO.transform;
+        lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
+        lrt.offsetMin = lrt.offsetMax = Vector2.zero;
+        var tmp = lblGO.AddComponent<TextMeshProUGUI>();
+        tmp.text      = "Generate Audio…";
+        tmp.fontSize  = 22;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.color     = Color.white;
+
+        btn.onClick.AddListener(OnGenerateAudioClicked);
+        generateAudioButton = btn;
+    }
+
+    void OnGenerateAudioClicked()
+    {
+        Canvas canvas = GetComponentInChildren<Canvas>();
+        if (canvas == null)
+        {
+            Debug.LogWarning("[MainMenu] No Canvas found — can't open TTS panel.");
+            return;
+        }
+        if (ttsPanel == null)
+            ttsPanel = MugsTech.Tts.TtsPanelController.GetOrCreate(canvas.transform);
+        ttsPanel.Show();
     }
 
     void OnEnable()
