@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using MugsTech.Style;
 
 /// <summary>
 /// Displays a bold headline with source attribution.
@@ -29,6 +30,10 @@ public class HeadlineCard : ContentCard
             ContentCardUIBuilder.TextPrimary,
             48f, TextAlignmentOptions.TopLeft,
             FontStyles.Bold);
+        // Default to Inter Bold from Resources/Fonts/RecordingText/ when the
+        // user hasn't picked a font in the visuals menu. Their pick (set on
+        // CardFontOverride by VisualsRuntimeApplier) wins when present.
+        ApplyDefaultFont(headlineText, ContentCardUIBuilder.InterBold);
         ContentCardUIBuilder.SetStretch(headlineText.rectTransform, 24f, 24f, 24f, 100f);
         headlineText.enableAutoSizing = true;
         headlineText.fontSizeMin = 40f;
@@ -63,10 +68,21 @@ public class HeadlineCard : ContentCard
             sourceContainer, "SourceText",
             ContentCardUIBuilder.TextTertiary,
             22f, TextAlignmentOptions.MidlineLeft);
+        ApplyDefaultFont(sourceText, ContentCardUIBuilder.InterRegular);
         sourceText.rectTransform.anchorMin = new Vector2(0f, 0f);
         sourceText.rectTransform.anchorMax = new Vector2(1f, 1f);
         sourceText.rectTransform.offsetMin = new Vector2(40f, 0f);
         sourceText.rectTransform.offsetMax = Vector2.zero;
+    }
+
+    // Sets the font ONLY when the user hasn't picked one in the visuals
+    // menu — their pick (forwarded via CardFontOverride by ContentCardUIBuilder.CreateText)
+    // continues to win.
+    static void ApplyDefaultFont(TextMeshProUGUI tmp, TMP_FontAsset fallback)
+    {
+        if (fallback == null) return;
+        if (VisualsRuntimeApplier.CardFontOverride != null) return;
+        tmp.font = fallback;
     }
 
     public override void Initialize(ContentCardEvent data, ContentCardAssets assets)

@@ -21,10 +21,18 @@ public static class VisualsMenuUIBuilder
     [MenuItem("Tools/AutoAvatarGen/Build Visuals Menu UI")]
     static void Build()
     {
-        VisualsMenuController controller = Object.FindFirstObjectByType<VisualsMenuController>();
-        GameObject rootGO;
+        // Find every VisualsMenuController in the scene, including INACTIVE
+        // ones. The old code used FindFirstObjectByType() which skips
+        // inactive GameObjects — that left the builder unable to see the
+        // existing menu when it had been closed (SetActive(false)), so it
+        // happily spawned a duplicate.
+        var allControllers = Object.FindObjectsByType<VisualsMenuController>(
+            FindObjectsInactive.Include, FindObjectsSortMode.None);
 
-        if (controller == null)
+        VisualsMenuController controller;
+        GameObject            rootGO;
+
+        if (allControllers.Length == 0)
         {
             rootGO = new GameObject("VisualsMenu");
             Undo.RegisterCreatedObjectUndo(rootGO, "Create VisualsMenu root");
@@ -32,7 +40,30 @@ public static class VisualsMenuUIBuilder
         }
         else
         {
-            rootGO = controller.gameObject;
+            // Reuse the first one we find. If somehow there are extras (the
+            // duplicate-builder bug above might have left some behind), offer
+            // to clean them up so the scene ends up with a single menu wired
+            // to its existing button.
+            controller = allControllers[0];
+            rootGO     = controller.gameObject;
+
+            if (allControllers.Length > 1)
+            {
+                bool cleanup = EditorUtility.DisplayDialog(
+                    "Visuals Menu UI Builder",
+                    $"Found {allControllers.Length} VisualsMenuController objects in the scene.\n\n" +
+                    "Keep \"" + rootGO.name + "\" and delete the extras? " +
+                    "(Recommended — extras are usually leftovers from a previous rebuild and " +
+                    "are not wired to the main menu button.)",
+                    "Delete extras", "Keep all");
+                if (cleanup)
+                {
+                    for (int i = 1; i < allControllers.Length; i++)
+                    {
+                        Undo.DestroyObjectImmediate(allControllers[i].gameObject);
+                    }
+                }
+            }
         }
 
         Transform existing = rootGO.transform.Find("VisualsCanvas");
@@ -45,6 +76,15 @@ public static class VisualsMenuUIBuilder
                 "Rebuild", "Cancel");
             if (!ok) return;
             Undo.DestroyObjectImmediate(existing.gameObject);
+        }
+
+        // The existing controller might have been left inactive after a
+        // previous Close. Activate it so the rebuilt panel is visible in
+        // the scene view right after the build completes.
+        if (!rootGO.activeSelf)
+        {
+            Undo.RecordObject(rootGO, "Activate VisualsMenu");
+            rootGO.SetActive(true);
         }
 
         Undo.SetCurrentGroupName("Build Visuals Menu UI");
@@ -102,16 +142,38 @@ public static class VisualsMenuUIBuilder
         SetRect(presenterHint.rectTransform, AC, AC, AC,
             new Vector2(leftCenterX, 365), new Vector2(900, 26));
 
-        // 5 emotion rows, ~110 tall, stacked.
-        var slotRefs = new (string emotion, Image preview, InputField input, Button load)[VisualsMenuController.Emotions.Length];
-        float slotHeight  = 105f;
-        float topRowY     = 290f; // y of the first slot's center
+        // Emotion rows live inside a vertical ScrollRect so the user can add
+        // as many emotions as they want without the list overflowing the panel.
+        // The content uses a VerticalLayoutGroup + ContentSizeFitter so rows
+        // stack automatically and the scroll bounds grow as rows are added.
+        // The Add Emotion button sits at the bottom of the content list.
+        //
+        // Viewport sizing: tall enough to show ~4 rows, short enough that the
+        // default 5-row content already overflows — that way the scrollbar
+        // appears on first open and it's obvious the area is scrollable.
+        RectTransform emotionContent = CreateEmotionsScrollView(
+            p,
+            anchoredPos: new Vector2(leftCenterX, 60f),   // center of the viewport
+            size:        new Vector2(900f, 480f));
+
+        var slotRefs = new SlotRefs[VisualsMenuController.Emotions.Length];
         for (int i = 0; i < VisualsMenuController.Emotions.Length; i++)
         {
-            string emotion = VisualsMenuController.Emotions[i];
-            float y = topRowY - i * slotHeight;
-            slotRefs[i] = CreateEmotionSlot(emotion, p, new Vector2(leftCenterX, y));
+            string emotion  = VisualsMenuController.Emotions[i];
+            bool   isNeutral = emotion == VisualsMenuController.NeutralEmotionName;
+            // Layout group controls Y — pass Vector2.zero, the VLG overrides it.
+            slotRefs[i] = CreateEmotionSlot(emotion, emotionContent, Vector2.zero, isNeutral);
+            AddLayoutHeight(slotRefs[i].preview.transform.parent as RectTransform, 100f);
         }
+
+        // "+ Add Emotion" button — last child of the content so it floats at
+        // the bottom of the list and the scroll view will scroll past it
+        // when many emotions are added.
+        Button addEmotionBtn = CreateButton("AddEmotionButton", emotionContent, "+ Add Emotion",
+            new Color(0.18f, 0.55f, 0.34f));
+        SetRect(addEmotionBtn.GetComponent<RectTransform>(), AC, AC, AC,
+            Vector2.zero, new Vector2(260f, 44f));
+        AddLayoutHeight(addEmotionBtn.GetComponent<RectTransform>(), 50f);
 
         // =======================================================
         // RIGHT COLUMN — Card style
@@ -227,11 +289,19 @@ public static class VisualsMenuUIBuilder
         for (int i = 0; i < slotRefs.Length; i++)
         {
             var elem = slotsProp.GetArrayElementAtIndex(i);
-            elem.FindPropertyRelative("emotionName").stringValue       = slotRefs[i].emotion;
+            elem.FindPropertyRelative("emotionName").stringValue        = slotRefs[i].emotion;
             elem.FindPropertyRelative("pathInput").objectReferenceValue = slotRefs[i].input;
             elem.FindPropertyRelative("loadButton").objectReferenceValue = slotRefs[i].load;
             elem.FindPropertyRelative("preview").objectReferenceValue   = slotRefs[i].preview;
+            elem.FindPropertyRelative("nameInput").objectReferenceValue = slotRefs[i].nameInput;
+            elem.FindPropertyRelative("removeButton").objectReferenceValue = slotRefs[i].removeBtn;
         }
+
+        // Must point at the ScrollRect's content (where rows are parented),
+        // not the panel — the runtime detects scrolling mode by looking for
+        // a VerticalLayoutGroup on this transform.
+        so.FindProperty("emotionRowsParent").objectReferenceValue = emotionContent;
+        so.FindProperty("addEmotionButton").objectReferenceValue  = addEmotionBtn;
 
         so.FindProperty("bgColorInput").objectReferenceValue          = bgRow.input;
         so.FindProperty("bgColorSwatch").objectReferenceValue         = bgRow.swatch;
@@ -292,9 +362,23 @@ public static class VisualsMenuUIBuilder
     // Composite row builders
     // =======================================================================
 
-    /// <summary>Creates a [Preview][Label][PathInput][Load] row for one emotion.</summary>
-    static (string emotion, Image preview, InputField input, Button load) CreateEmotionSlot(
-        string emotion, Transform parent, Vector2 anchoredPos)
+    struct SlotRefs
+    {
+        public string     emotion;
+        public Image      preview;
+        public InputField input;
+        public Button     load;
+        public InputField nameInput;
+        public Button     removeBtn;
+    }
+
+    /// <summary>
+    /// Creates a [Preview][NameInput][PathInput][Load][X] row for one emotion.
+    /// When <paramref name="isNeutral"/> is true the name field is a static
+    /// Text instead (Neutral isn't renameable) and no X button is built.
+    /// </summary>
+    static SlotRefs CreateEmotionSlot(
+        string emotion, Transform parent, Vector2 anchoredPos, bool isNeutral)
     {
         // Container — does nothing visually but groups the row's children.
         GameObject row = NewUIObject(emotion + "Slot", parent);
@@ -306,8 +390,23 @@ public static class VisualsMenuUIBuilder
         preview.preserveAspect = true;
         SetRect(preview.rectTransform, AC, AC, AC, new Vector2(-410, 0), new Vector2(80, 80));
 
-        Text label = CreateText("Label", r, emotion, 26, TextAnchor.MiddleLeft, FontStyle.Bold);
-        SetRect(label.rectTransform, AC, AC, AC, new Vector2(-265, 28), new Vector2(220, 30));
+        InputField nameInput = null;
+        if (isNeutral)
+        {
+            // Static label — Neutral is fixed as the avatar's default sprite.
+            Text label = CreateText("Label", r, emotion, 26, TextAnchor.MiddleLeft, FontStyle.Bold);
+            SetRect(label.rectTransform, AC, AC, AC, new Vector2(-265, 28), new Vector2(220, 30));
+        }
+        else
+        {
+            nameInput = CreateInputField("NameInput", r, "Emotion name");
+            nameInput.text          = emotion;
+            nameInput.characterLimit = 32;
+            // Make the name text bold so it visually matches the old static label.
+            if (nameInput.textComponent is Text nameText) nameText.fontStyle = FontStyle.Bold;
+            SetRect(nameInput.GetComponent<RectTransform>(), AC, AC, AC,
+                new Vector2(-265, 28), new Vector2(220, 36));
+        }
 
         InputField input = CreateInputField("PathInput", r,
             "C:\\path\\to\\" + emotion.ToLower() + ".png");
@@ -319,7 +418,149 @@ public static class VisualsMenuUIBuilder
         SetRect(load.GetComponent<RectTransform>(), AC, AC, AC,
             new Vector2(380, -16), new Vector2(100, 44));
 
-        return (emotion, preview, input, load);
+        Button removeBtn = null;
+        if (!isNeutral)
+        {
+            removeBtn = CreateButton("RemoveButton", r, "X",
+                new Color(0.62f, 0.22f, 0.22f));
+            SetRect(removeBtn.GetComponent<RectTransform>(), AC, AC, AC,
+                new Vector2(450, -16), new Vector2(44, 44));
+        }
+
+        return new SlotRefs
+        {
+            emotion   = emotion,
+            preview   = preview,
+            input     = input,
+            load      = load,
+            nameInput = nameInput,
+            removeBtn = removeBtn,
+        };
+    }
+
+    // Builds the vertical-scroll container that hosts the emotion rows + the
+    // Add Emotion button. Returns the inner content RectTransform that rows
+    // should be parented to. The VLG / ContentSizeFitter combo makes the
+    // content auto-resize as rows are added or removed at runtime. A visible
+    // scrollbar appears on the right edge so the user can see at a glance
+    // that there's more content below the fold.
+    static RectTransform CreateEmotionsScrollView(
+        Transform parent, Vector2 anchoredPos, Vector2 size)
+    {
+        GameObject scrollObj = NewUIObject("EmotionsScrollView", parent);
+        SetRect(scrollObj.GetComponent<RectTransform>(), AC, AC, AC, anchoredPos, size);
+
+        Image bg = Undo.AddComponent<Image>(scrollObj);
+        bg.sprite = GetUISprite();
+        bg.color  = new Color(0.08f, 0.09f, 0.12f, 0.6f);
+
+        ScrollRect sr = Undo.AddComponent<ScrollRect>(scrollObj);
+        sr.horizontal = false;
+        sr.vertical   = true;
+        sr.movementType      = ScrollRect.MovementType.Clamped;
+        sr.scrollSensitivity = 30f;
+
+        const float scrollbarWidth = 18f;
+
+        // Viewport — masked area that defines what the user can see. Right
+        // edge leaves room for the scrollbar so rows don't overlap it.
+        GameObject viewport = NewUIObject("Viewport", scrollObj.transform);
+        var vpRT = viewport.GetComponent<RectTransform>();
+        vpRT.anchorMin = Vector2.zero;
+        vpRT.anchorMax = Vector2.one;
+        vpRT.offsetMin = new Vector2(6f, 6f);
+        vpRT.offsetMax = new Vector2(-(6f + scrollbarWidth + 4f), -6f);
+        Image vpImg = Undo.AddComponent<Image>(viewport);
+        vpImg.color = new Color(1f, 1f, 1f, 0.01f); // raycast target only
+        var mask = Undo.AddComponent<Mask>(viewport);
+        mask.showMaskGraphic = false;
+
+        // Content — children get stacked vertically by the VLG.
+        GameObject content = NewUIObject("Content", viewport.transform);
+        var cRT = content.GetComponent<RectTransform>();
+        cRT.anchorMin = new Vector2(0f, 1f);
+        cRT.anchorMax = new Vector2(1f, 1f);
+        cRT.pivot     = new Vector2(0.5f, 1f);
+        cRT.sizeDelta = Vector2.zero;
+
+        var vlg = Undo.AddComponent<VerticalLayoutGroup>(content);
+        vlg.childAlignment         = TextAnchor.UpperCenter;
+        vlg.spacing                = 6f;
+        vlg.padding                = new RectOffset(8, 8, 8, 8);
+        vlg.childForceExpandWidth  = true;
+        vlg.childForceExpandHeight = false;
+        vlg.childControlWidth      = true;
+        vlg.childControlHeight     = false;
+
+        var csf = Undo.AddComponent<ContentSizeFitter>(content);
+        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        // Vertical scrollbar pinned to the right edge of the scroll view.
+        Scrollbar vBar = CreateVerticalScrollbar(scrollObj.transform, scrollbarWidth);
+
+        sr.viewport            = vpRT;
+        sr.content             = cRT;
+        sr.verticalScrollbar   = vBar;
+        sr.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHideAndExpandViewport;
+        sr.verticalScrollbarSpacing    = 0f;
+
+        return cRT;
+    }
+
+    // Builds a Unity UGUI Scrollbar pinned to the right edge of `parent`,
+    // styled to match the rest of the visuals panel. Width is set by caller
+    // so the viewport can leave room for it on the same horizontal axis.
+    static Scrollbar CreateVerticalScrollbar(Transform parent, float width)
+    {
+        GameObject sbObj = NewUIObject("VerticalScrollbar", parent);
+        var sbRT = sbObj.GetComponent<RectTransform>();
+        sbRT.anchorMin = new Vector2(1f, 0f);
+        sbRT.anchorMax = new Vector2(1f, 1f);
+        sbRT.pivot     = new Vector2(1f, 0.5f);
+        sbRT.sizeDelta = new Vector2(width, -12f); // -12 = match viewport top/bottom inset (6+6)
+        sbRT.anchoredPosition = new Vector2(-6f, 0f);
+
+        Image sbBg = Undo.AddComponent<Image>(sbObj);
+        sbBg.sprite = GetUISprite();
+        sbBg.color  = new Color(0.18f, 0.20f, 0.25f, 1f);
+
+        Scrollbar bar = Undo.AddComponent<Scrollbar>(sbObj);
+        bar.direction = Scrollbar.Direction.BottomToTop;
+
+        // Sliding area (where the handle slides) — inset slightly so the
+        // handle has visible padding inside the track.
+        GameObject area = NewUIObject("Sliding Area", sbObj.transform);
+        var areaRT = area.GetComponent<RectTransform>();
+        areaRT.anchorMin = Vector2.zero;
+        areaRT.anchorMax = Vector2.one;
+        areaRT.offsetMin = new Vector2(2f, 2f);
+        areaRT.offsetMax = new Vector2(-2f, -2f);
+
+        GameObject handle = NewUIObject("Handle", area.transform);
+        var handleRT = handle.GetComponent<RectTransform>();
+        handleRT.anchorMin = Vector2.zero;
+        handleRT.anchorMax = Vector2.one;
+        handleRT.sizeDelta = Vector2.zero;
+        Image handleImg = Undo.AddComponent<Image>(handle);
+        handleImg.sprite = GetUISprite();
+        handleImg.color  = new Color(0.45f, 0.50f, 0.58f, 1f);
+
+        bar.targetGraphic = handleImg;
+        bar.handleRect    = handleRT;
+
+        return bar;
+    }
+
+    // Adds a LayoutElement with a fixed preferred height (and a generous
+    // preferred width) so the parent VerticalLayoutGroup sizes the row
+    // consistently. Width sizing is delegated to childForceExpandWidth.
+    static void AddLayoutHeight(RectTransform rt, float preferredHeight)
+    {
+        if (rt == null) return;
+        var le = rt.gameObject.GetComponent<LayoutElement>();
+        if (le == null) le = Undo.AddComponent<LayoutElement>(rt.gameObject);
+        le.preferredHeight = preferredHeight;
+        le.minHeight       = preferredHeight;
     }
 
     /// <summary>Creates a [Label][HexInput][Swatch] row.</summary>

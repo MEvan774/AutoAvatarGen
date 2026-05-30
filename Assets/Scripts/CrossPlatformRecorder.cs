@@ -52,10 +52,16 @@ public class CrossPlatformRecorder : MonoBehaviour
     public BackgroundMode backgroundMode = BackgroundMode.Transparent;
 
     [Header("Output")]
-    [Tooltip("Output folder (relative to project or absolute). Leave empty for the default Evereal folder.")]
+    [Tooltip("Output folder (relative to project or absolute). Leave empty for the default Evereal folder. " +
+             "The main menu's 'Recording Output Folder' field overrides this via PlayerPrefs.")]
     public string saveFolder = "";
     [Tooltip("Optional filename prefix. Timestamp is always appended.")]
     public string fileNamePrefix = "MugsTech";
+
+    // Kept in sync with MainMenuController.RecordingOutputFolderPrefKey. If
+    // the pref is set, Awake() overrides the inspector saveFolder before
+    // ConfigureVideoCapture() resolves it onto the VideoCapture component.
+    const string RecordingOutputFolderPrefKey = "AutoAvatarGen.RecordingOutputFolder";
 
     [Header("Video Settings")]
     [Tooltip("1920 = 1080p, 1280 = 720p, 3840 = 4K. Must match what Evereal supports.")]
@@ -93,6 +99,15 @@ public class CrossPlatformRecorder : MonoBehaviour
 
     void Awake()
     {
+        // Smoking-gun log to prove Awake is actually firing in builds. If this
+        // line doesn't appear in Player.log, Unity isn't running this script's
+        // lifecycle — usually means a missing .meta MonoImporter section or a
+        // GUID mismatch between scene and script. Remove once the path-override
+        // pipeline is confirmed working.
+        Debug.Log("[Recorder] Awake() entered. " +
+                  $"GameObject='{gameObject.name}', activeInHierarchy={gameObject.activeInHierarchy}, " +
+                  $"verboseLogging={verboseLogging}, saveFolder='{saveFolder}'.");
+
         // If using the Evereal prefab's built-in camera, read it from the component
         // so ApplyBackgroundMode still works on the correct camera.
         if (useEverealBuiltInCamera && videoCaptureComponent != null)
@@ -116,8 +131,88 @@ public class CrossPlatformRecorder : MonoBehaviour
             Debug.LogError("[Recorder] No camera found! Assign one or add a Camera tagged 'MainCamera'.");
         }
 
+        // The main-menu "Background recording mode" selector writes a
+        // PlayerPref that ranks above the inspector default. This way the
+        // user can flip Video / Green Screen / Transparent at runtime
+        // without re-saving the scene.
+        ApplyBackgroundModeOverrideFromPrefs();
+
+        // Same pattern for the recording output folder — the main menu's
+        // input field writes a PlayerPref that overrides the inspector
+        // saveFolder. Must run before ConfigureVideoCapture() so the
+        // override is in place when it resolves the path.
+        ApplyRecordingOutputFolderOverrideFromPrefs();
+
         ApplyBackgroundMode();
         ConfigureVideoCapture();
+    }
+
+    // Reads the main menu's "Recording Output Folder" PlayerPref and, if
+    // set, overrides the inspector saveFolder. Empty / whitespace leaves the
+    // inspector value alone so users who never touch the field keep their
+    // existing setup. The path-rooted-vs-relative resolution happens later
+    // in ConfigureVideoCapture() — this method only swaps the string.
+    //
+    // Logging here is UNCONDITIONAL (not gated by verboseLogging) because
+    // "my recordings landed somewhere else" is a top-3 user-reported issue
+    // and Player.log needs to surface what the override actually did.
+    void ApplyRecordingOutputFolderOverrideFromPrefs()
+    {
+        string overrideFolder = PlayerPrefs.GetString(RecordingOutputFolderPrefKey, "");
+        if (string.IsNullOrWhiteSpace(overrideFolder))
+        {
+            Debug.Log($"[Recorder] No recording output override from menu " +
+                      $"(pref '{RecordingOutputFolderPrefKey}' is empty). " +
+                      $"Using inspector saveFolder='{saveFolder}'.");
+            return;
+        }
+        Debug.Log($"[Recorder] Recording output folder override from menu: " +
+                  $"'{overrideFolder}' (was inspector value '{saveFolder}').");
+        saveFolder = overrideFolder;
+    }
+
+    // Resolves the current saveFolder (absolute or relative-to-project) and
+    // assigns it to videoCaptureComponent.saveFolder so Evereal writes the
+    // .mp4 there. Idempotent — safe to call multiple times. Both the Awake
+    // path (ConfigureVideoCapture) and the StartRecordingWithAudio path call
+    // this; the latter is the one that actually fires in this project.
+    void ApplySaveFolderToVideoCapture()
+    {
+        if (videoCaptureComponent == null) return;
+        if (string.IsNullOrEmpty(saveFolder))
+        {
+            Debug.Log("[Recorder] saveFolder is empty — leaving the Evereal " +
+                      "VideoCapture inspector folder in place.");
+            return;
+        }
+        string resolvedPath = Path.IsPathRooted(saveFolder)
+            ? saveFolder
+            : Path.Combine(Application.dataPath, "..", saveFolder);
+        Directory.CreateDirectory(resolvedPath);
+        videoCaptureComponent.saveFolder = resolvedPath;
+        Debug.Log($"[Recorder] VideoCapture.saveFolder set to: '{resolvedPath}' " +
+                  $"(from saveFolder='{saveFolder}', rooted={Path.IsPathRooted(saveFolder)}).");
+    }
+
+    // Reads MugsTech.Background.BackgroundModeManager's PlayerPref and, if
+    // the user picked Green Screen / Transparent, overrides the inspector
+    // backgroundMode. Video mode leaves the inspector value alone — same
+    // inspector setup as before for users who never open the menu option.
+    void ApplyBackgroundModeOverrideFromPrefs()
+    {
+        var mode = MugsTech.Background.BackgroundModeManager.LoadMode();
+        switch (mode)
+        {
+            case MugsTech.Background.BackgroundModeManager.Mode.GreenScreen:
+                backgroundMode = BackgroundMode.GreenScreen;
+                Log("Background mode override from menu: GreenScreen");
+                break;
+            case MugsTech.Background.BackgroundModeManager.Mode.Transparent:
+                backgroundMode = BackgroundMode.Transparent;
+                Log("Background mode override from menu: Transparent");
+                break;
+            // Video mode → inspector value is the source of truth, no override.
+        }
     }
 
 
@@ -138,6 +233,18 @@ public class CrossPlatformRecorder : MonoBehaviour
             return;
         }
 
+        // Apply the main-menu "Recording Output Folder" override RIGHT HERE,
+        // not in Awake(). On this project Awake() doesn't fire for the
+        // recorder (some Unity import quirk we haven't been able to pin down
+        // — see the absent "Awake() entered" log even with the smoking-gun
+        // Debug.Log in place). StartRecordingWithAudio IS called directly by
+        // HybridAvatarSystem via a serialized reference though, so applying
+        // the override from inside this method works. Called before any
+        // SetCustomFileName / StartCapture so Evereal picks up the new path
+        // when it resolves saveFolderFullPath in its PrepareForCapture.
+        ApplyRecordingOutputFolderOverrideFromPrefs();
+        ApplySaveFolderToVideoCapture();
+
         // Set a unique timestamped filename for this take. Format:
         //   <videoTitle>_<yyyy-MM-dd_HH-mm-ss>.mp4
         // The prefix is the ElevenLabs segment slug (set by ScriptFileReader
@@ -149,6 +256,15 @@ public class CrossPlatformRecorder : MonoBehaviour
         videoCaptureComponent.SetCustomFileName(fileName);
 
         Log($"=== STARTING RECORDING ({fileName}) ===");
+
+        // Lock engine framerate to recording framerate. On a high-refresh
+        // monitor (144Hz/240Hz) the engine would otherwise render way more
+        // frames than the encoder samples — wasted GPU work + uneven frame
+        // pacing as the encoder picks 1-of-N. Forcing target FPS = recording
+        // FPS and disabling vsync gives the encoder a steady stream that
+        // matches its sample rate exactly. Stashed for restore in StopCapture.
+        PushFrameRateLock(frameRate);
+
         videoCaptureComponent.StartCapture();
         voiceAudio.Play();
 
@@ -188,6 +304,40 @@ public class CrossPlatformRecorder : MonoBehaviour
             videoCaptureComponent.StopCapture();
             Log("Recording stopped manually");
         }
+        PopFrameRateLock();
+    }
+
+    // -----------------------------------------------------------------------
+    // Framerate lock — caps engine FPS to recording FPS during capture and
+    // restores the previous Application.targetFrameRate / QualitySettings
+    // vSyncCount when capture stops. Idempotent (push without matching pop
+    // would leave the engine locked; we guard with savedTargetFrameRate < int.MinValue).
+    // -----------------------------------------------------------------------
+
+    int  savedTargetFrameRate = int.MinValue;
+    int  savedVSyncCount      = int.MinValue;
+
+    void PushFrameRateLock(int targetFps)
+    {
+        if (savedTargetFrameRate != int.MinValue) return; // already pushed
+        savedTargetFrameRate    = Application.targetFrameRate;
+        savedVSyncCount         = QualitySettings.vSyncCount;
+        Application.targetFrameRate = targetFps;
+        // vSyncCount must be 0 for targetFrameRate to take effect — Unity
+        // silently ignores targetFrameRate when vsync is on.
+        QualitySettings.vSyncCount  = 0;
+        Log($"Framerate locked: targetFrameRate={targetFps}, vSyncCount=0 " +
+            $"(was {savedTargetFrameRate}/{savedVSyncCount}).");
+    }
+
+    void PopFrameRateLock()
+    {
+        if (savedTargetFrameRate == int.MinValue) return; // nothing to restore
+        Application.targetFrameRate = savedTargetFrameRate;
+        QualitySettings.vSyncCount  = savedVSyncCount;
+        Log($"Framerate restored: targetFrameRate={savedTargetFrameRate}, vSyncCount={savedVSyncCount}.");
+        savedTargetFrameRate = int.MinValue;
+        savedVSyncCount      = int.MinValue;
     }
 
     // -----------------------------------------------------------------------
@@ -269,15 +419,10 @@ public class CrossPlatformRecorder : MonoBehaviour
         // Audio
         videoCaptureComponent.captureAudio = captureAudioIntoVideo;
 
-        // Output folder
-        if (!string.IsNullOrEmpty(saveFolder))
-        {
-            string resolvedPath = Path.IsPathRooted(saveFolder)
-                ? saveFolder
-                : Path.Combine(Application.dataPath, "..", saveFolder);
-            Directory.CreateDirectory(resolvedPath);
-            videoCaptureComponent.saveFolder = resolvedPath;
-        }
+        // Output folder — delegated so StartRecordingWithAudio can also call
+        // it (Awake() doesn't fire on the recorder in this project, so the
+        // Awake-time configure path can't be relied on).
+        ApplySaveFolderToVideoCapture();
 
         Log($"VideoCapture configured: {frameWidth}x{frameHeight} @ {frameRate}fps, " +
             $"{bitrateKbps}kbps, transparent={videoCaptureComponent.transparent}, " +
@@ -300,6 +445,10 @@ public class CrossPlatformRecorder : MonoBehaviour
             videoCaptureComponent.StopCapture();
             Log("Recording stopped (audio finished)");
         }
+        // Always restore framerate / vsync — both paths (manual StopRecording
+        // and audio-end auto-stop) need this; without the unconditional pop
+        // the engine would stay locked at recording FPS after the take ends.
+        PopFrameRateLock();
     }
 
     // -----------------------------------------------------------------------

@@ -180,24 +180,46 @@ public class StatCard : ContentCard
     // Spacing between arrow and number text in pixels.
     private const float ARROW_TEXT_SPACING = 24f;
 
+    // Cached "last applied" layout state. LateUpdate is gated on these — TMP's
+    // auto-sizing reflow usually settles within ~2 frames after Initialize, so
+    // for the rest of the card's lifetime (5+ seconds typically) we'd be re-
+    // calling GetPreferredValues every frame for nothing. That layout call is
+    // measurably expensive (it builds a layout to measure text) and is one of
+    // the bigger per-frame costs during recording when stat cards are active.
+    float lastFontSize = float.NaN;
+    float lastCardWidth = float.NaN;
+    string lastMeasuredText = null;
+
     void LateUpdate()
     {
         if (arrow == null || !arrow.gameObject.activeSelf || numberText == null)
             return;
 
+        float fontSize  = numberText.fontSize;
+        float cardWidth = rectTransform.rect.width;
+        // The measured text only changes if count-up is mid-animation OR
+        // initial values get re-assigned. We use the final-value string so
+        // layout is stable during the count, which means measureText is
+        // effectively constant — comparing it with lastMeasuredText is a
+        // fast reference check until something actually re-Initializes.
+        string measureText = BuildFinalNumberText();
+
+        if (fontSize == lastFontSize &&
+            cardWidth == lastCardWidth &&
+            ReferenceEquals(measureText, lastMeasuredText))
+            return; // nothing changed — skip the expensive reflow
+
         // --- 1. Size the arrow to match the rendered text height ---
-        float arrowSide = numberText.fontSize * arrowSizeMultiplier;
+        float arrowSide = fontSize * arrowSizeMultiplier;
         arrowRect.sizeDelta = new Vector2(arrowSide, arrowSide);
 
         // --- 2. Measure the text's width using the FINAL value (not the count-up
         //       intermediate) so the layout stays stable during the count animation.
-        string measureText = BuildFinalNumberText();
         Vector2 textSize = numberText.GetPreferredValues(measureText);
         float textWidth = textSize.x;
 
         // --- 3. Center the (arrow + spacing + text) group horizontally in the card ---
         float totalWidth = arrowSide + ARROW_TEXT_SPACING + textWidth;
-        float cardWidth = rectTransform.rect.width;
         float startX = Mathf.Max(24f, (cardWidth - totalWidth) * 0.5f);
 
         arrowRect.anchoredPosition = new Vector2(startX, 0f);
@@ -205,6 +227,10 @@ public class StatCard : ContentCard
         var textRT = numberText.rectTransform;
         textRT.anchoredPosition = new Vector2(startX + arrowSide + ARROW_TEXT_SPACING, 0f);
         textRT.sizeDelta = new Vector2(textWidth + 8f, textRT.sizeDelta.y);
+
+        lastFontSize     = fontSize;
+        lastCardWidth    = cardWidth;
+        lastMeasuredText = measureText;
     }
 
     /// <summary>Reconstructs the final fully-counted number string for measurement.</summary>

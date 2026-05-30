@@ -2,6 +2,8 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
+using System.Text.RegularExpressions;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -44,15 +46,25 @@ public class VisualsMenuController : MonoBehaviour
     public const string MusicVolumeWorkingKey = KeyPrefix + "MusicVolume";
     public const string ActiveSaveNameKey     = KeyPrefix + "ActiveSaveName";
 
+    // PlayerPrefs key holding the working-state list of emotion names
+    // (newline-separated). Lets Quick Save persist user-added / renamed
+    // emotions even when no named save is active. The list always starts
+    // with "Neutral" — that slot is protected from delete/rename.
+    public const string EmotionNamesKey       = KeyPrefix + "EmotionNames";
+
     /// <summary>
-    /// Canonical emotion list. Must match HybridAvatarSystem's hardcoded
-    /// sprite fields. Adding a sixth emotion here also requires updating
-    /// HybridAvatarSystem.cs and the script-marker parser in ScriptFileReader.
+    /// Default emotion set used to seed brand-new editors. The runtime list
+    /// is dynamic — users can rename any of these (except Neutral), delete
+    /// the four non-Neutral defaults, and add new emotions. HybridAvatarSystem
+    /// looks up emotions by string key, so anything in this list (or added by
+    /// the user) is callable from the narration script via {EmotionName}.
     /// </summary>
     public static readonly string[] Emotions = new[]
     {
         "Neutral", "Excited", "Serious", "Sad", "Concerned"
     };
+
+    public const string NeutralEmotionName = "Neutral";
 
     public static string CharacterPathKey(string emotion) =>
         KeyPrefix + "Character." + emotion;
@@ -60,11 +72,21 @@ public class VisualsMenuController : MonoBehaviour
     [Serializable]
     public class EmotionSlot
     {
-        [Tooltip("Display name + the suffix used to build the PlayerPrefs key.")]
+        [Tooltip("Display name. For Neutral this is fixed; other rows can be renamed.")]
         public string emotionName;
         public InputField pathInput;
         public Button loadButton;
         public Image  preview;
+
+        [Tooltip("Editable name field. Read-only / hidden for the Neutral row.")]
+        public InputField nameInput;
+        [Tooltip("Delete button. Hidden / disabled for the Neutral row.")]
+        public Button     removeButton;
+
+        // Marks rows built at runtime via the + button so we can tear them
+        // down when loading a different save without destroying the
+        // inspector-wired starter rows (which the UI builder created).
+        [NonSerialized] public bool runtimeBuilt;
     }
 
     [Header("Panel Root")]
@@ -76,9 +98,41 @@ public class VisualsMenuController : MonoBehaviour
     [SerializeField] Text activeSaveLabel;
 
     [Header("Character Slots")]
-    [Tooltip("One entry per emotion. The builder populates this with 5 entries " +
-             "matching VisualsMenuController.Emotions.")]
+    [Tooltip("Initial emotion rows wired up by the UI builder (one per default " +
+             "emotion). At runtime these are copied into the working list and " +
+             "additional rows can be added via the + button.")]
     [SerializeField] EmotionSlot[] emotionSlots;
+
+    [Tooltip("Parent transform the new emotion rows are attached to. Falls back " +
+             "to the first wired slot's parent when null (the typical setup).")]
+    [SerializeField] Transform     emotionRowsParent;
+    [Tooltip("Optional '+' button below the emotion rows. Created at runtime " +
+             "when this slot is empty.")]
+    [SerializeField] Button        addEmotionButton;
+
+    // Runtime working list — the actual source of truth. Seeded from
+    // emotionSlots in Awake; the + button appends to it, the X button on a
+    // row removes from it. Anything in this list is included in Quick Save
+    // and Save As, and HybridAvatarSystem will load a sprite for it on the
+    // next recording.
+    readonly List<EmotionSlot> emotions = new List<EmotionSlot>();
+
+    // Geometry of an emotion row, captured from the first wired slot in
+    // Awake. Used both when re-positioning rows after add/remove and when
+    // building brand-new rows at runtime. Falls back to baked-in defaults if
+    // nothing is wired (defensive — the UI builder always populates the
+    // starter set in practice).
+    Vector2 emotionRowSize     = new Vector2(900f, 100f);
+    float   emotionRowSpacing  = 105f;
+    Vector2 emotionRowTopAnchor = new Vector2(-460f, 290f); // (x, y) of the first row's center
+
+    // True when the rows live inside a VerticalLayoutGroup (the modern
+    // scrollable layout). In that mode we let the layout group control row
+    // positioning instead of writing anchored positions ourselves, and the
+    // Add Emotion button is kept as the last sibling. False = legacy scenes
+    // where rows are anchored at fixed Y positions on the panel.
+    bool emotionsUseLayoutGroup;
+    ScrollRect emotionsScrollRect;
 
     [Header("Card Style")]
     [SerializeField] InputField bgColorInput;
@@ -175,14 +229,21 @@ public class VisualsMenuController : MonoBehaviour
 
     void Awake()
     {
-        // Character slot listener wiring (per-slot values are loaded later by
-        // LoadActivePresetOrDefaults so the active named save wins over the
-        // potentially-stale PlayerPrefs char paths).
-        foreach (var slot in emotionSlots)
+        // Seed the runtime emotion list from the inspector-wired starter rows
+        // and remember their geometry so newly-built rows match the look.
+        SeedEmotionListFromInspector();
+        CaptureRowGeometryFromFirstSlot();
+        EnsureEmotionRowsParent();
+        EnsureAddEmotionButton();
+
+        // Per-slot wiring: load button + the new name field + remove button.
+        // Neutral is special-cased — its name is fixed and it can't be deleted
+        // (it's the avatar's idle/fallback sprite).
+        foreach (var slot in emotions)
         {
-            EmotionSlot captured = slot;
-            captured.loadButton.onClick.AddListener(() => OnLoadEmotion(captured));
+            WireEmotionSlot(slot);
         }
+        RepositionEmotionRows();
 
         // Card style wiring.
         bgColorInput.onEndEdit.AddListener(OnBgColorEdited);
@@ -272,7 +333,14 @@ public class VisualsMenuController : MonoBehaviour
 
         UpdateActiveSaveLabel();
 
-        foreach (var slot in emotionSlots)
+        // Restore the list of emotion names the user had configured (Quick
+        // Save persists this) so dynamic add/rename survive an app restart
+        // without requiring a named save.
+        List<string> persistedNames = LoadEmotionNamesPref();
+        if (persistedNames != null && persistedNames.Count > 0)
+            SyncEmotionListToNames(persistedNames);
+
+        foreach (var slot in emotions)
         {
             string saved = PlayerPrefs.GetString(CharacterPathKey(slot.emotionName), "");
             slot.pathInput.text = saved;
@@ -285,6 +353,7 @@ public class VisualsMenuController : MonoBehaviour
                 slot.preview.sprite = null;
                 slot.preview.color  = new Color(1f, 1f, 1f, 0.10f);
             }
+            if (slot.nameInput != null) slot.nameInput.text = slot.emotionName;
         }
         LoadCardStyleFromPrefs();
         UpdatePreview();
@@ -325,6 +394,680 @@ public class VisualsMenuController : MonoBehaviour
         }
 
         LoadImageInto(path, slot.preview);
+    }
+
+    // -----------------------------------------------------------------------
+    // Dynamic emotion list — wiring, add / remove / rename helpers.
+    //
+    // Emotions are the runtime list of rows shown in the panel. The inspector
+    // array (emotionSlots) is just the seed for fresh editors. The "+ Add
+    // Emotion" button appends to the list; per-row "X" buttons remove from
+    // it (except for Neutral, which is fixed). The name field on each row
+    // lets the user pick what {Token} the narration script should fire for
+    // that emotion — sanitization keeps it script-safe.
+    // -----------------------------------------------------------------------
+
+    static readonly Regex EmotionNameSanitizer =
+        new Regex(@"[^A-Za-z0-9_]", RegexOptions.Compiled);
+
+    void SeedEmotionListFromInspector()
+    {
+        emotions.Clear();
+        if (emotionSlots == null) return;
+        foreach (var slot in emotionSlots)
+        {
+            if (slot == null) continue;
+            slot.runtimeBuilt = false;
+            emotions.Add(slot);
+        }
+    }
+
+    void CaptureRowGeometryFromFirstSlot()
+    {
+        if (emotions.Count < 1 || emotions[0].preview == null) return;
+        var firstRow = emotions[0].preview.transform.parent as RectTransform;
+        if (firstRow == null) return;
+        emotionRowTopAnchor = firstRow.anchoredPosition;
+        emotionRowSize      = firstRow.sizeDelta;
+
+        if (emotions.Count >= 2 && emotions[1].preview != null)
+        {
+            var secondRow = emotions[1].preview.transform.parent as RectTransform;
+            if (secondRow != null)
+            {
+                float spacing = emotionRowTopAnchor.y - secondRow.anchoredPosition.y;
+                if (spacing > 1f) emotionRowSpacing = spacing;
+            }
+        }
+    }
+
+    void EnsureEmotionRowsParent()
+    {
+        if (emotionRowsParent == null &&
+            emotions.Count > 0 && emotions[0].preview != null)
+        {
+            emotionRowsParent = emotions[0].preview.transform.parent.parent;
+        }
+
+        if (emotionRowsParent != null)
+        {
+            // Detect whether we're in the modern scroll-view layout (parent
+            // has a VerticalLayoutGroup) or the legacy anchored layout.
+            emotionsUseLayoutGroup = emotionRowsParent.GetComponent<VerticalLayoutGroup>() != null;
+
+            // Walk up to find the enclosing ScrollRect so we can auto-scroll
+            // to a newly-added row. Walks at most a few levels in practice
+            // (content → viewport → scroll).
+            emotionsScrollRect = emotionRowsParent.GetComponentInParent<ScrollRect>();
+        }
+    }
+
+    // Builds (or wires) the "+ Add Emotion" button. Inspector slot wins; when
+    // empty, a runtime button is created and parented to emotionRowsParent.
+    void EnsureAddEmotionButton()
+    {
+        if (addEmotionButton == null && emotionRowsParent != null)
+        {
+            addEmotionButton = BuildRuntimeAddButton(emotionRowsParent);
+        }
+        if (addEmotionButton != null)
+        {
+            addEmotionButton.onClick.RemoveAllListeners();
+            addEmotionButton.onClick.AddListener(OnAddEmotionClicked);
+        }
+    }
+
+    void WireEmotionSlot(EmotionSlot slot)
+    {
+        if (slot == null) return;
+
+        bool isNeutral = string.Equals(slot.emotionName, NeutralEmotionName, StringComparison.Ordinal);
+
+        // Load button — original behaviour. Re-wired idempotently in case the
+        // builder already attached a no-op listener.
+        if (slot.loadButton != null)
+        {
+            slot.loadButton.onClick.RemoveAllListeners();
+            EmotionSlot capturedLoad = slot;
+            slot.loadButton.onClick.AddListener(() => OnLoadEmotion(capturedLoad));
+        }
+
+        // Name input — lazily created on legacy rows that predate this field.
+        // Hidden for Neutral; otherwise wired to OnRenameEmotion on endEdit.
+        if (slot.nameInput == null && !isNeutral && slot.preview != null)
+        {
+            slot.nameInput = BuildRuntimeNameInput(slot.preview.transform.parent);
+        }
+        if (slot.nameInput != null)
+        {
+            slot.nameInput.text = slot.emotionName;
+            slot.nameInput.onEndEdit.RemoveAllListeners();
+            if (isNeutral)
+            {
+                slot.nameInput.readOnly      = true;
+                slot.nameInput.interactable  = false;
+            }
+            else
+            {
+                EmotionSlot capturedName = slot;
+                slot.nameInput.onEndEdit.AddListener(s => OnRenameEmotion(capturedName, s));
+            }
+        }
+
+        // Remove button — Neutral keeps no remove button. For other rows,
+        // create one if the builder didn't.
+        if (slot.removeButton == null && !isNeutral && slot.preview != null)
+        {
+            slot.removeButton = BuildRuntimeRemoveButton(slot.preview.transform.parent);
+        }
+        if (slot.removeButton != null)
+        {
+            slot.removeButton.gameObject.SetActive(!isNeutral);
+            slot.removeButton.onClick.RemoveAllListeners();
+            if (!isNeutral)
+            {
+                EmotionSlot capturedRemove = slot;
+                slot.removeButton.onClick.AddListener(() => OnRemoveEmotionClicked(capturedRemove));
+            }
+        }
+    }
+
+    void RepositionEmotionRows()
+    {
+        if (emotionsUseLayoutGroup)
+        {
+            // Layout group mode: rows are ordered by sibling index, the VLG
+            // handles vertical stacking. We just enforce the slot list's
+            // order and keep the Add button as the last visible child.
+            for (int i = 0; i < emotions.Count; i++)
+            {
+                var slot = emotions[i];
+                if (slot?.preview == null) continue;
+                var row = slot.preview.transform.parent;
+                if (row != null) row.SetSiblingIndex(i);
+            }
+            if (addEmotionButton != null)
+                addEmotionButton.transform.SetAsLastSibling();
+            return;
+        }
+
+        // Legacy anchored-position mode (scenes that pre-date the scroll view).
+        for (int i = 0; i < emotions.Count; i++)
+        {
+            var slot = emotions[i];
+            if (slot?.preview == null) continue;
+            var row = slot.preview.transform.parent as RectTransform;
+            if (row == null) continue;
+            row.anchoredPosition = new Vector2(
+                emotionRowTopAnchor.x,
+                emotionRowTopAnchor.y - i * emotionRowSpacing);
+            row.sizeDelta = emotionRowSize;
+        }
+
+        if (addEmotionButton != null)
+        {
+            var addRT = addEmotionButton.transform as RectTransform;
+            if (addRT != null)
+            {
+                addRT.anchoredPosition = new Vector2(
+                    emotionRowTopAnchor.x,
+                    emotionRowTopAnchor.y - emotions.Count * emotionRowSpacing);
+            }
+        }
+    }
+
+    void OnAddEmotionClicked()
+    {
+        string newName = SanitizeEmotionName("Emotion" + (emotions.Count + 1), null);
+        var slot = BuildRuntimeEmotionRow(newName);
+        if (slot == null) return;
+        emotions.Add(slot);
+        WireEmotionSlot(slot);
+        RepositionEmotionRows();
+        PersistEmotionNamesPref();
+        ScrollToBottomNextFrame();
+    }
+
+    // Force a layout rebuild on the content (so the new row's height counts)
+    // and snap the scroll view to the bottom so the user sees what they just
+    // added. Deferred one frame because the LayoutGroup recalculates in its
+    // own LateUpdate — scrolling sooner positions against stale bounds.
+    void ScrollToBottomNextFrame()
+    {
+        if (emotionsScrollRect == null) return;
+        StartCoroutine(ScrollToBottomCo());
+    }
+
+    IEnumerator ScrollToBottomCo()
+    {
+        yield return null;
+        if (emotionRowsParent is RectTransform contentRT)
+            LayoutRebuilder.ForceRebuildLayoutImmediate(contentRT);
+        if (emotionsScrollRect != null)
+            emotionsScrollRect.verticalNormalizedPosition = 0f;
+    }
+
+    void OnRemoveEmotionClicked(EmotionSlot slot)
+    {
+        if (slot == null) return;
+        if (string.Equals(slot.emotionName, NeutralEmotionName, StringComparison.Ordinal))
+            return; // Neutral is protected.
+
+        emotions.Remove(slot);
+
+        // Tear down the actual row GameObject. We don't try to distinguish
+        // runtime-built rows from inspector-wired ones — the user explicitly
+        // asked to remove this slot, so it goes regardless of where it came
+        // from. The inspector-wired field on `emotionSlots` may briefly hold
+        // a destroyed reference until the next Awake, but nothing else reads
+        // it (the runtime list is the source of truth).
+        if (slot.preview != null)
+        {
+            var row = slot.preview.transform.parent;
+            if (row != null) Destroy(row.gameObject);
+        }
+
+        // Also drop the now-orphan PlayerPref so it doesn't haunt the editor.
+        PlayerPrefs.DeleteKey(CharacterPathKey(slot.emotionName));
+        RepositionEmotionRows();
+        PersistEmotionNamesPref();
+    }
+
+    void OnRenameEmotion(EmotionSlot slot, string raw)
+    {
+        if (slot == null) return;
+        if (string.Equals(slot.emotionName, NeutralEmotionName, StringComparison.Ordinal))
+        {
+            // Shouldn't happen — Neutral's field is read-only — but defend
+            // against external scripts forcing a value through onEndEdit.
+            if (slot.nameInput != null) slot.nameInput.text = NeutralEmotionName;
+            return;
+        }
+
+        string clean = SanitizeEmotionName(raw, slot.emotionName);
+        if (string.Equals(clean, slot.emotionName, StringComparison.Ordinal))
+        {
+            // No effective change — just sync the field text to the canonical
+            // version (handles the case where the user typed extra spaces
+            // around an unchanged name).
+            if (slot.nameInput != null) slot.nameInput.text = slot.emotionName;
+            return;
+        }
+
+        // Move the saved per-emotion path so the user doesn't lose their
+        // configured image when renaming.
+        string oldKey = CharacterPathKey(slot.emotionName);
+        string newKey = CharacterPathKey(clean);
+        if (PlayerPrefs.HasKey(oldKey))
+        {
+            PlayerPrefs.SetString(newKey, PlayerPrefs.GetString(oldKey, ""));
+            PlayerPrefs.DeleteKey(oldKey);
+        }
+
+        slot.emotionName = clean;
+        if (slot.nameInput != null) slot.nameInput.text = clean;
+
+        PersistEmotionNamesPref();
+    }
+
+    // Strips characters the script-marker regex can't match (it only accepts
+    // \w+ — letters, digits, underscore), trims to a sane length, falls back
+    // to a default when the input collapses to empty, and dedupes against
+    // every other emotion already in the list. `current` is the name to
+    // ignore during dedupe (i.e. the slot's existing name during a rename).
+    string SanitizeEmotionName(string raw, string current)
+    {
+        string s = (raw ?? "").Trim();
+        if (s.Length > 0)
+        {
+            s = EmotionNameSanitizer.Replace(s, "_");
+            // Don't allow a leading digit — \w+ in C# regex accepts it, but
+            // it reads awkwardly in scripts (`{1Cool}`). Prepend an underscore.
+            if (char.IsDigit(s[0])) s = "_" + s;
+        }
+        if (s.Length == 0) s = "Emotion";
+        if (s.Length > 32) s = s.Substring(0, 32);
+
+        // Dedupe — append _2, _3, … until the name is free.
+        string candidate = s;
+        int suffix = 2;
+        while (true)
+        {
+            bool clash = false;
+            foreach (var slot in emotions)
+            {
+                if (slot == null) continue;
+                if (current != null && string.Equals(slot.emotionName, current, StringComparison.Ordinal)) continue;
+                if (string.Equals(slot.emotionName, candidate, StringComparison.Ordinal))
+                {
+                    clash = true;
+                    break;
+                }
+            }
+            if (!clash) return candidate;
+            candidate = s + "_" + suffix;
+            suffix++;
+        }
+    }
+
+    // Reconciles the live row set with a target name list. Used when loading
+    // a named save and when restoring the working-state list from PlayerPrefs.
+    // Renames existing rows (preserving their wiring), removes rows that
+    // aren't in the target list, and creates dynamic rows for any new names.
+    void SyncEmotionListToNames(List<string> targetNames)
+    {
+        if (targetNames == null) return;
+
+        // Make sure Neutral is always first regardless of save ordering.
+        var orderedTarget = new List<string>();
+        bool hasNeutral = false;
+        foreach (var n in targetNames)
+        {
+            if (string.IsNullOrEmpty(n)) continue;
+            if (string.Equals(n, NeutralEmotionName, StringComparison.Ordinal))
+            {
+                hasNeutral = true;
+                continue;
+            }
+            orderedTarget.Add(n);
+        }
+        var finalOrder = new List<string>();
+        finalOrder.Add(NeutralEmotionName);
+        finalOrder.AddRange(orderedTarget);
+        // Caller may or may not have passed Neutral; either way it goes first.
+        if (!hasNeutral) { /* no-op — Neutral was synthesized */ }
+
+        // First pass — pair existing slots to target names. We keep the
+        // first matching-by-name slot, plus the Neutral slot. Anything left
+        // unmatched gets reused (by rename) for new target names; if there
+        // still aren't enough we build new runtime rows.
+        var unmatched = new List<EmotionSlot>(emotions);
+        var result    = new List<EmotionSlot>(finalOrder.Count);
+
+        foreach (string name in finalOrder)
+        {
+            int idx = unmatched.FindIndex(s =>
+                s != null && string.Equals(s.emotionName, name, StringComparison.Ordinal));
+            if (idx >= 0)
+            {
+                result.Add(unmatched[idx]);
+                unmatched.RemoveAt(idx);
+            }
+            else
+            {
+                result.Add(null); // placeholder, filled below
+            }
+        }
+
+        // Fill placeholders. Reuse unmatched non-Neutral slots via rename
+        // first (so the inspector-wired rows don't get destroyed), then
+        // build runtime rows for the remainder.
+        for (int i = 0; i < result.Count; i++)
+        {
+            if (result[i] != null) continue;
+            string targetName = finalOrder[i];
+
+            EmotionSlot reuse = null;
+            for (int u = 0; u < unmatched.Count; u++)
+            {
+                if (unmatched[u] != null &&
+                    !string.Equals(unmatched[u].emotionName, NeutralEmotionName, StringComparison.Ordinal))
+                {
+                    reuse = unmatched[u];
+                    unmatched.RemoveAt(u);
+                    break;
+                }
+            }
+
+            if (reuse != null)
+            {
+                // Move the saved path under the new key, then rename.
+                string oldKey = CharacterPathKey(reuse.emotionName);
+                string newKey = CharacterPathKey(targetName);
+                if (PlayerPrefs.HasKey(oldKey))
+                {
+                    PlayerPrefs.SetString(newKey, PlayerPrefs.GetString(oldKey, ""));
+                    PlayerPrefs.DeleteKey(oldKey);
+                }
+                reuse.emotionName = targetName;
+                if (reuse.nameInput != null) reuse.nameInput.text = targetName;
+                result[i] = reuse;
+            }
+            else
+            {
+                var built = BuildRuntimeEmotionRow(targetName);
+                result[i] = built;
+            }
+        }
+
+        // Anything still unmatched (after reuse) was in the previous list but
+        // isn't in the target — tear it down. Never destroys Neutral.
+        foreach (var stale in unmatched)
+        {
+            if (stale == null) continue;
+            if (string.Equals(stale.emotionName, NeutralEmotionName, StringComparison.Ordinal)) continue;
+            if (stale.preview != null)
+            {
+                var row = stale.preview.transform.parent;
+                if (row != null) Destroy(row.gameObject);
+            }
+        }
+
+        emotions.Clear();
+        emotions.AddRange(result);
+        foreach (var slot in emotions) WireEmotionSlot(slot);
+        RepositionEmotionRows();
+    }
+
+    string SerializeEmotionNames()
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < emotions.Count; i++)
+        {
+            if (emotions[i] == null) continue;
+            if (sb.Length > 0) sb.Append('\n');
+            sb.Append(emotions[i].emotionName);
+        }
+        return sb.ToString();
+    }
+
+    List<string> LoadEmotionNamesPref()
+    {
+        string raw = PlayerPrefs.GetString(EmotionNamesKey, "");
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        var list = new List<string>();
+        foreach (string line in raw.Split('\n'))
+        {
+            string t = line.Trim();
+            if (!string.IsNullOrEmpty(t)) list.Add(t);
+        }
+        return list;
+    }
+
+    void PersistEmotionNamesPref()
+    {
+        PlayerPrefs.SetString(EmotionNamesKey, SerializeEmotionNames());
+        PlayerPrefs.Save();
+    }
+
+    // -----------------------------------------------------------------------
+    // Runtime row construction. Mirrors the layout produced by
+    // VisualsMenuUIBuilder.CreateEmotionSlot so dynamic rows look identical.
+    // -----------------------------------------------------------------------
+
+    EmotionSlot BuildRuntimeEmotionRow(string emotionName)
+    {
+        if (emotionRowsParent == null) return null;
+
+        var rowGO = new GameObject(emotionName + "Slot", typeof(RectTransform));
+        rowGO.transform.SetParent(emotionRowsParent, false);
+        var rowRT = (RectTransform)rowGO.transform;
+        rowRT.anchorMin = rowRT.anchorMax = rowRT.pivot = new Vector2(0.5f, 0.5f);
+        rowRT.sizeDelta = emotionRowSize;
+
+        // In scroll-view mode the parent's VerticalLayoutGroup needs a
+        // preferred height to know how tall to make the row. In legacy mode
+        // the LayoutElement is harmless (no VLG reads it).
+        if (emotionsUseLayoutGroup)
+        {
+            var le = rowGO.AddComponent<LayoutElement>();
+            le.preferredHeight = emotionRowSize.y;
+            le.minHeight       = emotionRowSize.y;
+        }
+
+        // Preview
+        var preview = NewRowImage("Preview", rowGO.transform, new Vector2(-410f, 0f), new Vector2(80f, 80f));
+        preview.color           = new Color(1f, 1f, 1f, 0.10f);
+        preview.preserveAspect  = true;
+
+        // Path input
+        var pathInput = NewRowInputField("PathInput", rowGO.transform,
+            new Vector2(-15f, -16f), new Vector2(660f, 44f),
+            "C:\\path\\to\\" + emotionName.ToLowerInvariant() + ".png");
+
+        // Load button
+        var loadButton = NewRowButton("LoadButton", rowGO.transform, "Load",
+            new Vector2(380f, 0f), new Vector2(100f, 44f),
+            new Color(0.20f, 0.45f, 0.65f), 22, FontStyle.Bold);
+        // The original row positions Load at y=-16; mirror it for visual parity.
+        var loadRT = (RectTransform)loadButton.transform;
+        loadRT.anchoredPosition = new Vector2(380f, -16f);
+
+        var slot = new EmotionSlot
+        {
+            emotionName  = emotionName,
+            preview      = preview,
+            pathInput    = pathInput,
+            loadButton   = loadButton,
+            runtimeBuilt = true,
+        };
+        // WireEmotionSlot will spawn name + remove buttons via the helpers
+        // below — same code path as legacy rows.
+        return slot;
+    }
+
+    InputField BuildRuntimeNameInput(Transform rowTransform)
+    {
+        var inputGO = new GameObject("NameInput", typeof(RectTransform));
+        inputGO.transform.SetParent(rowTransform, false);
+        var rt = (RectTransform)inputGO.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = new Vector2(-265f, 28f);
+        rt.sizeDelta        = new Vector2(220f, 36f);
+
+        var bg = inputGO.AddComponent<Image>();
+        bg.color = new Color(0.15f, 0.17f, 0.21f, 1f);
+
+        var input = inputGO.AddComponent<InputField>();
+        input.characterLimit = 32;
+
+        var textGO = NewRowText("Text", inputGO.transform, "", 22, TextAnchor.MiddleLeft, FontStyle.Bold);
+        var textRT = textGO.rectTransform;
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = new Vector2(10f, 2f);
+        textRT.offsetMax = new Vector2(-10f, -2f);
+        textGO.supportRichText = false;
+
+        var phGO = NewRowText("Placeholder", inputGO.transform, "Name", 22, TextAnchor.MiddleLeft, FontStyle.Italic);
+        phGO.color = new Color(0.55f, 0.58f, 0.64f, 1f);
+        var phRT = phGO.rectTransform;
+        phRT.anchorMin = Vector2.zero;
+        phRT.anchorMax = Vector2.one;
+        phRT.offsetMin = new Vector2(10f, 2f);
+        phRT.offsetMax = new Vector2(-10f, -2f);
+
+        input.textComponent = textGO;
+        input.placeholder   = phGO;
+        input.targetGraphic = bg;
+        return input;
+    }
+
+    Button BuildRuntimeRemoveButton(Transform rowTransform)
+    {
+        var btn = NewRowButton("RemoveButton", rowTransform, "X",
+            new Vector2(450f, -16f), new Vector2(44f, 44f),
+            new Color(0.62f, 0.22f, 0.22f), 22, FontStyle.Bold);
+        return btn;
+    }
+
+    Button BuildRuntimeAddButton(Transform parent)
+    {
+        var btn = NewRowButton("AddEmotionButton", parent, "+ Add Emotion",
+            new Vector2(emotionRowTopAnchor.x, emotionRowTopAnchor.y - emotions.Count * emotionRowSpacing),
+            new Vector2(260f, 44f),
+            new Color(0.18f, 0.55f, 0.34f), 22, FontStyle.Bold);
+        if (emotionsUseLayoutGroup)
+        {
+            var le = btn.gameObject.AddComponent<LayoutElement>();
+            le.preferredHeight = 50f;
+            le.minHeight       = 50f;
+        }
+        return btn;
+    }
+
+    static Image NewRowImage(string name, Transform parent, Vector2 anchoredPos, Vector2 size)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = anchoredPos;
+        rt.sizeDelta        = size;
+        var img = go.AddComponent<Image>();
+        return img;
+    }
+
+    static Text NewRowText(string name, Transform parent, string value, int size,
+                           TextAnchor alignment, FontStyle style)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var t = go.AddComponent<Text>();
+        t.text      = value;
+        t.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        t.fontSize  = size;
+        t.fontStyle = style;
+        t.alignment = alignment;
+        t.color     = Color.white;
+        t.horizontalOverflow = HorizontalWrapMode.Overflow;
+        t.verticalOverflow   = VerticalWrapMode.Overflow;
+        return t;
+    }
+
+    static InputField NewRowInputField(string name, Transform parent,
+                                       Vector2 anchoredPos, Vector2 size,
+                                       string placeholderHint)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = anchoredPos;
+        rt.sizeDelta        = size;
+
+        var bg = go.AddComponent<Image>();
+        bg.color = new Color(0.15f, 0.17f, 0.21f, 1f);
+
+        var input = go.AddComponent<InputField>();
+
+        var text = NewRowText("Text", go.transform, "", 22, TextAnchor.MiddleLeft, FontStyle.Normal);
+        text.supportRichText = false;
+        var textRT = text.rectTransform;
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = new Vector2(14f, 4f);
+        textRT.offsetMax = new Vector2(-14f, -4f);
+
+        var ph = NewRowText("Placeholder", go.transform, placeholderHint, 22,
+                            TextAnchor.MiddleLeft, FontStyle.Italic);
+        ph.color = new Color(0.55f, 0.58f, 0.64f, 1f);
+        var phRT = ph.rectTransform;
+        phRT.anchorMin = Vector2.zero;
+        phRT.anchorMax = Vector2.one;
+        phRT.offsetMin = new Vector2(14f, 4f);
+        phRT.offsetMax = new Vector2(-14f, -4f);
+
+        input.textComponent = text;
+        input.placeholder   = ph;
+        input.targetGraphic = bg;
+        return input;
+    }
+
+    static Button NewRowButton(string name, Transform parent, string label,
+                               Vector2 anchoredPos, Vector2 size, Color tint,
+                               int fontSize, FontStyle style)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.anchoredPosition = anchoredPos;
+        rt.sizeDelta        = size;
+
+        var img = go.AddComponent<Image>();
+        img.color = tint;
+        var btn = go.AddComponent<Button>();
+        btn.targetGraphic = img;
+        var colors = btn.colors;
+        colors.normalColor      = tint;
+        colors.highlightedColor = new Color(Mathf.Min(1f, tint.r + 0.10f),
+                                            Mathf.Min(1f, tint.g + 0.10f),
+                                            Mathf.Min(1f, tint.b + 0.10f), 1f);
+        colors.pressedColor     = new Color(Mathf.Max(0f, tint.r - 0.12f),
+                                            Mathf.Max(0f, tint.g - 0.12f),
+                                            Mathf.Max(0f, tint.b - 0.12f), 1f);
+        colors.selectedColor    = colors.highlightedColor;
+        btn.colors = colors;
+
+        var labelText = NewRowText("Label", go.transform, label, fontSize,
+                                   TextAnchor.MiddleCenter, style);
+        var lblRT = labelText.rectTransform;
+        lblRT.anchorMin = Vector2.zero;
+        lblRT.anchorMax = Vector2.one;
+        lblRT.offsetMin = Vector2.zero;
+        lblRT.offsetMax = Vector2.zero;
+        return btn;
     }
 
     /// <summary>
@@ -573,10 +1316,15 @@ public class VisualsMenuController : MonoBehaviour
                     (entry != null ? entry.DisplayName : fontIdentifier + "  (unresolved)");
         }
 
-        // Live preview reflects the current pick; null falls back to the TMP
-        // default so the preview never goes blank after picking "(default)".
+        // Live preview reflects the current pick; null falls back to Inter
+        // Regular SDF (from Resources/Fonts/RecordingText/) — the new default
+        // for HeadlineCard's source text — so the preview matches what the
+        // recording will render. Final TMP default keeps the preview visible
+        // if Inter isn't on disk.
         if (cardPreviewTmp != null)
-            cardPreviewTmp.font = entry?.Asset ?? TMP_Settings.defaultFontAsset;
+            cardPreviewTmp.font = entry?.Asset
+                ?? ContentCardUIBuilder.InterRegular
+                ?? TMP_Settings.defaultFontAsset;
     }
 
     void OnLoadFontFileClicked()
@@ -787,11 +1535,14 @@ public class VisualsMenuController : MonoBehaviour
     {
         if (panelRoot == null) return;
         // Pass the currently-picked font so the popup's preview matches what
-        // the recording will render. Falls back to TMP default when "(default)"
-        // is selected.
+        // the recording will render. Falls back to Inter Bold SDF (from
+        // Resources/Fonts/RecordingText/) when "(default)" is selected — big
+        // text is Bold 700 per the typographic guideline.
+        TMP_FontAsset bigTextFallback = ContentCardUIBuilder.InterBold
+                                        ?? TMP_Settings.defaultFontAsset;
         TMP_FontAsset font = string.IsNullOrEmpty(fontIdentifier)
-            ? TMP_Settings.defaultFontAsset
-            : (FontRegistry.Resolve(fontIdentifier)?.Asset ?? TMP_Settings.defaultFontAsset);
+            ? bigTextFallback
+            : (FontRegistry.Resolve(fontIdentifier)?.Asset ?? bigTextFallback);
 
         BigTextStylePopup.GetOrCreate(panelRoot.transform)
                          .Show(bigTextStyle, font, OnBigTextStyleChanged);
@@ -957,10 +1708,13 @@ public class VisualsMenuController : MonoBehaviour
 
     void OnQuickSave()
     {
-        foreach (var slot in emotionSlots)
+        foreach (var slot in emotions)
         {
             PlayerPrefs.SetString(CharacterPathKey(slot.emotionName), slot.pathInput.text ?? "");
         }
+        // Mirror the live emotion-name list so user-added / renamed slots
+        // survive an app restart even without a named save.
+        PlayerPrefs.SetString(EmotionNamesKey, SerializeEmotionNames());
         PlayerPrefs.SetString(CardBgColorKey,   ColorToHex(bgColor));
         PlayerPrefs.SetFloat (CardCornerKey,    cornerRadius);
         PlayerPrefs.SetString(CardTextColorKey, ColorToHex(textColor));
@@ -1098,7 +1852,7 @@ public class VisualsMenuController : MonoBehaviour
             music   = CloneMusicData(musicData),
         };
 
-        foreach (var slot in emotionSlots)
+        foreach (var slot in emotions)
         {
             var entry = new EmotionImageData
             {
@@ -1302,10 +2056,28 @@ public class VisualsMenuController : MonoBehaviour
         cornerRadiusLabel.text     = Mathf.RoundToInt(cornerRadius) + " px";
         UpdatePreview();
 
-        foreach (var slot in emotionSlots)
+        // Reshape the live row set to match the save's emotion list. New
+        // dynamic rows are spawned for names beyond the initial set; rows
+        // whose name no longer appears in the save are removed (Neutral is
+        // always kept regardless). Renames are applied in-place.
+        var savedNames = new List<string>();
+        if (data.emotions != null)
+            foreach (var e in data.emotions)
+                if (!string.IsNullOrEmpty(e?.emotion)) savedNames.Add(e.emotion);
+        SyncEmotionListToNames(savedNames);
+
+        foreach (var slot in emotions)
         {
-            var emo = data.emotions.Find(e => e.emotion == slot.emotionName);
-            if (emo == null) continue;
+            var emo = data.emotions?.Find(e => e.emotion == slot.emotionName);
+            if (slot.nameInput != null) slot.nameInput.text = slot.emotionName;
+
+            if (emo == null)
+            {
+                slot.pathInput.text = "";
+                slot.preview.sprite = null;
+                slot.preview.color  = new Color(1f, 1f, 1f, 0.10f);
+                continue;
+            }
 
             slot.pathInput.text = emo.originalPath ?? "";
 

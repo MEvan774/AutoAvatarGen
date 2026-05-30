@@ -50,14 +50,33 @@ public class ScriptFileReader : MonoBehaviour
     // rename one, rename the other.
     const string PythonOutputFolderPrefKey = "AutoAvatarGen.PythonOutputFolder";
 
+    // Kept in sync with MainMenuController.UseBundledTtsOutputPrefKey /
+    // BundledTtsOutputSubfolder. When the pref is 1, we point at
+    // Application.streamingAssetsPath/<subfolder> instead of the configured
+    // external folder so the build can read bundled TTS output.
+    const string UseBundledTtsOutputPrefKey = "AutoAvatarGen.UseBundledTtsOutput";
+    const string BundledTtsOutputSubfolder  = "Python/output";
+
     void Start()
     {
         // Honor any override saved from the main menu's "Python output folder"
         // input. Scenes don't share MonoBehaviour state directly, so we pass
-        // the value via PlayerPrefs.
-        string overrideFolder = PlayerPrefs.GetString(PythonOutputFolderPrefKey, "");
-        if (!string.IsNullOrWhiteSpace(overrideFolder))
-            pythonOutputFolder = overrideFolder;
+        // the value via PlayerPrefs. The "Use bundled TTS output" toggle takes
+        // precedence — when set, the recording scene reads from a path that's
+        // bundled into the build (StreamingAssets) so timestamps edited in the
+        // project show up in build runs.
+        bool useBundled = PlayerPrefs.GetInt(UseBundledTtsOutputPrefKey, 0) == 1;
+        if (useBundled)
+        {
+            pythonOutputFolder = Path.Combine(
+                Application.streamingAssetsPath, BundledTtsOutputSubfolder);
+        }
+        else
+        {
+            string overrideFolder = PlayerPrefs.GetString(PythonOutputFolderPrefKey, "");
+            if (!string.IsNullOrWhiteSpace(overrideFolder))
+                pythonOutputFolder = overrideFolder;
+        }
 
         if (autoLoadFromPythonOutput)
         {

@@ -139,28 +139,35 @@ public class HybridAvatarSystem : MonoBehaviour
     /// <summary>
     /// Replaces the per-emotion sprites with runtime-loaded ones (e.g. from a
     /// user's VisualsSave). Called after Awake by VisualsRuntimeApplier on
-    /// scene load. Updates the inspector-assigned sprite fields, the active
-    /// emotionMap, the live avatarRenderer sprite (if Neutral was overridden),
-    /// and refreshes the size baseline so the new neutral sets the reference
-    /// height for normalization.
+    /// scene load. Updates the inspector-assigned sprite fields (for the
+    /// canonical five names, so the Inspector reflects the override), grows
+    /// the live emotionMap with every entry — including user-named ones not
+    /// covered by the hardcoded fields — and refreshes the avatar's baseline
+    /// height when Neutral is overridden.
     /// </summary>
     public void ApplyEmotionOverrides(IDictionary<string, Sprite> overrides)
     {
         if (overrides == null || overrides.Count == 0) return;
+        if (emotionMap == null) emotionMap = new Dictionary<string, Sprite>();
 
-        if (TryGet(overrides, "Neutral",   out Sprite n)) neutralSprite   = n;
-        if (TryGet(overrides, "Excited",   out Sprite e)) excitedSprite   = e;
-        if (TryGet(overrides, "Serious",   out Sprite s)) seriousSprite   = s;
-        if (TryGet(overrides, "Sad",       out Sprite d)) sadSprite       = d;
-        if (TryGet(overrides, "Concerned", out Sprite c)) concernedSprite = c;
-
-        if (emotionMap != null)
+        foreach (var kv in overrides)
         {
-            emotionMap["Neutral"]   = neutralSprite;
-            emotionMap["Excited"]   = excitedSprite;
-            emotionMap["Serious"]   = seriousSprite;
-            emotionMap["Sad"]       = sadSprite;
-            emotionMap["Concerned"] = concernedSprite;
+            if (string.IsNullOrEmpty(kv.Key) || kv.Value == null) continue;
+
+            // Mirror to the inspector-serialized sprite fields for the
+            // canonical five names so existing scene saves / debug views stay
+            // in sync. Any name beyond those lives only in emotionMap, which
+            // is the actual lookup source for ChangeEmotion.
+            switch (kv.Key)
+            {
+                case "Neutral":   neutralSprite   = kv.Value; break;
+                case "Excited":   excitedSprite   = kv.Value; break;
+                case "Serious":   seriousSprite   = kv.Value; break;
+                case "Sad":       sadSprite       = kv.Value; break;
+                case "Concerned": concernedSprite = kv.Value; break;
+            }
+
+            emotionMap[kv.Key] = kv.Value;
         }
 
         if (avatarRenderer != null && neutralSprite != null)
@@ -169,11 +176,6 @@ public class HybridAvatarSystem : MonoBehaviour
             baselineSpriteHeight  = neutralSprite.bounds.size.y;
             NormalizeSpriteSize(avatarRenderer);
         }
-    }
-
-    static bool TryGet(IDictionary<string, Sprite> map, string key, out Sprite value)
-    {
-        return map.TryGetValue(key, out value) && value != null;
     }
 
     public void SetSwayBase(Vector3 basePosition, Quaternion baseRotation)

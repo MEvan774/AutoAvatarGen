@@ -147,6 +147,7 @@ public class RecordingSession : MonoBehaviour
         voiceAudio = null;
         displayedPercent = 0f;
         if (percentText != null) percentText.text = "0%";
+        if (spinnerImage != null) spinnerImage.fillAmount = 0f;
         SetIndicatorVisible(true);
         StartCoroutine(SubscribeWhenReady());
     }
@@ -186,14 +187,11 @@ public class RecordingSession : MonoBehaviour
         capture.OnError    += HandleCaptureError;
         subscribed = true;
 
-        // Grab the narration AudioSource so we can drive the progress percent.
-        // Prefer the one explicitly wired on CrossPlatformRecorder; otherwise
-        // fall back to any AudioSource in the scene (there's typically only
-        // one doing playback during a take).
-        CrossPlatformRecorder recorder = capture.GetComponent<CrossPlatformRecorder>()
-                                       ?? FindAnyObjectByType<CrossPlatformRecorder>();
-        if (recorder != null) voiceAudio = recorder.voiceAudio;
-        if (voiceAudio == null) voiceAudio = FindAnyObjectByType<AudioSource>();
+        // Seed the narration AudioSource reference. UpdateProgressPercent will
+        // re-acquire each frame if this initial pick turns out to be null or
+        // doesn't have a clip assigned yet (audio is loaded asynchronously, so
+        // .clip is typically still null at this point).
+        TryDiscoverVoiceAudio();
 
         // Safety net: even if Evereal fails to raise OnComplete (encoder hiccup,
         // handler exception elsewhere, etc.), we still want to return to the
@@ -386,7 +384,10 @@ public class RecordingSession : MonoBehaviour
         spinnerImage.type       = Image.Type.Filled;
         spinnerImage.fillMethod = Image.FillMethod.Radial360;
         spinnerImage.fillOrigin = (int)Image.Origin360.Top;
-        spinnerImage.fillAmount = 0.72f;
+        // fillAmount is driven each frame by UpdateProgressPercent — starts
+        // empty and grows to a full circle as the take progresses 0%→100%.
+        spinnerImage.fillClockwise = true;
+        spinnerImage.fillAmount = 0f;
         spinnerImage.color      = new Color(1f, 0.32f, 0.28f, 1f);
         RectTransform spinRect = spinnerImage.rectTransform;
         spinRect.anchorMin = new Vector2(0f, 0.5f);
@@ -468,9 +469,10 @@ public class RecordingSession : MonoBehaviour
         UpdateProgressPercent();
     }
 
-    // Drives the 0%-100% readout on the recording indicator. Progress is
-    // measured against audio playback (voiceAudio.time / clip.length) so it
-    // tracks the actual narrative length the user will see in the output.
+    // Drives the 0%-100% readout AND the spinner ring fill on the recording
+    // indicator. Progress is measured against audio playback (voiceAudio.time
+    // / clip.length) so it tracks the actual narrative length the user will
+    // see in the output.
     //
     // State machine:
     //   - Before playback: 0%
@@ -480,6 +482,17 @@ public class RecordingSession : MonoBehaviour
     void UpdateProgressPercent()
     {
         if (percentText == null) return;
+
+        // If our voiceAudio reference is unusable (null, destroyed, or its
+        // clip hasn't been assigned yet), try to re-acquire from the systems
+        // that actually own the narration AudioSource. The reference cached
+        // in SubscribeWhenReady can be stale if the recorder's inspector slot
+        // was empty or pointed at a different AudioSource than the one that
+        // ultimately gets the clip (HybridAvatarSystem.ProcessWithExistingAudio
+        // is what assigns .clip and calls .Play). Without this re-acquisition
+        // the percentage sticks at 0% the entire take.
+        if (voiceAudio == null || voiceAudio.clip == null)
+            TryDiscoverVoiceAudio();
 
         float pct = displayedPercent;
 
@@ -512,6 +525,44 @@ public class RecordingSession : MonoBehaviour
 
         displayedPercent = Mathf.Clamp(pct, 0f, 100f);
         percentText.text = Mathf.RoundToInt(displayedPercent) + "%";
+
+        // Drive the ring fill so the spinner visually loads from empty to full
+        // alongside the percent readout.
+        if (spinnerImage != null)
+            spinnerImage.fillAmount = displayedPercent * 0.01f;
+    }
+
+    // Walks the scene for the AudioSource that's actually carrying the
+    // narration clip. We prefer the references wired on HybridAvatarSystem /
+    // MediaPresentationSystem (which set .clip themselves) over the recorder
+    // slot — the recorder's voiceAudio is sometimes left unset in scenes that
+    // pre-date that field.
+    void TryDiscoverVoiceAudio()
+    {
+        AudioSource candidate = voiceAudio;
+
+        var avatarSystem = FindAnyObjectByType<HybridAvatarSystem>();
+        if (avatarSystem != null && avatarSystem.voiceAudio != null)
+            candidate = avatarSystem.voiceAudio;
+
+        if (candidate == null || candidate.clip == null)
+        {
+            var mediaSystem = FindAnyObjectByType<MediaPresentationSystem>();
+            if (mediaSystem != null && mediaSystem.voiceAudio != null &&
+                (candidate == null || mediaSystem.voiceAudio.clip != null))
+            {
+                candidate = mediaSystem.voiceAudio;
+            }
+        }
+
+        if (candidate == null)
+        {
+            var recorder = FindAnyObjectByType<CrossPlatformRecorder>();
+            if (recorder != null && recorder.voiceAudio != null)
+                candidate = recorder.voiceAudio;
+        }
+
+        if (candidate != null) voiceAudio = candidate;
     }
 
     // -----------------------------------------------------------------------

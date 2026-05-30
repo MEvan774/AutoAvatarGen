@@ -35,6 +35,22 @@ public class MainMenuController : MonoBehaviour
     public const string PythonOutputFolderPrefKey = "AutoAvatarGen.PythonOutputFolder";
     public const string DefaultPythonOutputFolder = "Python/output";
 
+    // Shared with ScriptFileReader. When set to 1, the recording scene loads
+    // ElevenLabs output from Application.streamingAssetsPath/Python/output
+    // (i.e. Assets/StreamingAssets/Python/output in the Editor) so it gets
+    // bundled with the build. Lets you test recording from a build without
+    // rerunning the TTS pipeline, and the _timed.txt files stay editable in
+    // the project. Overrides PythonOutputFolderPrefKey when on.
+    public const string UseBundledTtsOutputPrefKey = "AutoAvatarGen.UseBundledTtsOutput";
+    public const string BundledTtsOutputSubfolder  = "Python/output";
+
+    // Shared with CrossPlatformRecorder. Empty string = don't override, use
+    // the recorder's inspector `saveFolder` (which itself falls back to the
+    // Evereal default folder when empty). Absolute paths are used as-is;
+    // relative paths are resolved against the project root, matching the
+    // recorder's existing convention.
+    public const string RecordingOutputFolderPrefKey = "AutoAvatarGen.RecordingOutputFolder";
+
     // Shared with MediaPresentationSystem. Empty string = use the inspector default
     // (which is empty too, meaning "fall back to Resources/Media").
     public const string MediaRootFolderPrefKey = MediaPresentationSystem.MediaRootFolderPrefKey;
@@ -62,6 +78,24 @@ public class MainMenuController : MonoBehaviour
     [Tooltip("Optional. If left null, the controller spawns its own row at runtime.")]
     [SerializeField] TMP_InputField mediaRootInput;
     [SerializeField] Button         mediaRootBrowseButton;
+
+    [Header("Recording Output Folder")]
+    [Tooltip("Optional. Drop a TMP_InputField + Button into the scene and drag " +
+             "them here. The path is saved to a PlayerPref that CrossPlatformRecorder " +
+             "reads in Awake() — absolute paths are used as-is, relative paths resolve " +
+             "against the project root. Leave blank to use the recorder's inspector " +
+             "value (or Evereal's default folder if that's empty too).")]
+    [SerializeField] TMP_InputField recordingOutputInput;
+    [SerializeField] Button         recordingOutputBrowseButton;
+
+    [Header("Bundled TTS Output (build-testable)")]
+    [Tooltip("Optional. Drop a Toggle into the scene and drag it here. When " +
+             "checked, the recording scene reads ElevenLabs output from " +
+             "Assets/StreamingAssets/Python/output (which gets bundled with the " +
+             "build) instead of the configured ElevenLabs folder. The _timed.txt " +
+             "files stay editable in the project so you can tune timestamps and " +
+             "re-test the recording in a build without rerunning the TTS pipeline.")]
+    [SerializeField] Toggle useBundledTtsOutputToggle;
 
     // Music override row is built at runtime — keep it null-safe so existing
     // scenes don't need a rebuild.
@@ -107,6 +141,21 @@ public class MainMenuController : MonoBehaviour
         if (mediaRootBrowseButton != null)
             mediaRootBrowseButton.onClick.AddListener(OnMediaRootBrowseClicked);
 
+        if (useBundledTtsOutputToggle != null)
+        {
+            useBundledTtsOutputToggle.SetIsOnWithoutNotify(
+                PlayerPrefs.GetInt(UseBundledTtsOutputPrefKey, 0) == 1);
+            useBundledTtsOutputToggle.onValueChanged.AddListener(OnUseBundledTtsOutputChanged);
+        }
+
+        if (recordingOutputInput != null)
+        {
+            recordingOutputInput.onEndEdit.AddListener(OnRecordingOutputChanged);
+            recordingOutputInput.text = PlayerPrefs.GetString(RecordingOutputFolderPrefKey, "");
+        }
+        if (recordingOutputBrowseButton != null)
+            recordingOutputBrowseButton.onClick.AddListener(OnRecordingOutputBrowseClicked);
+
         EnsureActiveSaveControls();
         if (activeSavePrevButton != null) activeSavePrevButton.onClick.AddListener(() => CycleActiveSave(-1));
         if (activeSaveNextButton != null) activeSaveNextButton.onClick.AddListener(() => CycleActiveSave(+1));
@@ -115,85 +164,107 @@ public class MainMenuController : MonoBehaviour
         RefreshActiveSaves();
 
         BuildMusicOverrideRow();
-        BuildGenerateAudioButton();
+        WireGenerateAudioButton();
+        WireBackgroundModeRow();
 
         RefreshResult();
     }
 
     // -----------------------------------------------------------------------
-    // Generate Audio button — opens TtsPanelController as a modal overlay.
-    // Self-instantiated next to the Python-output-folder Browse button so the
-    // visual cue (button right next to the folder it writes into) is obvious.
-    // Existing scenes don't need a UI rebuild to get the new control.
+    // Background recording mode (Video / Green Screen / Transparent)
+    //
+    // The cycle row's three GameObjects (< button, value label, > button)
+    // are now AUTHORED in the scene (use Tools > AutoAvatarGen > Add
+    // Background Mode Row to create them, then style freely). We just wire
+    // the listeners + initial label state here in Awake. Mode lives in
+    // PlayerPrefs and is applied at scene load by BackgroundModeManager —
+    // picking anything other than "Video" disables the BackgroundPanel,
+    // ambient shader, scrolling shapes, and mood controller in the recording
+    // scene, freeing GPU for the encoder.
     // -----------------------------------------------------------------------
 
-    Button generateAudioButton;
-    MugsTech.Tts.TtsPanelController ttsPanel;
+    [Header("Background Mode Cycle Row")]
+    [Tooltip("Built by Tools > AutoAvatarGen > Add Background Mode Row. " +
+             "Cycle button — previous mode.")]
+    [SerializeField] Button   backgroundModePrevButton;
+    [Tooltip("Cycle button — next mode.")]
+    [SerializeField] Button   backgroundModeNextButton;
+    [Tooltip("Text that shows the current mode label.")]
+    [SerializeField] TMP_Text backgroundModeLabel;
 
-    void BuildGenerateAudioButton()
+    void WireBackgroundModeRow()
     {
-        // Reuse the existing Browse button as our positioning anchor — TTS
-        // writes into the same folder the user just picked.
-        if (pathBrowseButton == null) return;
-        Canvas canvas = GetComponentInChildren<Canvas>();
-        if (canvas == null) return;
+        if (backgroundModePrevButton != null)
+            backgroundModePrevButton.onClick.AddListener(() => CycleBackgroundMode(-1));
+        if (backgroundModeNextButton != null)
+            backgroundModeNextButton.onClick.AddListener(() => CycleBackgroundMode(+1));
+        UpdateBackgroundModeLabel();
+    }
 
-        // Already built?
-        var existing = canvas.transform.Find("GenerateAudioButton");
-        if (existing != null)
+    void CycleBackgroundMode(int direction)
+    {
+        var current = MugsTech.Background.BackgroundModeManager.LoadMode();
+        var next    = MugsTech.Background.BackgroundModeManager.Cycle(current, direction);
+        MugsTech.Background.BackgroundModeManager.SaveMode(next);
+        UpdateBackgroundModeLabel();
+    }
+
+    void UpdateBackgroundModeLabel()
+    {
+        if (backgroundModeLabel == null) return;
+        var mode = MugsTech.Background.BackgroundModeManager.LoadMode();
+        backgroundModeLabel.text = MugsTech.Background.BackgroundModeManager.Label(mode);
+
+        // Tint matches the mode for quick visual recognition: green for
+        // GreenScreen, faded blue for Transparent (since "alpha" is harder
+        // to color-code), the default slate for Video.
+        switch (mode)
         {
-            generateAudioButton = existing.GetComponent<Button>();
-            if (generateAudioButton != null)
-                generateAudioButton.onClick.AddListener(OnGenerateAudioClicked);
-            return;
+            case MugsTech.Background.BackgroundModeManager.Mode.GreenScreen:
+                backgroundModeLabel.color = new Color(0.40f, 0.85f, 0.45f); break;
+            case MugsTech.Background.BackgroundModeManager.Mode.Transparent:
+                backgroundModeLabel.color = new Color(0.55f, 0.65f, 0.85f); break;
+            default:
+                backgroundModeLabel.color = Color.white; break;
         }
+    }
 
-        var browseRT = (RectTransform)pathBrowseButton.transform;
-        Vector2 browsePos = browseRT.anchoredPosition;
+    // -----------------------------------------------------------------------
+    // Generate Audio button — opens the (now scene-baked) TtsPanelController.
+    // The button itself is AUTHORED in the scene (use Tools > AutoAvatarGen >
+    // Add Generate Audio Button to create it, then style freely). The TTS
+    // panel is found at runtime via FindObjectOfType so it works whether the
+    // panel is on the same canvas or on a sibling overlay canvas.
+    // -----------------------------------------------------------------------
 
-        var btnGO = new GameObject("GenerateAudioButton", typeof(RectTransform));
-        btnGO.transform.SetParent(pathBrowseButton.transform.parent, false);
-        btnGO.transform.SetSiblingIndex(pathBrowseButton.transform.GetSiblingIndex() + 1);
+    [Header("Generate Audio")]
+    [Tooltip("Built by Tools > AutoAvatarGen > Add Generate Audio Button. " +
+             "Click handler opens the TtsPanelController in the scene.")]
+    [SerializeField] Button generateAudioButton;
+    [Tooltip("Optional explicit reference. If null, found via FindObjectOfType when needed.")]
+    [SerializeField] MugsTech.Tts.TtsPanelController ttsPanel;
 
-        var rt = (RectTransform)btnGO.transform;
-        rt.anchorMin = browseRT.anchorMin;
-        rt.anchorMax = browseRT.anchorMax;
-        rt.pivot     = browseRT.pivot;
-        rt.sizeDelta = new Vector2(260f, browseRT.sizeDelta.y);
-        // Sit just to the right of the Browse button (160 wide + 12 gap).
-        rt.anchoredPosition = new Vector2(browsePos.x + 160f * 0.5f + 260f * 0.5f + 12f, browsePos.y);
-
-        var img = btnGO.AddComponent<Image>();
-        img.color = new Color(0.25f, 0.55f, 0.35f, 1f);
-        var btn = btnGO.AddComponent<Button>();
-        btn.targetGraphic = img;
-
-        var lblGO = new GameObject("Label", typeof(RectTransform));
-        lblGO.transform.SetParent(btnGO.transform, false);
-        var lrt = (RectTransform)lblGO.transform;
-        lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
-        lrt.offsetMin = lrt.offsetMax = Vector2.zero;
-        var tmp = lblGO.AddComponent<TextMeshProUGUI>();
-        tmp.text      = "Generate Audio…";
-        tmp.fontSize  = 22;
-        tmp.fontStyle = FontStyles.Bold;
-        tmp.alignment = TextAlignmentOptions.Center;
-        tmp.color     = Color.white;
-
-        btn.onClick.AddListener(OnGenerateAudioClicked);
-        generateAudioButton = btn;
+    void WireGenerateAudioButton()
+    {
+        if (generateAudioButton != null)
+            generateAudioButton.onClick.AddListener(OnGenerateAudioClicked);
     }
 
     void OnGenerateAudioClicked()
     {
-        Canvas canvas = GetComponentInChildren<Canvas>();
-        if (canvas == null)
+        if (ttsPanel == null)
         {
-            Debug.LogWarning("[MainMenu] No Canvas found — can't open TTS panel.");
-            return;
+            // The scene-baked panel starts inactive — FindObjectOfType skips
+            // inactive objects, so use the array overload with includeInactive.
+            var found = FindObjectsOfType<MugsTech.Tts.TtsPanelController>(includeInactive: true);
+            if (found != null && found.Length > 0) ttsPanel = found[0];
         }
         if (ttsPanel == null)
-            ttsPanel = MugsTech.Tts.TtsPanelController.GetOrCreate(canvas.transform);
+        {
+            Debug.LogWarning("[MainMenu] No TtsPanelController found in scene. " +
+                             "Run Tools > AutoAvatarGen > Add TTS Panel to create one.");
+            return;
+        }
         ttsPanel.Show();
     }
 
@@ -250,6 +321,7 @@ public class MainMenuController : MonoBehaviour
         OnPathChanged(pathInput.text);
         OnVideoPathChanged(videoPathInput.text);
         if (mediaRootInput != null) OnMediaRootChanged(mediaRootInput.text);
+        if (recordingOutputInput != null) OnRecordingOutputChanged(recordingOutputInput.text);
         Debug.Log($"[BgVideoDiag] MainMenu OnStartClicked — videoPathInput.text='{videoPathInput.text}' " +
                   $"OverridePref='{PlayerPrefs.GetString(BackgroundVideoOverridePrefKey, "")}'");
         RecordingSession.Begin();
@@ -364,6 +436,45 @@ public class MainMenuController : MonoBehaviour
         PlayerPrefs.Save();
         if (mediaRootInput != null && mediaRootInput.text != trimmed)
             mediaRootInput.text = trimmed;
+    }
+
+    void OnUseBundledTtsOutputChanged(bool isOn)
+    {
+        PlayerPrefs.SetInt(UseBundledTtsOutputPrefKey, isOn ? 1 : 0);
+        PlayerPrefs.Save();
+    }
+
+    // -----------------------------------------------------------------------
+    // Recording output folder
+    //
+    // Mirrors the Python output / media root pattern: typing a path or picking
+    // one via Browse auto-saves to PlayerPrefs. CrossPlatformRecorder reads the
+    // same key in Awake() and overrides its inspector `saveFolder`, so the
+    // recorded videos land where the user picked across sessions and scenes.
+    // -----------------------------------------------------------------------
+
+    void OnRecordingOutputChanged(string value)
+    {
+        // Empty / whitespace = "no override" (recorder falls back to its
+        // inspector saveFolder, which itself falls back to Evereal's default).
+        string trimmed = string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
+        PlayerPrefs.SetString(RecordingOutputFolderPrefKey, trimmed);
+        PlayerPrefs.Save();
+        Debug.Log($"[MainMenu] Recording output folder pref saved: " +
+                  $"key='{RecordingOutputFolderPrefKey}' value='{trimmed}'");
+        if (recordingOutputInput != null && recordingOutputInput.text != trimmed)
+            recordingOutputInput.text = trimmed;
+    }
+
+    void OnRecordingOutputBrowseClicked()
+    {
+        string current = recordingOutputInput != null ? recordingOutputInput.text : "";
+        string startDir = !string.IsNullOrWhiteSpace(current) && Directory.Exists(current)
+            ? current
+            : "";
+        string picked = TryPickFolderPath("Pick recording output folder", startDir);
+        if (string.IsNullOrEmpty(picked)) return;
+        OnRecordingOutputChanged(picked);
     }
 
     void OnMediaRootBrowseClicked()

@@ -80,6 +80,29 @@ public static class ContentCardUIBuilder
 
     public const float CardPadding = 24f;
 
+    // Inter SDF assets shipped under Resources/Fonts/RecordingText/. Loaded
+    // once on first access and reused — TMP_FontAssets are immutable runtime
+    // resources, so caching them is safe.
+    private const string InterRegularPath  = "Fonts/RecordingText/Inter_18pt-Regular SDF";
+    private const string InterSemiBoldPath = "Fonts/RecordingText/Inter_18pt-SemiBold SDF";
+    private const string InterBoldPath     = "Fonts/RecordingText/Inter_18pt-Bold SDF";
+
+    private static TMP_FontAsset s_InterRegular;
+    private static TMP_FontAsset s_InterSemiBold;
+    private static TMP_FontAsset s_InterBold;
+
+    /// <summary>Inter Regular SDF from Resources/Fonts/RecordingText/ (cached). Null if not found.</summary>
+    public static TMP_FontAsset InterRegular
+        => s_InterRegular != null ? s_InterRegular : (s_InterRegular = Resources.Load<TMP_FontAsset>(InterRegularPath));
+
+    /// <summary>Inter SemiBold SDF from Resources/Fonts/RecordingText/ (cached). Null if not found.</summary>
+    public static TMP_FontAsset InterSemiBold
+        => s_InterSemiBold != null ? s_InterSemiBold : (s_InterSemiBold = Resources.Load<TMP_FontAsset>(InterSemiBoldPath));
+
+    /// <summary>Inter Bold SDF from Resources/Fonts/RecordingText/ (cached). Null if not found.</summary>
+    public static TMP_FontAsset InterBold
+        => s_InterBold != null ? s_InterBold : (s_InterBold = Resources.Load<TMP_FontAsset>(InterBoldPath));
+
     /// <summary>Creates a child RectTransform filling its parent.</summary>
     public static RectTransform CreateChild(RectTransform parent, string name)
     {

@@ -101,6 +101,16 @@ namespace MugsTech.Style
                 ApplyBigTextStyle(save);
                 ApplyAvatarSprites(save);
             }
+            else
+            {
+                // Even without a named save, user-added emotions from the
+                // visuals menu's Quick Save should still flow into the
+                // recording — same fallback pattern as background music and
+                // background video below. Without this, a user who added a
+                // new emotion and used it in their script wouldn't see the
+                // sprite swap unless they also did Save As.
+                ApplyAvatarSpritesFromWorkingPrefs();
+            }
 
             // Bg video and music are intentionally not strictly preset-bound:
             // even without an active named save, a path/playlist picked in
@@ -267,6 +277,60 @@ namespace MugsTech.Style
 
             if (overrides.Count > 0)
                 avatar.ApplyEmotionOverrides(overrides);
+        }
+
+        // Loads emotion sprites from the visuals menu's working PlayerPrefs
+        // state — uses the EmotionNamesKey list (newline-separated) to know
+        // which slots the user has configured, then reads each one's image
+        // path from CharacterPathKey. Mirrors ApplyAvatarSprites' behaviour
+        // but pulls from disk paths directly (no base64 fallback because the
+        // user is still actively editing — the file is expected to exist).
+        static void ApplyAvatarSpritesFromWorkingPrefs()
+        {
+            HybridAvatarSystem avatar = UnityEngine.Object.FindObjectOfType<HybridAvatarSystem>();
+            if (avatar == null) return;
+
+            string serializedNames = PlayerPrefs.GetString(VisualsMenuController.EmotionNamesKey, "");
+            if (string.IsNullOrWhiteSpace(serializedNames)) return;
+
+            var overrides = new Dictionary<string, Sprite>();
+            foreach (string rawLine in serializedNames.Split('\n'))
+            {
+                string name = (rawLine ?? "").Trim();
+                if (string.IsNullOrEmpty(name)) continue;
+
+                string path = PlayerPrefs.GetString(VisualsMenuController.CharacterPathKey(name), "");
+                if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) continue;
+
+                Sprite spr = LoadSpriteFromFile(path);
+                if (spr != null) overrides[name] = spr;
+            }
+
+            if (overrides.Count > 0)
+                avatar.ApplyEmotionOverrides(overrides);
+        }
+
+        static Sprite LoadSpriteFromFile(string path)
+        {
+            byte[] bytes;
+            try { bytes = File.ReadAllBytes(path); }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[VisualsRuntimeApplier] read failed '{path}': {e.Message}");
+                return null;
+            }
+
+            Texture2D tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!tex.LoadImage(bytes))
+            {
+                UnityEngine.Object.Destroy(tex);
+                return null;
+            }
+            tex.filterMode = FilterMode.Bilinear;
+            return Sprite.Create(tex,
+                new Rect(0, 0, tex.width, tex.height),
+                new Vector2(0.5f, 0.5f),
+                100f);
         }
 
         static Sprite LoadEmotionSprite(EmotionImageData emo)
