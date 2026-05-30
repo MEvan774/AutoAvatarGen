@@ -21,9 +21,6 @@ public class HeadlineCard : ContentCard
         // Dark background
         ContentCardUIBuilder.CreateBackground(rectTransform);
 
-        // Accent bar at top
-        ContentCardUIBuilder.CreateAccentBar(rectTransform, 4f);
-
         // Headline (fills upper portion)
         headlineText = ContentCardUIBuilder.CreateText(
             rectTransform, "HeadlineText",

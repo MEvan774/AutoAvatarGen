@@ -282,6 +282,11 @@ public static class RecordingToolsUIBuilder
             multiline: true);
         StretchInside((RectTransform)scriptInput.transform, padX: 12, padY: 10);
 
+        // Long scripts: give the multiline field a clipping viewport + a
+        // draggable vertical scrollbar so text scrolls instead of spilling past
+        // the box. Same helper the auto-baker uses to fix already-baked panels.
+        TtsScriptBoxScrollbarBaker.EnsureScrollable(scriptInput);
+
         y -= 12f;
 
         // Output folder row

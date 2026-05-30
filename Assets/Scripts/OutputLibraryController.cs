@@ -73,16 +73,30 @@ public class OutputLibraryController : MonoBehaviour
         string previous = PlayerPrefs.GetString(SelectedGenerationPrefKey, "");
 
         generations.Clear();
-        string root = LibraryRoot;
-        if (Directory.Exists(root))
+
+        // Discover generations across every folder the user has actually used:
+        //   1) the currently-chosen output folder (PythonOutputFolder), and
+        //   2) the folder the last selected generation was created in.
+        // Scanning both means a generation is still found even when the chosen
+        // folder setting drifted from where the files were actually written
+        // (e.g. the menu + TTS panel output fields desynced, or the folder was
+        // renamed/recreated between sessions) — which is what made the dropdown
+        // come up empty after reopening the build.
+        var found = new List<string>();
+        foreach (string scanRoot in CandidateRoots(previous))
+            CollectGenerations(scanRoot, found);
+
+        // Dedupe by full path, then order newest-first (folder names are
+        // timestamps, so an ordinal name sort is chronological).
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string g in found)
         {
-            // Folder names are sortable timestamps, so an ordinal name sort is
-            // chronological — descending gives newest first.
-            generations.AddRange(
-                Directory.GetDirectories(root)
-                         .Where(HasOutput)
-                         .OrderByDescending(Path.GetFileName, StringComparer.Ordinal));
+            string key;
+            try { key = Path.GetFullPath(g); } catch { key = g; }
+            if (seen.Add(key)) generations.Add(g);
         }
+        generations.Sort((a, b) =>
+            string.CompareOrdinal(Path.GetFileName(b), Path.GetFileName(a)));
 
         if (generationDropdown != null)
         {
@@ -126,6 +140,32 @@ public class OutputLibraryController : MonoBehaviour
     static bool HasOutput(string dir)
         => File.Exists(Path.Combine(dir, "manifest.json")) ||
            Directory.GetFiles(dir, "*_timed.txt").Length > 0;
+
+    // Folders to scan for generations: the chosen output folder, plus the
+    // folder that holds the last selected generation. Both are places the user
+    // has used, so a generation stays discoverable even if the chosen-folder
+    // setting no longer matches where files were created.
+    IEnumerable<string> CandidateRoots(string selectedGeneration)
+    {
+        yield return LibraryRoot;
+        if (!string.IsNullOrEmpty(selectedGeneration))
+        {
+            string parent = null;
+            try { parent = Path.GetDirectoryName(selectedGeneration); } catch { /* malformed path */ }
+            if (!string.IsNullOrEmpty(parent)) yield return parent;
+        }
+    }
+
+    // Adds every generation under 'root' to 'into': the root itself when it
+    // directly holds output (flat layout), plus any immediate subfolder that
+    // holds output (per-generation timestamped subfolders).
+    static void CollectGenerations(string root, List<string> into)
+    {
+        if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return;
+        if (HasOutput(root)) into.Add(root);
+        foreach (string d in Directory.GetDirectories(root))
+            if (HasOutput(d)) into.Add(d);
+    }
 
     // Dropdown label: folder name, plus the segment count when it's a multi-part
     // generation, so a stitched render is easy to spot.
