@@ -24,6 +24,11 @@ namespace MugsTech.Tts
         public const string ScriptPrefKey       = "AutoAvatarGen.TtsScriptDraft";
         public const string OutputFolderPrefKey = MainMenuController.PythonOutputFolderPrefKey;
 
+        // Records the just-generated subfolder so the recording scene
+        // (ScriptFileReader) renders that exact generation. Keep in sync with
+        // OutputLibraryController + ScriptFileReader.
+        public const string SelectedGenerationPrefKey = "AutoAvatarGen.SelectedGeneration";
+
         [Header("Root")]
         [Tooltip("The panel root that gets shown/hidden. Usually this GameObject itself.")]
         [SerializeField] GameObject panelRoot;
@@ -206,9 +211,23 @@ namespace MugsTech.Tts
             SetProgress(0f);
             SetStatus(dryRun ? "Dry-running…" : "Generating…", neutral: true);
 
+            // Each real generation lands in its own timestamped subfolder under
+            // the chosen library root, so nothing is overwritten. Dry runs write
+            // nothing, so they don't need (or create) a subfolder.
+            string genFolder = outFolder;
+            if (!dryRun)
+            {
+                string rootAbs    = TtsGenerationJob.ResolveOutputFolder(outFolder);
+                string baseFolder = Path.Combine(rootAbs,
+                    DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
+                genFolder = baseFolder;
+                for (int n = 1; Directory.Exists(genFolder); n++)   // avoid same-second clashes
+                    genFolder = $"{baseFolder}_{n}";
+            }
+
             var cfg = new TtsGenerationJob.Config {
                 ApiKey       = apiKey,
-                OutputFolder = outFolder,
+                OutputFolder = genFolder,
                 ScriptText   = script,
                 DryRun       = dryRun,
             };
@@ -230,6 +249,14 @@ namespace MugsTech.Tts
                             success: true);
                         if (!string.IsNullOrEmpty(r.ManifestPath))
                             Debug.Log($"[Tts] Manifest written to: {r.ManifestPath}");
+
+                        // Make this generation the active render input and
+                        // refresh the library dropdown so it shows immediately.
+                        if (!r.WasDryRun)
+                        {
+                            PlayerPrefs.SetString(SelectedGenerationPrefKey, genFolder);
+                            PlayerPrefs.Save();
+                        }
                     }
                     else
                     {

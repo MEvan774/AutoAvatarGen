@@ -76,6 +76,13 @@ public class ScriptFileReader : MonoBehaviour
             string overrideFolder = PlayerPrefs.GetString(PythonOutputFolderPrefKey, "");
             if (!string.IsNullOrWhiteSpace(overrideFolder))
                 pythonOutputFolder = overrideFolder;
+
+            // The output folder is now a *library* of per-generation subfolders.
+            // Resolve to the specific generation the user picked in the output
+            // library dropdown (or the newest) so the rest of this method loads
+            // that exact folder. Flat/legacy layouts resolve to themselves.
+            pythonOutputFolder = ResolveActiveGenerationFolder(
+                ResolveOutputFolder(pythonOutputFolder));
         }
 
         if (autoLoadFromPythonOutput)
@@ -112,6 +119,41 @@ public class ScriptFileReader : MonoBehaviour
             ? folder
             : Path.Combine(Application.dataPath, folder);
     }
+
+    // The configured folder is treated as a library root holding one timestamped
+    // subfolder per TTS generation. Pick which one to load:
+    //   1) the generation chosen in the output-library dropdown (PlayerPrefs),
+    //   2) else the root itself if it directly holds output (flat / legacy),
+    //   3) else the newest subfolder that contains output.
+    // Falls back to the root unchanged when nothing is found.
+    const string SelectedGenerationPrefKey = "AutoAvatarGen.SelectedGeneration"; // sync: OutputLibraryController, TtsPanelController
+
+    string ResolveActiveGenerationFolder(string root)
+    {
+        string selected = PlayerPrefs.GetString(SelectedGenerationPrefKey, "");
+        if (!string.IsNullOrWhiteSpace(selected) && FolderHasOutput(selected))
+            return selected;
+
+        if (FolderHasOutput(root))
+            return root;
+
+        if (Directory.Exists(root))
+        {
+            string[] subdirs = Directory.GetDirectories(root);
+            // Timestamped names sort chronologically; descending = newest first.
+            System.Array.Sort(subdirs, (a, b) =>
+                string.CompareOrdinal(Path.GetFileName(b), Path.GetFileName(a)));
+            foreach (string d in subdirs)
+                if (FolderHasOutput(d)) return d;
+        }
+
+        return root;
+    }
+
+    static bool FolderHasOutput(string dir)
+        => Directory.Exists(dir) &&
+           (File.Exists(Path.Combine(dir, "manifest.json")) ||
+            Directory.GetFiles(dir, "*_timed.txt").Length > 0);
 
     // -----------------------------------------------------------------------
     // Manifest path — stitches multiple numbered segments via SegmentSequencer

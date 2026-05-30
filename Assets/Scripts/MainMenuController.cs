@@ -104,6 +104,10 @@ public class MainMenuController : MonoBehaviour
     Button musicOverrideClearButton;
     string musicOverridePath = "";
 
+    // Output library (generation chooser) — generated at runtime by
+    // OutputLibraryController; no scene authoring or Tools menu needed.
+    OutputLibraryController outputLibrary;
+
     [Header("Active Visuals Save")]
     [Tooltip("Optional. If left null, the controller spawns its own row at runtime.")]
     [SerializeField] TMP_Text activeSaveLabel;
@@ -166,6 +170,7 @@ public class MainMenuController : MonoBehaviour
         BuildMusicOverrideRow();
         WireGenerateAudioButton();
         WireBackgroundModeRow();
+        EnsureOutputLibrary();
 
         RefreshResult();
     }
@@ -265,7 +270,27 @@ public class MainMenuController : MonoBehaviour
                              "Run Tools > AutoAvatarGen > Add TTS Panel to create one.");
             return;
         }
-        ttsPanel.Show();
+        // Refresh the generation dropdown when the panel closes so a freshly
+        // generated output appears and is selected.
+        ttsPanel.Show(() => { if (outputLibrary != null) outputLibrary.RefreshOutputs(); });
+    }
+
+    // -----------------------------------------------------------------------
+    // Output library (generation chooser)
+    //
+    // The dropdown listing every TTS generation — and picking which one Start
+    // Recording renders — is normally baked into MainMenu.unity automatically by
+    // the editor hook OutputLibraryAutoBaker (permanent, Scene-view-styleable
+    // objects + a wired OutputLibraryController). This just grabs that baked
+    // component for the post-generation refresh. As a safety net for scenes the
+    // baker never touched, we add one at runtime; OutputLibraryController then
+    // generates its own fallback row.
+    // -----------------------------------------------------------------------
+    void EnsureOutputLibrary()
+    {
+        outputLibrary = FindObjectOfType<OutputLibraryController>();
+        if (outputLibrary == null)
+            outputLibrary = gameObject.AddComponent<OutputLibraryController>();
     }
 
     void OnEnable()
