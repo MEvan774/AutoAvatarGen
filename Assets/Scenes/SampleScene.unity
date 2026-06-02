@@ -905,6 +905,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BlackPanelController
   panelObj: {fileID: 225515747}
+  targetCamera: {fileID: 0}
+  sortingOrder: 32000
 --- !u!1 &225515747
 GameObject:
   m_ObjectHideFlags: 0

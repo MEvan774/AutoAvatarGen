@@ -81,7 +81,7 @@ _ALL_MARKERS = re.compile(
     r'|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}'           # zoom markers (+optional Cut / D=)
     r'|\{Black:\d+(?:\.\d+)?\}'                             # black panel markers
     r'|\{(?:Image|Video):[^}]+\}'                           # media markers
-    r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?\}'          # headline cards
+    r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*bigCenter)?\}'  # headline cards (+optional bigCenter)
     r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?\}'   # excerpt cards
     r'|\{Quote:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?\}'     # quote cards
     r'|\{Stat:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?\}'      # stat cards
@@ -89,7 +89,7 @@ _ALL_MARKERS = re.compile(
     r'|\{BRoll:[^,}]+,\d+(?:\.\d+)?\}'                      # broll cards
     r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                   # big-media feature cards
     r'|\{BigText:[^,}]+,\d+(?:\.\d+)?\}'                    # big-text feature cards
-    r'|\[[\w\s]+\]'                                         # [stage directions]
+    r'|\[[^\]]*\]'                                          # [stage directions] (any chars, incl. commas)
 )
 
 # Section header line:  ## COLD OPEN  /  ## SETUP  etc.

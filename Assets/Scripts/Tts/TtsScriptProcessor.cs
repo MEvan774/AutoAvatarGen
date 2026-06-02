@@ -66,7 +66,15 @@ namespace MugsTech.Tts
             @"|\{BRoll:[^,}]+,\d+(?:\.\d+)?\}" +
             @"|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}" +
             @"|\{BigText:[^,}]+,\d+(?:\.\d+)?\}" +
-            @"|\[[\w\s]+\]");
+            // [stage directions] — match anything up to the closing bracket so
+            // directions containing commas/punctuation (e.g. "[slowing down,
+            // serious]") are stripped too. The OLD pattern \[[\w\s]+\] only
+            // allowed word-chars/whitespace, so a comma made the whole marker
+            // leak into the TTS text — ElevenLabs then read it aloud, which
+            // inflated the audio and pushed every later word (and every T=
+            // timestamp derived from it) seconds late. Kept in lockstep with
+            // the runtime strip in MediaPresentationSystem (\[[^\]]*\]).
+            @"|\[[^\]]*\]");
 
         private static readonly Regex SectionHeader = new Regex(
             @"^##\s+(.+)$", RegexOptions.Multiline);
