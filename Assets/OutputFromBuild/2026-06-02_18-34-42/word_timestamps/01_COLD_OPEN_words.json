@@ -1,0 +1,127 @@
+[
+  {
+    "word": "You",
+    "start": 0,
+    "end": 0.163
+  },
+  {
+    "word": "bought",
+    "start": 0.232,
+    "end": 0.43
+  },
+  {
+    "word": "a",
+    "start": 0.453,
+    "end": 0.476
+  },
+  {
+    "word": "mattress.",
+    "start": 0.522,
+    "end": 1.173
+  },
+  {
+    "word": "Two",
+    "start": 1.869,
+    "end": 2.159
+  },
+  {
+    "word": "thousand",
+    "start": 2.276,
+    "end": 2.786
+  },
+  {
+    "word": "dollars.",
+    "start": 2.856,
+    "end": 3.553
+  },
+  {
+    "word": "And",
+    "start": 4.249,
+    "end": 4.423
+  },
+  {
+    "word": "this",
+    "start": 4.47,
+    "end": 4.609
+  },
+  {
+    "word": "morning",
+    "start": 4.679,
+    "end": 4.981
+  },
+  {
+    "word": "it",
+    "start": 5.132,
+    "end": 5.283
+  },
+  {
+    "word": "asked",
+    "start": 5.341,
+    "end": 5.596
+  },
+  {
+    "word": "you",
+    "start": 5.619,
+    "end": 5.689
+  },
+  {
+    "word": "to",
+    "start": 5.747,
+    "end": 5.805
+  },
+  {
+    "word": "log",
+    "start": 5.875,
+    "end": 6.107
+  },
+  {
+    "word": "in.\r",
+    "start": 6.188,
+    "end": 6.699
+  },
+  {
+    "word": "\r",
+    "start": 6.699,
+    "end": 6.699
+  },
+  {
+    "word": "To",
+    "start": 6.699,
+    "end": 6.827
+  },
+  {
+    "word": "sleep.",
+    "start": 6.908,
+    "end": 7.43
+  },
+  {
+    "word": "On",
+    "start": 7.755,
+    "end": 7.906
+  },
+  {
+    "word": "the",
+    "start": 7.941,
+    "end": 8.011
+  },
+  {
+    "word": "thing",
+    "start": 8.069,
+    "end": 8.243
+  },
+  {
+    "word": "you",
+    "start": 8.301,
+    "end": 8.382
+  },
+  {
+    "word": "already",
+    "start": 8.498,
+    "end": 8.789
+  },
+  {
+    "word": "own.",
+    "start": 8.847,
+    "end": 9.474
+  }
+]

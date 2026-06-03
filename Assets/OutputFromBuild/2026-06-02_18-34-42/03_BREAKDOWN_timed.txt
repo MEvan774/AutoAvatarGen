@@ -1,0 +1,9 @@
+{Neutral,T=0.000}
+{Excerpt:"Premium climate control is now part of our Comfort Plus membership, so we can keep delivering the experience you love.","so we can keep delivering","Company Statement",T=0.778,D=6}
+{Concerned,T=0.778}
+[dry,T=0.778] Translation — it cost them money and you liked it, so now you rent it.
+{Logo:Slumberist,T=4.632,D=4}
+[tired but amused,T=4.969] The cooling hardware is still in there. It works. The fan is just being held hostage by a server in another state.
+{BRoll:server room blinking lights,T=11.680,D=4}
+{Quote:"We are simply aligning our value with the ongoing service we provide.","A Spokesperson","VP of Customer Experience",T=11.680,D=5}
+[deadpan,T=12.167] The ongoing service is electricity. You are paying a subscription for electricity.

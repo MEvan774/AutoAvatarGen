@@ -1,0 +1,8 @@
+{Position:Left,Smooth,T=0.000} {Concerned,T=0.279}
+[slowing down, serious,T=0.279] Here is the part that should bother you. You did not buy a mattress. You bought a license to a mattress.
+{BigText:YOU OWN THE FOAM+THEY OWN THE FAN,T=7.094,D=5}
+{Position:Center,Smooth,T=7.094}
+{Zoom:In,T=7.303}
+[deadpan,T=7.303] And when the company folds — and these companies always fold — the fan folds with it.
+{Zoom:Pullback,D=3,T=13.166}
+[dry,T=13.421] A two thousand dollar paperweight you still have to make the bed on.
