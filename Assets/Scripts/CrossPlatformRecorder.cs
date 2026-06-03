@@ -245,6 +245,15 @@ public class CrossPlatformRecorder : MonoBehaviour
         ApplyRecordingOutputFolderOverrideFromPrefs();
         ApplySaveFolderToVideoCapture();
 
+        // Re-assert the background mode (camera clear colour + Evereal alpha flag)
+        // at record time. Awake — which normally configures this — doesn't reliably
+        // fire for this component in some builds, which is why green-screen mode used
+        // to rely on a full-screen green Image (it ended up occluding the content
+        // cards). Clearing the recorded camera to green instead puts the green
+        // strictly BEHIND everything the camera composites — cards/character render
+        // on top — exactly how transparent mode already behaves.
+        EnsureBackgroundConfigured();
+
         // Set a unique timestamped filename for this take. Format:
         //   <videoTitle>_<yyyy-MM-dd_HH-mm-ss>.mp4
         // The prefix is the ElevenLabs segment slug (set by ScriptFileReader
@@ -369,6 +378,31 @@ public class CrossPlatformRecorder : MonoBehaviour
                 Log("Camera: scene defaults (unchanged)");
                 break;
         }
+    }
+
+    // Applies the camera background (clear colour + Evereal alpha flag) even when
+    // Awake didn't run. Called from StartRecordingWithAudio so green-screen /
+    // transparent / solid-black are honoured at record time regardless of the
+    // Awake-doesn't-fire quirk. Idempotent. Resolves the recorded camera first.
+    void EnsureBackgroundConfigured()
+    {
+        if (targetCamera == null)
+        {
+            if (useEverealBuiltInCamera && videoCaptureComponent != null)
+                targetCamera = videoCaptureComponent.regularCamera;
+            if (targetCamera == null)
+                targetCamera = Camera.main;
+        }
+
+        ApplyBackgroundModeOverrideFromPrefs();
+        ApplyBackgroundMode();
+
+        // Evereal must capture opaque RGB for green/black, alpha only for Transparent.
+        if (videoCaptureComponent != null)
+            videoCaptureComponent.transparent = (backgroundMode == BackgroundMode.Transparent);
+
+        Log($"Background configured at record time: mode={backgroundMode}, " +
+            $"camera='{(targetCamera != null ? targetCamera.name : "NULL")}'.");
     }
 
     void ConfigureVideoCapture()

@@ -97,11 +97,13 @@ namespace MugsTech.Background
         {
             Mode mode = LoadMode();
 
-            // The GreenScreenBackground toggle runs in ALL modes (including
-            // Video) so switching back from GreenScreen → Video correctly
-            // hides it again. The disable cascade below only runs for non-
-            // Video modes since that's where the perf trimming matters.
-            bool gsToggled = ToggleGreenScreenBackground(mode == Mode.GreenScreen);
+            // The legacy full-screen green Image is no longer used: green-screen
+            // mode now gets its green from the recorded camera's clear colour
+            // (set by CrossPlatformRecorder), which sits strictly BEHIND the
+            // content cards instead of occluding them — the same way transparent
+            // mode works. We force the Image OFF in every mode so any scene that
+            // still has it enabled can't cover the cards.
+            bool gsToggled = ToggleGreenScreenBackground(false);
 
             if (mode == Mode.Video)
             {
@@ -147,9 +149,8 @@ namespace MugsTech.Background
 
             Mode mode = LoadMode();
 
-            // Re-assert the GreenScreenBackground state in case anything
-            // toggled it between our first pass and now.
-            ToggleGreenScreenBackground(mode == Mode.GreenScreen);
+            // Keep the legacy green Image OFF (green is the camera clear now).
+            ToggleGreenScreenBackground(false);
 
             if (mode == Mode.Video) yield break;
             int panels = DisableBackgroundPanels();
