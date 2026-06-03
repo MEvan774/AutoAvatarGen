@@ -44,8 +44,18 @@ public class ContentZoneController : MonoBehaviour
     private Coroutine durationCoroutine;
     private Coroutine hideAndShowCoroutine;
 
+    // Cards triggered while another card is on screen wait here and play one
+    // after another (each for its full duration) instead of cutting each other
+    // off. Fixes co-timed tags — e.g. a {BRoll} and {Quote} mapped to the same
+    // word — which used to clobber so only the last one showed.
+    private readonly Queue<ContentCardEvent> cardQueue = new Queue<ContentCardEvent>();
+
     /// <summary>True when a content card is currently visible.</summary>
     public bool IsCardActive => activeCard != null;
+
+    /// <summary>True while a card is visible OR more are queued to play. The
+    /// recorder polls this so the take is held open until the queue drains.</summary>
+    public bool HasActiveOrQueuedCard => activeCard != null || cardQueue.Count > 0;
 
     void Awake()
     {
@@ -175,6 +185,7 @@ public class ContentZoneController : MonoBehaviour
         voiceAudio = audio;
         lastTriggeredIndex = -1;
         isPaused = false;
+        cardQueue.Clear();
 
         Debug.Log($"ContentZoneController: Timeline set with {events.Count} events");
     }
@@ -244,7 +255,8 @@ public class ContentZoneController : MonoBehaviour
     }
 
     /// <summary>
-    /// Display a specific card. If another card is active, fast-hide it first.
+    /// Display a card, or queue it behind any card that's already on screen so
+    /// they play one after another (each for its full duration).
     /// </summary>
     public void ShowCard(ContentCardEvent evt)
     {
@@ -255,10 +267,41 @@ public class ContentZoneController : MonoBehaviour
             return;
         }
 
-        if (hideAndShowCoroutine != null)
-            StopCoroutine(hideAndShowCoroutine);
+        // If a card is already on screen (or others are waiting), queue this one
+        // so co-timed / overlapping cards play back-to-back instead of cutting
+        // each other off. The queue drains as each card finishes its duration.
+        if (activeCard != null || cardQueue.Count > 0)
+        {
+            cardQueue.Enqueue(evt);
+            Debug.Log($"Queued card: {evt.cardType} (queue depth {cardQueue.Count})");
+            return;
+        }
 
         hideAndShowCoroutine = StartCoroutine(HideAndShowSequence(evt, zone));
+    }
+
+    /// <summary>
+    /// Shows the next queued card once the current one has finished. While the
+    /// timeline is paused (character centered) it skips — and drops — side cards
+    /// (only fullscreen feature cards may appear centered), so they don't pile up
+    /// and burst out on resume.
+    /// </summary>
+    private void ShowNextQueued()
+    {
+        while (cardQueue.Count > 0)
+        {
+            ContentCardEvent next = cardQueue.Dequeue();
+
+            if (isPaused && !IsFeatureCard(next.cardType))
+                continue; // centered — drop pending side cards
+
+            RectTransform zone = GetZoneForCard(next.cardType);
+            if (zone == null)
+                continue;
+
+            hideAndShowCoroutine = StartCoroutine(HideAndShowSequence(next, zone));
+            return;
+        }
     }
 
     private RectTransform GetZoneForCard(ContentCardType type)
@@ -376,6 +419,7 @@ public class ContentZoneController : MonoBehaviour
                 Destroy(activeCard.gameObject);
                 activeCard = null;
             }
+            ShowNextQueued();
         };
 
         activeCard.Hide(fast: false);
@@ -405,6 +449,9 @@ public class ContentZoneController : MonoBehaviour
                     Destroy(activeCard.gameObject);
                     activeCard = null;
                 }
+                // Drain the queue — feature cards may still play centered; the
+                // skip logic in ShowNextQueued drops any queued side cards.
+                ShowNextQueued();
             };
 
             activeCard.Hide(fast: true);

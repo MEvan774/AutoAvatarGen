@@ -149,7 +149,7 @@ public class MediaPresentationSystem : MonoBehaviour
     public bool HasActiveTrailingVisual =>
         isShowingMedia
         || (blackPanelController != null && blackPanelController.IsShowing)
-        || (contentZoneController != null && contentZoneController.IsCardActive);
+        || (contentZoneController != null && contentZoneController.HasActiveOrQueuedCard);
 
     // --- New: zoom tracking ---
     private List<ZoomMarkerData> zoomMarkers;
