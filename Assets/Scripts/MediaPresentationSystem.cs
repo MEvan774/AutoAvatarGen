@@ -136,6 +136,21 @@ public class MediaPresentationSystem : MonoBehaviour
     /// </summary>
     public CharacterPosition CurrentPosition => currentPosition;
 
+    /// <summary>True while a {Video:} or {Image:} media element is on screen.</summary>
+    public bool IsShowingMedia => isShowingMedia;
+
+    /// <summary>
+    /// True while ANY trailing visual is still on screen — media, a content
+    /// card, or the black panel. The recorder polls this after the narration
+    /// ends so an end-of-script tag (a closing {Logo:...,D=8} end-card, a final
+    /// {Black:2}, etc.) is captured for its full duration instead of being cut
+    /// off the instant the audio stops.
+    /// </summary>
+    public bool HasActiveTrailingVisual =>
+        isShowingMedia
+        || (blackPanelController != null && blackPanelController.IsShowing)
+        || (contentZoneController != null && contentZoneController.IsCardActive);
+
     // --- New: zoom tracking ---
     private List<ZoomMarkerData> zoomMarkers;
     private int lastTriggeredZoomMarker = -1;
@@ -680,7 +695,10 @@ public class MediaPresentationSystem : MonoBehaviour
             yield break;
         }
 
-        while (voiceAudio != null && voiceAudio.isPlaying)
+        // `|| isShowingMedia` keeps tracking alive while a {Video:} marker has
+        // paused the narration, so the end-of-audio flush below only runs when
+        // playback has genuinely finished — not on a mid-clip video pause.
+        while (voiceAudio != null && (voiceAudio.isPlaying || isShowingMedia))
         {
             float currentTime = voiceAudio.time;
 
@@ -705,6 +723,19 @@ public class MediaPresentationSystem : MonoBehaviour
             }
 
             yield return null;
+        }
+
+        // Audio finished. A {Black} placed on the script's final word is clamped
+        // to the clip-end time, and the loop above stops the instant playback
+        // ends — so without this it would never fire. Flush any still-pending
+        // markers now (the recorder holds the take open to capture them).
+        for (int i = lastTriggeredBlackPanelMarker + 1; i < blackPanelMarkers.Count; i++)
+        {
+            var marker = blackPanelMarkers[i];
+            Debug.Log($"[Black] Flushing end-of-audio black panel for {marker.duration:F2}s");
+            if (blackPanelController != null)
+                blackPanelController.Show(marker.duration);
+            lastTriggeredBlackPanelMarker = i;
         }
 
         Debug.Log("[Black] TrackBlackPanelByTime loop ended (audio no longer playing).");
@@ -806,6 +837,22 @@ public class MediaPresentationSystem : MonoBehaviour
             }
 
             yield return null;
+        }
+
+        // Audio finished. Flush a trailing {Image:} clamped to the clip-end time
+        // (same end-of-audio race as cards/black). Videos are skipped — playing
+        // one would resume narration that has already ended.
+        if (!isShowingMedia)
+        {
+            for (int i = lastTriggeredMediaMarker + 1; i < mediaMarkers.Count; i++)
+            {
+                if (mediaMarkers[i].mediaType != MediaType.IMAGE) continue;
+                Debug.Log($"Flushing end-of-audio media: {mediaMarkers[i].mediaName}");
+                if (currentMediaCoroutine != null)
+                    StopCoroutine(currentMediaCoroutine);
+                currentMediaCoroutine = StartCoroutine(ShowMedia(mediaMarkers[i]));
+                lastTriggeredMediaMarker = i;
+            }
         }
     }
 

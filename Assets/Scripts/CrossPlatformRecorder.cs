@@ -438,12 +438,34 @@ public class CrossPlatformRecorder : MonoBehaviour
         yield return new WaitForSeconds(0.1f);
         while (voiceAudio != null && voiceAudio.isPlaying)
             yield return null;
+
+        // Narration has ended. Tags placed on the script's final word — a
+        // closing {Logo:...,D=8} end-card, a final {Black:2}, etc. — are flushed
+        // by the tracking loops the moment playback stops. Give them a couple of
+        // frames to start their coroutines, then keep recording until every
+        // trailing visual has played out its full duration so it isn't clipped.
+        yield return null;
+        yield return null;
+
+        MediaPresentationSystem mediaSystem = FindObjectOfType<MediaPresentationSystem>();
+        if (mediaSystem != null)
+        {
+            const float maxTrailingHold = 30f; // safety cap — never record forever
+            float held = 0f;
+            while (held < maxTrailingHold && mediaSystem.HasActiveTrailingVisual)
+            {
+                held += Time.unscaledDeltaTime;
+                yield return null;
+            }
+            Log($"Trailing visuals finished after {held:F1}s.");
+        }
+
         yield return new WaitForSeconds(0.5f);
 
         if (videoCaptureComponent != null && videoCaptureComponent.status == CaptureStatus.STARTED)
         {
             videoCaptureComponent.StopCapture();
-            Log("Recording stopped (audio finished)");
+            Log("Recording stopped (audio finished + trailing visuals done)");
         }
         // Always restore framerate / vsync — both paths (manual StopRecording
         // and audio-end auto-stop) need this; without the unconditional pop

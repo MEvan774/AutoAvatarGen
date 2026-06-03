@@ -28,7 +28,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 5. **Every content card, `Logo`, `BRoll`, `BigMedia`, and `BigText` MUST end with a duration number** (`,5` = 5 seconds). Decimals allowed (`,4.5`).
 6. **Unquoted names (`Logo`, `BRoll`, `BigMedia`, `BigText`) must not contain commas.** The comma is a delimiter. Use `+` to join multiple items.
 7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback`, `Cut`, `Smooth`, `bigCenter`.
-8. **Content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` pauses and hides the card timeline. Put the character on a side before showing a card (see §5).
+8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`) are exempt** — they render in front of everything and appear in any position, including `Center`.
 9. Keep the narration itself natural — it can contain quotes, commas, anything. The rules above apply to **tags only**.
 
 ---
@@ -181,7 +181,9 @@ Fields: `"value","label","context",duration`
 {Zoom:In}
 [genuine disbelief] No — actually bad.
 ```
-- **Cards need a side position.** Set `{Position:Left,...}` or `{Position:Right,...}` *before* a `Headline`/`Excerpt`/`Quote`/`Stat`/`Logo`/`BRoll`/`BigText`/`BigMedia` tag. While the character is `Center`, the card timeline is paused and nothing shows.
+- **Side cards need a side position.** Set `{Position:Left,...}` or `{Position:Right,...}` *before* a `Headline`/`Excerpt`/`Quote`/`Stat`/`Logo`/`BRoll` tag. While the character is `Center`, side cards are suppressed (they'd overlap the centered character).
+- **Fullscreen feature cards work anywhere.** `BigText`/`BigMedia`/`BigCenter` (and a `Headline` with `,bigCenter`) render in front of everything, so they appear in any position — including `Center`. Use them for the "front and center" moments.
+- **Don't place a tag on the script's very last word and expect it to fire late** — it's fine, the recording now holds until trailing tags (e.g. an end-card `{Logo:...,8}` or final `{Black:2}`) finish their full duration.
 - Reasonable default durations: cards 5s, excerpts 6s, big text 3–4s, logos 3–4s, black cuts 2–3s.
 
 ---

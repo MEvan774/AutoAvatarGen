@@ -40,6 +40,7 @@ public class ContentZoneController : MonoBehaviour
 
     // Active card state
     private ContentCard activeCard;
+    private ContentCardType activeCardType;
     private Coroutine durationCoroutine;
     private Coroutine hideAndShowCoroutine;
 
@@ -185,28 +186,60 @@ public class ContentZoneController : MonoBehaviour
     {
         lastTriggeredIndex = -1;
 
-        while (voiceAudio != null && voiceAudio.isPlaying)
+        // `|| IsShowingMedia` keeps tracking alive while a {Video:} marker has
+        // paused the narration, so the end-of-audio flush below only fires once
+        // playback has genuinely finished — not on a mid-clip video pause.
+        while (voiceAudio != null && (voiceAudio.isPlaying ||
+               (mediaPresentationSystem != null && mediaPresentationSystem.IsShowingMedia)))
         {
-            if (!isPaused && timeline != null)
+            if (timeline != null)
             {
                 float currentTime = voiceAudio.time;
 
                 for (int i = lastTriggeredIndex + 1; i < timeline.Count; i++)
                 {
-                    if (currentTime >= timeline[i].triggerTime)
-                    {
-                        Debug.Log($"Triggering card: {timeline[i].cardType} at {currentTime:F2}s");
-                        ShowCard(timeline[i]);
-                        lastTriggeredIndex = i;
-                    }
-                    else
-                    {
+                    if (currentTime < timeline[i].triggerTime)
                         break;
+
+                    // While paused (character centered) only fullscreen feature
+                    // cards may appear; a side card would overlap the centered
+                    // character, so skip it (advancing past it so it doesn't burst
+                    // out later when a side position resumes).
+                    if (isPaused && !IsFeatureCard(timeline[i].cardType))
+                    {
+                        lastTriggeredIndex = i;
+                        continue;
                     }
+
+                    Debug.Log($"Triggering card: {timeline[i].cardType} at {currentTime:F2}s");
+                    ShowCard(timeline[i]);
+                    lastTriggeredIndex = i;
                 }
             }
 
             yield return null;
+        }
+
+        // Narration finished. An end-card placed on the script's final word
+        // (a closing {Logo:...} or {Headline:...,bigCenter}) is clamped to the
+        // clip-end time, and the loop above stops the moment playback ends — so
+        // without this it would be skipped. Flush any still-pending cards now
+        // (the recorder holds the take open to capture them). If the character
+        // is centered, the per-card check below still lets feature cards through.
+        if (timeline != null)
+        {
+            for (int i = lastTriggeredIndex + 1; i < timeline.Count; i++)
+            {
+                // Same rule as the live loop: while centered, only feature cards.
+                if (isPaused && !IsFeatureCard(timeline[i].cardType))
+                {
+                    lastTriggeredIndex = i;
+                    continue;
+                }
+                Debug.Log($"Flushing end-of-audio card: {timeline[i].cardType}");
+                ShowCard(timeline[i]);
+                lastTriggeredIndex = i;
+            }
         }
     }
 
@@ -230,10 +263,22 @@ public class ContentZoneController : MonoBehaviour
 
     private RectTransform GetZoneForCard(ContentCardType type)
     {
-        if (type == ContentCardType.BigMedia || type == ContentCardType.BigCenter || type == ContentCardType.BigText)
+        if (IsFeatureCard(type))
             return featureMediaZone != null ? featureMediaZone : contentZone;
         return contentZone;
     }
+
+    /// <summary>
+    /// Fullscreen feature cards (BigMedia / BigCenter / BigText) render in the
+    /// featureMediaZone in FRONT of the character, so they don't clash with a
+    /// centered character — they're allowed to appear even while the timeline is
+    /// paused (character centered). Side cards share the character's space and
+    /// stay suppressed at Center.
+    /// </summary>
+    private static bool IsFeatureCard(ContentCardType type)
+        => type == ContentCardType.BigMedia
+        || type == ContentCardType.BigCenter
+        || type == ContentCardType.BigText;
 
     private IEnumerator HideAndShowSequence(ContentCardEvent evt, RectTransform zone)
     {
@@ -294,6 +339,7 @@ public class ContentZoneController : MonoBehaviour
                 yield break;
         }
 
+        activeCardType = evt.cardType;
         activeCard.Initialize(evt, cardAssets);
 
         // Compute and apply entry direction based on the active style preset
@@ -335,12 +381,16 @@ public class ContentZoneController : MonoBehaviour
         activeCard.Hide(fast: false);
     }
 
-    /// <summary>Pause the card timeline and hide the active card.</summary>
+    /// <summary>
+    /// Pause the side-card timeline (character centered). Hides an active SIDE
+    /// card, but leaves a fullscreen feature card (BigText/BigMedia/BigCenter)
+    /// running — those sit in front of the character and don't conflict with it.
+    /// </summary>
     public void PauseTimeline()
     {
         isPaused = true;
 
-        if (activeCard != null)
+        if (activeCard != null && !IsFeatureCard(activeCardType))
         {
             if (durationCoroutine != null)
             {

@@ -35,6 +35,9 @@ public class BlackPanelController : MonoBehaviour
     private Coroutine activeCoroutine;
     private bool configured;
 
+    /// <summary>True while the black plane is currently shown (during its hold).</summary>
+    public bool IsShowing => activeCoroutine != null;
+
     void Awake()
     {
         // Sprite-only setup is safe in Awake. Camera parenting is deferred to the
