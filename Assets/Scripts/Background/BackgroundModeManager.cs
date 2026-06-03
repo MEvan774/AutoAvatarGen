@@ -97,13 +97,12 @@ namespace MugsTech.Background
         {
             Mode mode = LoadMode();
 
-            // The legacy full-screen green Image is no longer used: green-screen
-            // mode now gets its green from the recorded camera's clear colour
-            // (set by CrossPlatformRecorder), which sits strictly BEHIND the
-            // content cards instead of occluding them — the same way transparent
-            // mode works. We force the Image OFF in every mode so any scene that
-            // still has it enabled can't cover the cards.
-            bool gsToggled = ToggleGreenScreenBackground(false);
+            // The GreenScreenBackground plane is the chroma-key backdrop (the
+            // camera clear colour doesn't survive this scene's post-camera, so a
+            // real Image is what actually shows green). It runs in ALL modes so
+            // Green → Video still hides it, and ToggleGreenScreenBackground forces
+            // it BEHIND every foreground layer so it no longer occludes cards.
+            bool gsToggled = ToggleGreenScreenBackground(mode == Mode.GreenScreen);
 
             if (mode == Mode.Video)
             {
@@ -149,8 +148,9 @@ namespace MugsTech.Background
 
             Mode mode = LoadMode();
 
-            // Keep the legacy green Image OFF (green is the camera clear now).
-            ToggleGreenScreenBackground(false);
+            // Re-assert the GreenScreenBackground state in case anything
+            // toggled it between our first pass and now.
+            ToggleGreenScreenBackground(mode == Mode.GreenScreen);
 
             if (mode == Mode.Video) yield break;
             int panels = DisableBackgroundPanels();
@@ -171,9 +171,28 @@ namespace MugsTech.Background
         {
             GameObject target = FindInActiveScene(GreenScreenObjectName);
             if (target == null) return false;
+
+            if (shouldBeActive)
+                ForceBehindEverything(target);
+
             if (target.activeSelf != shouldBeActive)
                 target.SetActive(shouldBeActive);
             return true;
+        }
+
+        // Pins the green plane to the very back so it acts as a chroma-key
+        // backdrop instead of occluding the foreground. The content cards proved
+        // sorting order is compared globally here — the fullscreen feature zone
+        // at order 31000 renders OVER the green, while side cards at the default
+        // 0 tie with it and lose. Giving the green its own override-sorting canvas
+        // at the minimum order puts it behind every card, the media display, and
+        // the character. Idempotent.
+        static void ForceBehindEverything(GameObject green)
+        {
+            var canvas = green.GetComponent<Canvas>();
+            if (canvas == null) canvas = green.AddComponent<Canvas>();
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = short.MinValue; // -32768: as far back as sorting goes
         }
 
         static GameObject FindInActiveScene(string name)

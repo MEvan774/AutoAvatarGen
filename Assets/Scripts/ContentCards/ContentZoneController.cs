@@ -113,6 +113,14 @@ public class ContentZoneController : MonoBehaviour
             Debug.LogError("ContentZoneController: no contentZone assigned and no mediaDisplay to fall back to. Cards will not appear!");
         }
 
+        // Give the side content zone its own high sorting order so its cards
+        // render ABOVE the green-screen backdrop, the same way the fullscreen
+        // feature zone (order 31000) already does — without this, side cards sit
+        // at the canvas default (0) and the green plane occludes them. Kept just
+        // below the feature zone so feature cards still layer on top.
+        if (contentZone != null)
+            EnsureSortingCanvas(contentZone, 30000);
+
         // Build a fullscreen zone for BigMedia cards if none is assigned.
         // Parent into the existing media canvas (the one the recorder's camera
         // captures) — a standalone Screen Space - Overlay canvas would NOT be
@@ -322,6 +330,18 @@ public class ContentZoneController : MonoBehaviour
         => type == ContentCardType.BigMedia
         || type == ContentCardType.BigCenter
         || type == ContentCardType.BigText;
+
+    // Gives a zone its own override-sorting canvas so its cards render at a fixed
+    // order regardless of the parent canvas — used to lift side cards above the
+    // green-screen backdrop. Idempotent.
+    private static void EnsureSortingCanvas(RectTransform zone, int sortingOrder)
+    {
+        if (zone == null) return;
+        var canvas = zone.GetComponent<Canvas>();
+        if (canvas == null) canvas = zone.gameObject.AddComponent<Canvas>();
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = sortingOrder;
+    }
 
     private IEnumerator HideAndShowSequence(ContentCardEvent evt, RectTransform zone)
     {
