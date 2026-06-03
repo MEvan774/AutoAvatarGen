@@ -192,10 +192,9 @@ public class MediaPresentationSystem : MonoBehaviour
         }
 
         // Hand the recorded canvas to the black panel so it lands in the frame
-        // the recorder actually captures. CrossPlatformRecorder's Camera source
-        // explicitly skips Screen Space - Overlay canvases.
-        //if (blackPanelController != null && mediaCanvas != null)
-           // blackPanelController.SetHostCanvas(mediaCanvas);
+        // the recorder actually captures (the same canvas the content cards use).
+        if (blackPanelController != null && mediaCanvas != null)
+            blackPanelController.SetHostCanvas(mediaCanvas);
     }
 
     void Start()

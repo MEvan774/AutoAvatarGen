@@ -1,142 +1,73 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.UI;
 
 /// <summary>
-/// Fullscreen black cut triggered by {Black:seconds} script markers. Jump-cut
-/// in, hold for the duration, jump-cut out — no easing, no fade. Showing/hiding
-/// is literally <see cref="GameObject.SetActive(bool)"/> on the scene's
-/// "BlackPlane" object (wired into <see cref="panelObj"/>).
+/// Fullscreen black cut triggered by {Black:seconds} script markers. Jump-cuts a
+/// solid black panel IN FRONT of everything — character, content cards, and
+/// background — holds for the duration, then jump-cuts out. No fade.
 ///
-/// Why the setup step exists: this project renders through URP's 2D Renderer,
-/// where a plain 3D quad does NOT reliably draw over SpriteRenderers (the
-/// character). The quad and the character sprite both sit at sorting order 0, so
-/// the character bleeds through the black. The controller therefore reconfigures
-/// the BlackPlane into a fullscreen black SpriteRenderer with a very high
-/// sorting order, parented to the recorded camera so it always fills the frame
-/// (through zooms/pans) and is captured by the camera-source recorder. After
-/// that, Show/Hide is just SetActive on that object.
+/// Renders as a UI Image on the same canvas the content cards use (the one the
+/// recorder actually captures), at a sorting order above every card. The older
+/// approach — a black SpriteRenderer parented to a camera — didn't survive this
+/// scene's multi-camera compositing, so the panel never appeared in the
+/// recording. Hosting it on the captured canvas (like the cards) fixes that.
 /// </summary>
 public class BlackPanelController : MonoBehaviour
 {
-    [Tooltip("The 'BlackPlane' GameObject that gets toggled on/off. Reconfigured " +
-             "into a fullscreen black sprite at startup.")]
+    [Tooltip("Legacy scene 'BlackPlane' object. No longer used to render — kept " +
+             "only so it can be disabled, since the panel is now a UI Image.")]
     [SerializeField] private GameObject panelObj;
 
-    [Tooltip("Optional. Camera the black plane is parented to so it always fills " +
-             "the recorded frame. If empty, uses the recorder's captured camera, " +
-             "then Camera.main.")]
-    [SerializeField] private Camera targetCamera;
-
-    [Tooltip("Sorting order for the black sprite. Must be above every other " +
-             "sprite/card so nothing shows through. 32000 leaves headroom under " +
-             "Unity's 32767 max.")]
+    [Tooltip("Sorting order for the black panel. Above the fullscreen feature " +
+             "zone (31000) so it covers cards, character, and background.")]
     [SerializeField] private int sortingOrder = 32000;
 
-    private Coroutine activeCoroutine;
-    private bool configured;
+    [Tooltip("Optional explicit host canvas. If empty, the captured media canvas " +
+             "(from MediaPresentationSystem) is used, then any Canvas in the scene.")]
+    [SerializeField] private Canvas hostCanvas;
 
-    /// <summary>True while the black plane is currently shown (during its hold).</summary>
+    private Image panelImage;
+    private Coroutine activeCoroutine;
+
+    /// <summary>True while the black panel is currently shown (during its hold).</summary>
     public bool IsShowing => activeCoroutine != null;
 
     void Awake()
     {
-        // Sprite-only setup is safe in Awake. Camera parenting is deferred to the
-        // first Show() so the recorder has resolved its capture camera by then.
-        ConfigureBlackSprite();
+        // The panel is a UI Image now; make sure the legacy scene plane (if any)
+        // can't show through or linger.
+        if (panelObj != null) panelObj.SetActive(false);
     }
 
     /// <summary>
-    /// Turn the BlackPlane into a fullscreen black sprite that sorts above
-    /// everything. Idempotent and safe to run while the BlackPlane GameObject is
-    /// inactive (so it stays hidden until Show()).
+    /// Sets the canvas the black panel parents to (the recorder-captured one).
+    /// Called by MediaPresentationSystem with its mediaCanvas. Rebuilds the panel
+    /// under the new host on the next Show().
     /// </summary>
-    void ConfigureBlackSprite()
+    public void SetHostCanvas(Canvas canvas)
     {
-        if (panelObj == null)
+        if (canvas == null || canvas == hostCanvas) return;
+        hostCanvas = canvas;
+        if (panelImage != null)
         {
-            Debug.LogError("[BlackPanel] 'panelObj' (the BlackPlane) is not assigned. " +
-                           "Drag the BlackPlane GameObject into the slot on BlackPanelController.", this);
-            return;
+            Destroy(panelImage.gameObject);
+            panelImage = null;
         }
-
-        // A 3D quad can't occlude sprites in the 2D renderer — disable any mesh
-        // renderer so only the black sprite draws.
-        var mesh = panelObj.GetComponent<MeshRenderer>();
-        if (mesh != null) mesh.enabled = false;
-
-        var sr = panelObj.GetComponent<SpriteRenderer>();
-        if (sr == null) sr = panelObj.AddComponent<SpriteRenderer>();
-        if (sr.sprite == null) sr.sprite = CreateSolidSprite();
-        sr.color = Color.black;
-        sr.sortingOrder = sortingOrder;
-
-        // Large enough to cover any zoom/pan (orthographic view is ~10 units;
-        // this is 500). Final placement happens when we parent to the camera.
-        panelObj.transform.localScale = new Vector3(500f, 500f, 1f);
-        configured = true;
     }
 
-    // Parent the plane to the recorded camera and park it just in front, so it
-    // always fills the captured frame. Done lazily (first Show) so the recorder
-    // has already resolved which camera it captures.
-    void ParentToCamera()
-    {
-        if (panelObj == null) return;
-
-        Camera cam = ResolveCamera();
-        if (cam == null) return;
-        if (panelObj.transform.parent == cam.transform) return; // already parented
-
-        panelObj.transform.SetParent(cam.transform, worldPositionStays: false);
-        panelObj.transform.localRotation = Quaternion.identity;
-        panelObj.transform.localPosition = new Vector3(0f, 0f, 1f); // in front of the camera
-        panelObj.transform.localScale    = new Vector3(500f, 500f, 1f);
-    }
-
-    // Prefer an explicit camera, then the recorder's resolved capture camera
-    // (so we black out exactly what gets recorded — Evereal's regularCamera when
-    // the recorder uses its built-in camera), then the main camera.
-    Camera ResolveCamera()
-    {
-        if (targetCamera != null) return targetCamera;
-
-        var recorder = FindObjectOfType<CrossPlatformRecorder>();
-        if (recorder != null && recorder.targetCamera != null)
-            return recorder.targetCamera;
-
-        return Camera.main != null ? Camera.main : FindObjectOfType<Camera>();
-    }
-
-    // 1×1 white sprite generated at runtime (tinted black by the renderer) so
-    // there is no asset to wire up or lose.
-    static Sprite CreateSolidSprite()
-    {
-        var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
-        tex.SetPixel(0, 0, Color.white);
-        tex.Apply();
-        tex.hideFlags = HideFlags.HideAndDontSave;
-        return Sprite.Create(tex, new Rect(0, 0, 1, 1), new Vector2(0.5f, 0.5f), 1f);
-    }
-
-    /// <summary>Show the black plane for <paramref name="duration"/> seconds, then hide. Jump cuts only.</summary>
+    /// <summary>Show the black panel for <paramref name="duration"/> seconds, then hide. Jump cuts only.</summary>
     public void Show(float duration)
     {
-        if (panelObj == null)
-        {
-            Debug.LogError("[BlackPanel] 'panelObj' is not assigned on BlackPanelController.", this);
-            return;
-        }
-
         if (!isActiveAndEnabled)
         {
-            // Coroutines can't run on inactive components — log so the user knows why nothing moved.
-            Debug.LogError("[BlackPanel] BlackPanelController is disabled or on an inactive GameObject. " +
+            Debug.LogError("[BlackPanel] Controller is disabled or on an inactive GameObject. " +
                            "Enable the component and its GameObject.", this);
             return;
         }
 
-        if (!configured) ConfigureBlackSprite();
-        ParentToCamera();
+        EnsurePanelBuilt();
+        if (panelImage == null) return;
 
         if (activeCoroutine != null)
             StopCoroutine(activeCoroutine);
@@ -146,10 +77,13 @@ public class BlackPanelController : MonoBehaviour
 
     IEnumerator ShowRoutine(float duration)
     {
-        panelObj.SetActive(true);
+        panelImage.gameObject.SetActive(true);
+        panelImage.transform.SetAsLastSibling(); // last sibling = drawn last within its parent
         Debug.Log($"[BlackPanel] shown for {duration:F2}s", this);
+
         yield return new WaitForSeconds(duration);
-        panelObj.SetActive(false);
+
+        if (panelImage != null) panelImage.gameObject.SetActive(false);
         Debug.Log("[BlackPanel] hidden", this);
         activeCoroutine = null;
     }
@@ -162,7 +96,55 @@ public class BlackPanelController : MonoBehaviour
             StopCoroutine(activeCoroutine);
             activeCoroutine = null;
         }
-        if (panelObj != null)
-            panelObj.SetActive(false);
+        if (panelImage != null) panelImage.gameObject.SetActive(false);
+    }
+
+    // Builds the fullscreen black UI Image under the host canvas the first time
+    // it's needed (and after a host change). Idempotent.
+    void EnsurePanelBuilt()
+    {
+        if (panelImage != null) return;
+
+        Canvas host = ResolveHostCanvas();
+        if (host == null)
+        {
+            Debug.LogError("[BlackPanel] No host canvas found — cannot show black panel. " +
+                           "Assign 'mediaCanvas' on MediaPresentationSystem (or 'Host Canvas' here).", this);
+            return;
+        }
+
+        GameObject go = new GameObject("BlackPanel_Fullscreen",
+            typeof(RectTransform), typeof(Canvas), typeof(Image));
+        go.transform.SetParent(host.transform, false);
+
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        rt.localScale = Vector3.one;
+
+        // Its own override-sorting canvas so it draws above every card regardless
+        // of where it sits in the hierarchy (cards use 30000 / 31000; this is 32000).
+        Canvas sub = go.GetComponent<Canvas>();
+        sub.overrideSorting = true;
+        sub.sortingOrder = sortingOrder;
+
+        panelImage = go.GetComponent<Image>();
+        panelImage.color = Color.black;
+        panelImage.raycastTarget = false;
+
+        go.SetActive(false);
+    }
+
+    Canvas ResolveHostCanvas()
+    {
+        if (hostCanvas != null) return hostCanvas;
+
+        // Prefer the canvas the recorder actually captures (where the cards render).
+        var mps = FindObjectOfType<MediaPresentationSystem>();
+        if (mps != null && mps.mediaCanvas != null) return mps.mediaCanvas;
+
+        return FindObjectOfType<Canvas>();
     }
 }
