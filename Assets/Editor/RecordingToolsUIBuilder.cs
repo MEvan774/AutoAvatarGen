@@ -14,6 +14,7 @@ using MugsTech.Tts;
 ///
 ///   • Tools > AutoAvatarGen > Add Generate Audio Button
 ///   • Tools > AutoAvatarGen > Add Background Mode Row
+///   • Tools > AutoAvatarGen > Add Presenter Transition Row
 ///   • Tools > AutoAvatarGen > Add TTS Panel
 ///
 /// Each command is idempotent: if the target GameObject already exists, the
@@ -146,6 +147,99 @@ public static class RecordingToolsUIBuilder
         WireField(ctx.controller, "backgroundModePrevButton", prevBtn);
         WireField(ctx.controller, "backgroundModeNextButton", nextBtn);
         WireField(ctx.controller, "backgroundModeLabel",      label);
+        Done(ctx, rowName);
+    }
+
+    // ====================================================================
+    // 2b. Presenter Transition Row (Squash & Stretch / Crossfade / Shake)
+    // ====================================================================
+
+    [MenuItem("Tools/AutoAvatarGen/Add Presenter Transition Row")]
+    static void AddPresenterTransitionRow()
+    {
+        var ctx = OpenScene();
+        if (ctx == null) return;
+
+        const string rowName = "PresenterTransitionRow";
+        Transform row = ctx.canvas.transform.Find(rowName);
+
+        Button   prevBtn;
+        Button   nextBtn;
+        TMP_Text label;
+
+        if (row == null)
+        {
+            Undo.SetCurrentGroupName("Add Presenter Transition Row");
+            int undoGroup = Undo.GetCurrentGroup();
+
+            // Panel — bottom-center, stacked just above the Background Mode Row.
+            var panelGO = NewRect(ctx.canvas.transform, rowName);
+            var panelRT = (RectTransform)panelGO.transform;
+            panelRT.anchorMin = panelRT.anchorMax = panelRT.pivot = new Vector2(0.5f, 0f);
+            panelRT.anchoredPosition = new Vector2(0f, 240f);
+            panelRT.sizeDelta        = new Vector2(900f, 100f);
+            var panelImg = panelGO.AddComponent<Image>();
+            panelImg.color = new Color(0.08f, 0.10f, 0.13f, 0.85f);
+
+            // Header label
+            var headerGO = NewText(panelGO.transform, "Header",
+                "Presenter transition",
+                fontSize: 22, bold: true,
+                color: new Color(0.82f, 0.85f, 0.9f, 1f));
+            var headerRT = (RectTransform)headerGO.transform;
+            headerRT.anchorMin = new Vector2(0f, 1f);
+            headerRT.anchorMax = new Vector2(1f, 1f);
+            headerRT.pivot     = new Vector2(0.5f, 1f);
+            headerRT.anchoredPosition = new Vector2(0f, -10f);
+            headerRT.sizeDelta        = new Vector2(-20f, 28f);
+
+            const float controlsY = -56f;
+
+            // Prev button "<"
+            prevBtn = CreateTintedButton(panelGO.transform, "PresenterTransitionPrev",
+                label: "<",
+                tint: new Color(0.20f, 0.45f, 0.65f, 1f),
+                size: new Vector2(60f, 44f),
+                anchor: new Vector2(0.5f, 1f),
+                anchoredPos: new Vector2(-220f, controlsY));
+
+            // Value display
+            var valueGO = NewRect(panelGO.transform, "PresenterTransitionValue");
+            valueGO.AddComponent<Image>().color = new Color(0.15f, 0.17f, 0.21f, 1f);
+            var valueRT = (RectTransform)valueGO.transform;
+            valueRT.anchorMin = valueRT.anchorMax = valueRT.pivot = new Vector2(0.5f, 1f);
+            valueRT.anchoredPosition = new Vector2(0f, controlsY);
+            valueRT.sizeDelta        = new Vector2(320f, 44f);
+
+            var labelGO = NewText(valueGO.transform, "Text", "Crossfade",
+                fontSize: 24, bold: true, color: Color.white);
+            var labelRT = (RectTransform)labelGO.transform;
+            labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
+            labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
+            label = labelGO.GetComponent<TextMeshProUGUI>();
+
+            // Next button ">"
+            nextBtn = CreateTintedButton(panelGO.transform, "PresenterTransitionNext",
+                label: ">",
+                tint: new Color(0.20f, 0.45f, 0.65f, 1f),
+                size: new Vector2(60f, 44f),
+                anchor: new Vector2(0.5f, 1f),
+                anchoredPos: new Vector2(220f, controlsY));
+
+            Undo.RegisterCreatedObjectUndo(panelGO, "Add Presenter Transition Row");
+            Undo.CollapseUndoOperations(undoGroup);
+        }
+        else
+        {
+            // Re-wire only — preserves user styling tweaks.
+            prevBtn = row.Find("PresenterTransitionPrev")?.GetComponent<Button>();
+            nextBtn = row.Find("PresenterTransitionNext")?.GetComponent<Button>();
+            label   = row.Find("PresenterTransitionValue/Text")?.GetComponent<TMP_Text>();
+        }
+
+        WireField(ctx.controller, "presenterTransitionPrevButton", prevBtn);
+        WireField(ctx.controller, "presenterTransitionNextButton", nextBtn);
+        WireField(ctx.controller, "presenterTransitionLabel",      label);
         Done(ctx, rowName);
     }
 

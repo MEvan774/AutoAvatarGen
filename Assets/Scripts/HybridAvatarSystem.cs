@@ -23,11 +23,24 @@ public class HybridAvatarSystem : MonoBehaviour
     public float timingOffset = 0f;
 
     [Header("Transition Style")]
-    [Tooltip("Use crossfade between emotions instead of squash-stretch")]
+    [Tooltip("Fallback transition used only when the main-menu \"Presenter " +
+             "transition\" selector has never been touched: on = Crossfade, " +
+             "off = Squash & Stretch. Once the user picks a style in the main " +
+             "menu, that choice (including Shake) wins.")]
     public bool useCrossfade = false;
     [Range(0.1f, 1.5f)]
     [Tooltip("Duration of the crossfade transition in seconds")]
     public float crossfadeDuration = 0.3f;
+    [Tooltip("Optional MugsShake driven by the 'Shake' transition style. If left " +
+             "empty, one is added to the pivot at runtime with default settings. " +
+             "Assign your own (on the pivot, or a child that holds only the visual) " +
+             "to tune amplitude / angle / duration in the Inspector.")]
+    public MugsShake mugsShake;
+    [Tooltip("Emotion changes scheduled within this many seconds of the start " +
+             "jump-cut instead of animating, so no squash / crossfade / shake " +
+             "plays in the first moment of a recording. Set to 0 to animate from " +
+             "the very first marker.")]
+    public float instantCutStartWindow = 1f;
 
     [Header("Sprite Size Normalization")]
     [Tooltip("If true, all emotion sprites render at the same size as the neutral sprite, regardless of source image dimensions.")]
@@ -42,6 +55,10 @@ public class HybridAvatarSystem : MonoBehaviour
     private float baselineSpriteHeight;
 
     private Coroutine currentAnimation;
+
+    // Resolved in Awake from PresenterTransitionSettings (the main-menu choice),
+    // falling back to the useCrossfade toggle when the user hasn't picked one.
+    private PresenterTransitionSettings.Style activeTransition;
 
     private Dictionary<string, Sprite> emotionMap;
     private string cleanScript;
@@ -120,6 +137,20 @@ public class HybridAvatarSystem : MonoBehaviour
         noiseOffsetX = Random.Range(0f, 100f);
         noiseOffsetY = Random.Range(0f, 100f);
         noiseOffsetRotation = Random.Range(0f, 100f);
+
+        // Resolve the emotion-transition style the user picked in the main menu.
+        // No saved choice → fall back to the inspector `useCrossfade` toggle so
+        // existing scenes behave exactly as before.
+        activeTransition = PresenterTransitionSettings.LoadStyle(
+            useCrossfade ? PresenterTransitionSettings.Style.Crossfade
+                         : PresenterTransitionSettings.Style.SquashStretch);
+
+        // The Shake variant drives a MugsShake on the pivot — the whole-character
+        // rig that idle sway and squash already move — so the shudder rides on the
+        // rest pose without fighting Left/Right/Center positioning (which lives on
+        // an ancestor). Auto-add one if the user didn't wire their own.
+        if (mugsShake == null && pivot != null)
+            mugsShake = pivot.GetComponent<MugsShake>() ?? pivot.AddComponent<MugsShake>();
     }
 
     void Update()
@@ -247,8 +278,12 @@ public class HybridAvatarSystem : MonoBehaviour
             {
                 if (currentTime >= timeMarkers[i].triggerTime)
                 {
-                    Debug.Log($"Triggering emotion {timeMarkers[i].emotion} at {currentTime:F2}s");
-                    ChangeEmotion(timeMarkers[i].emotion);
+                    // Emotions scheduled within the start window jump-cut instead
+                    // of animating, so no transition plays in the first moment of
+                    // the recording.
+                    bool instant = timeMarkers[i].triggerTime < instantCutStartWindow;
+                    Debug.Log($"Triggering emotion {timeMarkers[i].emotion} at {currentTime:F2}s{(instant ? " (instant)" : "")}");
+                    ChangeEmotion(timeMarkers[i].emotion, instant);
                     lastTriggeredMarker = i;
                 }
                 else
@@ -263,7 +298,7 @@ public class HybridAvatarSystem : MonoBehaviour
         Debug.Log("Audio finished playing");
     }
 
-    void ChangeEmotion(string emotion)
+    void ChangeEmotion(string emotion, bool instant = false)
     {
         if (emotionMap == null || string.IsNullOrEmpty(emotion))
         {
@@ -280,17 +315,51 @@ public class HybridAvatarSystem : MonoBehaviour
                     StopCoroutine(currentAnimation);
                 }
 
-                if (useCrossfade)
-                    currentAnimation = StartCoroutine(CrossfadeAnimation(emotionMap[emotion]));
+                if (instant)
+                {
+                    // Jump-cut — no transition plays (used at the very start of a
+                    // recording so the first moment has no squash/crossfade/shake).
+                    ApplyEmotionInstant(emotionMap[emotion]);
+                }
                 else
-                    currentAnimation = StartCoroutine(SquashStretchAnimation(emotionMap[emotion]));
-                Debug.Log($"Changed emotion to: {emotion}");
+                {
+                    switch (activeTransition)
+                    {
+                        case PresenterTransitionSettings.Style.Crossfade:
+                            currentAnimation = StartCoroutine(CrossfadeAnimation(emotionMap[emotion]));
+                            break;
+                        case PresenterTransitionSettings.Style.Shake:
+                            currentAnimation = StartCoroutine(ShakeTransition(emotionMap[emotion]));
+                            break;
+                        default:
+                            currentAnimation = StartCoroutine(SquashStretchAnimation(emotionMap[emotion]));
+                            break;
+                    }
+                }
+                Debug.Log($"Changed emotion to: {emotion}{(instant ? " (instant)" : "")}");
             }
         }
         else
         {
             Debug.LogWarning($"Emotion '{emotion}' not found!");
         }
+    }
+
+    // Instantly swaps the expression with no animation — a clean jump-cut.
+    // Clears any crossfade overlay and lets idle sway resume (currentAnimation
+    // = null) so nothing lingers from a previous transition.
+    void ApplyEmotionInstant(Sprite newSprite)
+    {
+        avatarRenderer.sprite = newSprite;
+        NormalizeSpriteSize(avatarRenderer);
+
+        if (crossfadeRenderer != null)
+        {
+            crossfadeRenderer.color  = new Color(1f, 1f, 1f, 0f);
+            crossfadeRenderer.sprite = null;
+        }
+
+        currentAnimation = null;
     }
 
     IEnumerator SquashStretchAnimation(Sprite newSprite)
@@ -395,6 +464,33 @@ public class HybridAvatarSystem : MonoBehaviour
         NormalizeSpriteSize(avatarRenderer);
         crossfadeRenderer.color = new Color(1f, 1f, 1f, 0f);
         crossfadeRenderer.sprite = null;
+
+        currentAnimation = null;
+    }
+
+    // Shake variant — reproduces the MugsTech preview's "Shake" transition:
+    // swap the expression instantly, then let MugsShake shudder the character
+    // side-to-side and settle. We hold currentAnimation non-null for the shake's
+    // length so idle sway (which writes the same pivot transform) stays
+    // suppressed until the shudder settles back to rest. Falls back to a plain
+    // instant swap if no MugsShake is available (e.g. pivot unassigned).
+    IEnumerator ShakeTransition(Sprite newSprite)
+    {
+        avatarRenderer.sprite = newSprite;
+        NormalizeSpriteSize(avatarRenderer);
+
+        if (mugsShake != null)
+        {
+            mugsShake.Play();
+            yield return new WaitForSeconds(mugsShake.duration);
+        }
+        else
+        {
+            // No shake component — yield one frame so ChangeEmotion's
+            // currentAnimation assignment lands before we clear it below
+            // (otherwise idle sway would stay suppressed).
+            yield return null;
+        }
 
         currentAnimation = null;
     }

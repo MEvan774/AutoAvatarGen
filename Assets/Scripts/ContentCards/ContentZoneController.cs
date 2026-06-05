@@ -411,6 +411,11 @@ public class ContentZoneController : MonoBehaviour
 
         activeCard.Show();
 
+        // Per-tag sound effect — fires as the card actually appears. Queued or
+        // centered-suppressed cards never reach here, so there are no phantom
+        // sounds for cards that don't visibly show.
+        TagSfxPlayer.Instance.Play(evt.cardType);
+
         // Start duration timer
         durationCoroutine = StartCoroutine(DurationTimer(evt.duration));
     }

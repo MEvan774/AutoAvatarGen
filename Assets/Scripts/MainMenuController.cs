@@ -170,6 +170,8 @@ public class MainMenuController : MonoBehaviour
         BuildMusicOverrideRow();
         WireGenerateAudioButton();
         WireBackgroundModeRow();
+        EnsurePresenterTransitionControls();
+        WirePresenterTransitionRow();
         EnsureOutputLibrary();
 
         RefreshResult();
@@ -196,6 +198,15 @@ public class MainMenuController : MonoBehaviour
     [SerializeField] Button   backgroundModeNextButton;
     [Tooltip("Text that shows the current mode label.")]
     [SerializeField] TMP_Text backgroundModeLabel;
+
+    [Header("Presenter Transition Cycle Row")]
+    [Tooltip("Built by Tools > AutoAvatarGen > Add Presenter Transition Row, or " +
+             "auto-created at runtime if left null. Cycle button — previous style.")]
+    [SerializeField] Button   presenterTransitionPrevButton;
+    [Tooltip("Cycle button — next style.")]
+    [SerializeField] Button   presenterTransitionNextButton;
+    [Tooltip("Text that shows the current presenter-transition style label.")]
+    [SerializeField] TMP_Text presenterTransitionLabel;
 
     void WireBackgroundModeRow()
     {
@@ -232,6 +243,138 @@ public class MainMenuController : MonoBehaviour
             default:
                 backgroundModeLabel.color = Color.white; break;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Presenter transition style (Squash & Stretch / Crossfade / Shake)
+    //
+    // Same cycle-row pattern as the background mode row, persisted via
+    // PresenterTransitionSettings. HybridAvatarSystem reads the same pref at
+    // scene load and runs the matching emotion-transition animation. The row is
+    // normally authored via Tools > AutoAvatarGen > Add Presenter Transition Row;
+    // if it wasn't, EnsurePresenterTransitionControls builds a fallback at
+    // runtime so the option always shows in the menu.
+    // -----------------------------------------------------------------------
+
+    // Display default when no choice is saved yet — matches the recording
+    // scene's shipped default (HybridAvatarSystem.useCrossfade = crossfade).
+    const PresenterTransitionSettings.Style DefaultTransitionStyle =
+        PresenterTransitionSettings.Style.Crossfade;
+
+    void WirePresenterTransitionRow()
+    {
+        if (presenterTransitionPrevButton != null)
+            presenterTransitionPrevButton.onClick.AddListener(() => CyclePresenterTransition(-1));
+        if (presenterTransitionNextButton != null)
+            presenterTransitionNextButton.onClick.AddListener(() => CyclePresenterTransition(+1));
+        UpdatePresenterTransitionLabel();
+    }
+
+    void CyclePresenterTransition(int direction)
+    {
+        var current = PresenterTransitionSettings.LoadStyle(DefaultTransitionStyle);
+        var next    = PresenterTransitionSettings.Cycle(current, direction);
+        PresenterTransitionSettings.SaveStyle(next);
+        UpdatePresenterTransitionLabel();
+    }
+
+    void UpdatePresenterTransitionLabel()
+    {
+        if (presenterTransitionLabel == null) return;
+        var style = PresenterTransitionSettings.LoadStyle(DefaultTransitionStyle);
+        presenterTransitionLabel.text = PresenterTransitionSettings.Label(style);
+    }
+
+    // Builds the presenter-transition cycle row at runtime if it wasn't authored
+    // in the scene. Mirrors EnsureMediaRootControls / the background mode row:
+    // bottom-center, stacked just above where the Background Mode Row sits.
+    void EnsurePresenterTransitionControls()
+    {
+        if (presenterTransitionLabel != null) return; // already wired in the inspector
+
+        Canvas canvas = GetComponentInChildren<Canvas>();
+        if (canvas == null) return;
+
+        var row = new GameObject("PresenterTransitionRow", typeof(RectTransform));
+        row.transform.SetParent(canvas.transform, false);
+        var rowRT = (RectTransform)row.transform;
+        rowRT.anchorMin = rowRT.anchorMax = rowRT.pivot = new Vector2(0.5f, 0f);
+        rowRT.anchoredPosition = new Vector2(0f, 240f);
+        rowRT.sizeDelta        = new Vector2(900f, 100f);
+
+        // Header
+        var headerGO = new GameObject("Header", typeof(RectTransform));
+        headerGO.transform.SetParent(row.transform, false);
+        var headerRT = (RectTransform)headerGO.transform;
+        headerRT.anchorMin = new Vector2(0f, 1f);
+        headerRT.anchorMax = new Vector2(1f, 1f);
+        headerRT.pivot     = new Vector2(0.5f, 1f);
+        headerRT.anchoredPosition = new Vector2(0f, -10f);
+        headerRT.sizeDelta        = new Vector2(-20f, 28f);
+        var header = headerGO.AddComponent<TextMeshProUGUI>();
+        header.text      = "Presenter transition";
+        header.fontSize  = 22;
+        header.fontStyle = FontStyles.Bold;
+        header.alignment = TextAlignmentOptions.Center;
+        header.color     = new Color(0.82f, 0.85f, 0.9f, 1f);
+        header.raycastTarget = false;
+
+        const float controlsY = -56f;
+
+        presenterTransitionPrevButton = BuildTransitionCycleButton(row.transform, "PresenterTransitionPrev", "<", -220f, controlsY);
+
+        // Value display
+        var valueGO = new GameObject("PresenterTransitionValue", typeof(RectTransform));
+        valueGO.transform.SetParent(row.transform, false);
+        valueGO.AddComponent<Image>().color = new Color(0.15f, 0.17f, 0.21f, 1f);
+        var valueRT = (RectTransform)valueGO.transform;
+        valueRT.anchorMin = valueRT.anchorMax = valueRT.pivot = new Vector2(0.5f, 1f);
+        valueRT.anchoredPosition = new Vector2(0f, controlsY);
+        valueRT.sizeDelta        = new Vector2(320f, 44f);
+
+        var labelGO = new GameObject("Text", typeof(RectTransform));
+        labelGO.transform.SetParent(valueGO.transform, false);
+        var labelRT = (RectTransform)labelGO.transform;
+        labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
+        labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
+        var label = labelGO.AddComponent<TextMeshProUGUI>();
+        label.fontSize  = 24;
+        label.fontStyle = FontStyles.Bold;
+        label.alignment = TextAlignmentOptions.Center;
+        label.color     = Color.white;
+        label.raycastTarget = false;
+        presenterTransitionLabel = label;
+
+        presenterTransitionNextButton = BuildTransitionCycleButton(row.transform, "PresenterTransitionNext", ">", 220f, controlsY);
+    }
+
+    static Button BuildTransitionCycleButton(Transform parent, string name, string glyph, float x, float y)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        var rt = (RectTransform)go.transform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);
+        rt.anchoredPosition = new Vector2(x, y);
+        rt.sizeDelta        = new Vector2(60f, 44f);
+
+        var img = go.AddComponent<Image>();
+        img.color = new Color(0.20f, 0.45f, 0.65f, 1f);
+        var btn = go.AddComponent<Button>();
+        btn.targetGraphic = img;
+
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(go.transform, false);
+        var labelRT = (RectTransform)labelGO.transform;
+        labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
+        labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
+        var t = labelGO.AddComponent<TextMeshProUGUI>();
+        t.text      = glyph;
+        t.fontSize  = 30;
+        t.fontStyle = FontStyles.Bold;
+        t.alignment = TextAlignmentOptions.Center;
+        t.color     = Color.white;
+        t.raycastTarget = false;
+        return btn;
     }
 
     // -----------------------------------------------------------------------

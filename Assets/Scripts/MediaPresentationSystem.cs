@@ -72,6 +72,11 @@ public class MediaPresentationSystem : MonoBehaviour
     [Range(1.01f, 1.25f)]
     public float zoomInMultiplier = 1.12f;
 
+    [Tooltip("Easing for {Zoom:In}. Default is a snappy overshoot (the project's CSS linear() " +
+             "curve, shared with content-card entries) that pushes ~11% past the target zoom " +
+             "before settling back. {Zoom:Out}, {Zoom:Reset} and the auto-reset stay smooth.")]
+    public AnimationCurve zoomInOvershootCurve = CardEntryAnimator.BuildDefaultOvershootCurve();
+
     [Header("Pullback Effect ({Zoom:Pullback})")]
     [Tooltip("Initial wide framing — orthographicSize is snapped to defaultSize * this on trigger.")]
     [Range(1.1f, 4f)]
@@ -342,6 +347,9 @@ public class MediaPresentationSystem : MonoBehaviour
         Transform target = GetTransformForPosition(targetPosition);
         if (target == null) return;
 
+        // Per-tag sound effect ({Position:Left/Right/Center}).
+        TagSfxPlayer.Instance.Play(targetPosition);
+
         // Stop any in-progress movement
         if (movementCoroutine != null)
             StopCoroutine(movementCoroutine);
@@ -452,6 +460,9 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         if (mainCamera == null) return;
 
+        // Per-tag sound effect ({Zoom:In/Out/Reset/Pullback}).
+        TagSfxPlayer.Instance.Play(type);
+
         // Stop any in-progress zoom + any pending auto-reset from a previous marker.
         // Also pop the pullback mask off — if the new zoom is itself a Pullback,
         // AnimatePullback will switch it back on at the start.
@@ -489,7 +500,7 @@ public class MediaPresentationSystem : MonoBehaviour
         if (cut)
             mainCamera.orthographicSize = targetSize;
         else
-            zoomCoroutine = StartCoroutine(AnimateZoom(targetSize));
+            zoomCoroutine = StartCoroutine(AnimateZoom(targetSize, overshoot: type == ZoomType.In));
 
         // Auto-reset timer — only meaningful when we've actually changed away
         // from default (i.e. zoomed In). For Out we're already at default.
@@ -549,16 +560,22 @@ public class MediaPresentationSystem : MonoBehaviour
         pendingResetCoroutine = null;
     }
 
-    IEnumerator AnimateZoom(float targetSize)
+    // overshoot=true uses the snappy overshoot curve (zoom-in only). That curve
+    // rises above 1.0 mid-flight, so the lerp MUST be unclamped or the overshoot is
+    // silently flattened. EaseInOutQuart stays within [0,1], so unclamped is a no-op
+    // for the smooth path (Out / Reset / auto-reset).
+    IEnumerator AnimateZoom(float targetSize, bool overshoot = false)
     {
         float startSize = mainCamera.orthographicSize;
+        bool useCurve = overshoot && zoomInOvershootCurve != null && zoomInOvershootCurve.length >= 2;
         float elapsed = 0f;
 
         while (elapsed < zoomDuration)
         {
             elapsed += Time.deltaTime;
-            float t = EaseInOutQuart(Mathf.Clamp01(elapsed / zoomDuration));
-            mainCamera.orthographicSize = Mathf.Lerp(startSize, targetSize, t);
+            float p = Mathf.Clamp01(elapsed / zoomDuration);
+            float t = useCurve ? zoomInOvershootCurve.Evaluate(p) : EaseInOutQuart(p);
+            mainCamera.orthographicSize = Mathf.LerpUnclamped(startSize, targetSize, t);
             yield return null;
         }
 
@@ -708,6 +725,9 @@ public class MediaPresentationSystem : MonoBehaviour
                     var marker = blackPanelMarkers[i];
                     Debug.Log($"[Black] Triggering black panel for {marker.duration:F2}s at {currentTime:F2}s");
 
+                    // Per-tag sound effect ({Black}).
+                    TagSfxPlayer.Instance.Play(TagSfxEvent.Black);
+
                     if (blackPanelController != null)
                         blackPanelController.Show(marker.duration);
                     else
@@ -732,6 +752,7 @@ public class MediaPresentationSystem : MonoBehaviour
         {
             var marker = blackPanelMarkers[i];
             Debug.Log($"[Black] Flushing end-of-audio black panel for {marker.duration:F2}s");
+            TagSfxPlayer.Instance.Play(TagSfxEvent.Black);
             if (blackPanelController != null)
                 blackPanelController.Show(marker.duration);
             lastTriggeredBlackPanelMarker = i;
@@ -862,6 +883,10 @@ public class MediaPresentationSystem : MonoBehaviour
     IEnumerator ShowMedia(MediaMarkerData marker)
     {
         isShowingMedia = true;
+
+        // Per-tag sound effect ({Image}/{Video}) — fires as the media appears,
+        // on its own AudioSource so a video's narration-pause never gates it.
+        TagSfxPlayer.Instance.Play(marker.mediaType);
 
         bool shouldPauseAudio = marker.mediaType == MediaType.VIDEO;
         float pausedTime = 0f;
