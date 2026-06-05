@@ -181,6 +181,16 @@ public class TagSfxPlayer : MonoBehaviour
         }
     }
 
+    public void Play(ScreenTransition t)
+    {
+        switch (t)
+        {
+            case ScreenTransition.Wipe:    Play(TagSfxEvent.TransitionWipe);    break;
+            case ScreenTransition.Shutter: Play(TagSfxEvent.TransitionShutter); break;
+            case ScreenTransition.Iris:    Play(TagSfxEvent.TransitionIris);    break;
+        }
+    }
+
     public void Play(ContentCardType c)
     {
         switch (c)
@@ -229,4 +239,8 @@ public enum TagSfxEvent
     BigMedia,
     BigCenter,
     BigText,
+    // Whole-screen scene transitions
+    TransitionWipe,
+    TransitionShutter,
+    TransitionIris,
 }

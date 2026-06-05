@@ -25,6 +25,8 @@ What gets STRIPPED before TTS (never read aloud):
   - {Emotion}        e.g. {Concerned} {Excited} {Neutral} {Serious} {Sad}
   - {Position:...}   e.g. {Position:Left,Cut}
   - {Zoom:...}       e.g. {Zoom:In}
+  - {Transition:...} e.g. {Transition:Wipe} {Transition:Iris,1.2}  (whole-screen scene transition; optional duration scale)
+  - {Mood:...}       e.g. {Mood:Tense}  (background mood crossfade: Calm/Energetic/Tense/Playful/Minimal)
   - {Black:...}      e.g. {Black:3}  (fullscreen black panel, duration in seconds)
   - {Image:...}      e.g. {Image:file,5}
   - {Video:...}      e.g. {Video:clip,0}
@@ -79,6 +81,8 @@ _ALL_MARKERS = re.compile(
     r'\{(?:Excited|Serious|Concerned|Neutral|Sad)\}'        # emotion states
     r'|\{Position:\w+(?:,\w+)?\}'                           # position markers
     r'|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}'           # zoom markers (+optional Cut / D=)
+    r'|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}'               # whole-screen transitions (+optional scale)
+    r'|\{Mood:\w+\}'                                        # background mood crossfade
     r'|\{Black:\d+(?:\.\d+)?\}'                             # black panel markers
     r'|\{(?:Image|Video):[^}]+\}'                           # media markers
     r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*bigCenter)?\}'  # headline cards (+optional bigCenter)
@@ -319,6 +323,14 @@ def _stamp_marker(marker: str, t: float) -> str:
 
     # {Position:Left,Cut}
     if inner.startswith('Position:'):
+        return f"{{{inner},{ts}}}"
+
+    # {Transition:Wipe}  /  {Transition:Iris,1.2}
+    if inner.startswith('Transition:'):
+        return f"{{{inner},{ts}}}"
+
+    # {Mood:Tense}
+    if inner.startswith('Mood:'):
         return f"{{{inner},{ts}}}"
 
     # {Black:3}  →  {Black:D=3,T=X.XXX}

@@ -298,6 +298,18 @@ public class HybridAvatarSystem : MonoBehaviour
         Debug.Log("Audio finished playing");
     }
 
+    /// <summary>
+    /// Instantly swap to an emotion with no transition animation — a clean
+    /// jump-cut. Used by ScreenTransitionController's onCovered so the expression
+    /// is already changed while the screen is fully covered (the squash / crossfade
+    /// / shake would otherwise play in view as the transition reveals). No-op for
+    /// an unknown emotion name (logs a warning, same as the timed path).
+    /// </summary>
+    public void SetEmotionImmediate(string emotion)
+    {
+        ChangeEmotion(emotion, instant: true);
+    }
+
     void ChangeEmotion(string emotion, bool instant = false)
     {
         if (emotionMap == null || string.IsNullOrEmpty(emotion))

@@ -451,6 +451,29 @@ public class ContentZoneController : MonoBehaviour
     }
 
     /// <summary>
+    /// Immediately clear the content zone for a whole-screen transition: drop any
+    /// queued cards, stop the active card's timers, and destroy whatever is on
+    /// screen with no fade. Called from ScreenTransitionController's onCovered, so
+    /// the old card is gone the instant the screen reveals (the cover hides the
+    /// pop-out). Does NOT touch the future timeline — later cards still fire.
+    /// </summary>
+    public void ClearForTransition()
+    {
+        cardQueue.Clear();
+
+        if (durationCoroutine != null) { StopCoroutine(durationCoroutine); durationCoroutine = null; }
+        if (hideAndShowCoroutine != null) { StopCoroutine(hideAndShowCoroutine); hideAndShowCoroutine = null; }
+
+        if (activeCard != null)
+        {
+            ContentCard card = activeCard;
+            activeCard = null;
+            card.OnHideComplete = null;
+            Destroy(card.gameObject);
+        }
+    }
+
+    /// <summary>
     /// Pause the side-card timeline (character centered). Hides an active SIDE
     /// card, but leaves a fullscreen feature card (BigText/BigMedia/BigCenter)
     /// running — those sit in front of the character and don't conflict with it.

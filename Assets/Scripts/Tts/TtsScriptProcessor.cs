@@ -56,6 +56,8 @@ namespace MugsTech.Tts
             @"\{(?:Excited|Serious|Concerned|Neutral|Sad)\}" +
             @"|\{Position:\w+(?:,\w+)?\}" +
             @"|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}" +
+            @"|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}" +     // whole-screen transitions (+optional duration scale)
+            @"|\{Mood:\w+\}" +                              // background mood crossfade
             @"|\{Black:\d+(?:\.\d+)?\}" +
             @"|\{(?:Image|Video):[^}]+\}" +
             @"|\{Headline:""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*bigCenter)?\}" +
@@ -275,6 +277,14 @@ namespace MugsTech.Tts
 
             // {Position:...}
             if (innerCurly.StartsWith("Position:", System.StringComparison.Ordinal))
+                return "{" + innerCurly + "," + ts + "}";
+
+            // {Transition:Wipe}  /  {Transition:Iris,1.2}
+            if (innerCurly.StartsWith("Transition:", System.StringComparison.Ordinal))
+                return "{" + innerCurly + "," + ts + "}";
+
+            // {Mood:Tense}
+            if (innerCurly.StartsWith("Mood:", System.StringComparison.Ordinal))
                 return "{" + innerCurly + "," + ts + "}";
 
             // {Black:3}  →  {Black:D=3,T=X.XXX}

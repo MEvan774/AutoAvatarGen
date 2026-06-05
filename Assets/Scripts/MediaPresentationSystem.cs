@@ -102,6 +102,18 @@ public class MediaPresentationSystem : MonoBehaviour
     [Tooltip("Fullscreen black panel controller — jump-cuts a black overlay via {Black:duration} markers.")]
     public BlackPanelController blackPanelController;
 
+    [Header("Transitions & Mood")]
+    [Tooltip("Whole-screen scene transitions ({Transition:Wipe/Shutter/Iris}). Auto-found, or a " +
+             "'TransitionDirector' GameObject is created at runtime if none exists. The overlay is " +
+             "hosted under mediaCanvas so it's captured by the recorder.")]
+    public ScreenTransitionController screenTransitionController;
+    [Tooltip("Background mood controller — crossfaded by {Mood:Calm/Energetic/Tense/Playful/Minimal} " +
+             "(and by {Mood:...} bundled onto a transition line). Optional: {Mood:} is a no-op if absent.")]
+    public MugsTech.Background.BackgroundMoodController moodController;
+    [Tooltip("Seconds the background mood crossfade takes when a {Mood:...} fires. Independent of the " +
+             "~0.7s transition; may finish slightly after the reveal (per the blueprint's 2-4s guidance).")]
+    public float moodCrossfadeSeconds = 3f;
+
     [Header("Media Settings")]
     [Tooltip("Legacy fallback — Resources subfolder used only if external folders below are blank or a file can't be found on disk.")]
     public string mediaFolderPath = "Media";
@@ -167,6 +179,12 @@ public class MediaPresentationSystem : MonoBehaviour
     private List<BlackPanelMarkerData> blackPanelMarkers;
     private int lastTriggeredBlackPanelMarker = -1;
 
+    // --- Transition + mood tracking ---
+    private List<TransitionMarkerData> transitionMarkers;
+    private int lastTriggeredTransitionMarker = -1;
+    private List<MoodMarkerData> moodMarkers;
+    private int lastTriggeredMoodMarker = -1;
+
     void Awake()
     {
         if (mediaDisplay != null)
@@ -200,6 +218,34 @@ public class MediaPresentationSystem : MonoBehaviour
         // the recorder actually captures (the same canvas the content cards use).
         if (blackPanelController != null && mediaCanvas != null)
             blackPanelController.SetHostCanvas(mediaCanvas);
+
+        // Auto-find the background mood controller. Optional — {Mood:...} is a
+        // no-op when it's absent.
+        if (moodController == null)
+            moodController = FindObjectOfType<MugsTech.Background.BackgroundMoodController>();
+
+        // Ensure a ScreenTransitionController exists (create a TransitionDirector
+        // if the scene has none, mirroring the black-panel auto-create), and host
+        // its overlay on the recorder-captured canvas so transitions are recorded.
+        EnsureScreenTransitionController();
+    }
+
+    // Finds or creates the ScreenTransitionController and points its overlay at the
+    // captured media canvas. The overlay itself is built lazily on the first Play.
+    void EnsureScreenTransitionController()
+    {
+        if (screenTransitionController == null)
+            screenTransitionController = ScreenTransitionController.Instance;
+        if (screenTransitionController == null)
+            screenTransitionController = FindObjectOfType<ScreenTransitionController>();
+        if (screenTransitionController == null)
+        {
+            GameObject go = new GameObject("TransitionDirector");
+            screenTransitionController = go.AddComponent<ScreenTransitionController>();
+        }
+
+        if (screenTransitionController != null && mediaCanvas != null)
+            screenTransitionController.SetHostCanvas(mediaCanvas);
     }
 
     void Start()
@@ -242,8 +288,23 @@ public class MediaPresentationSystem : MonoBehaviour
         Debug.Log($"[MediaPresentation] Loaded script ({scriptWithMarkers.Length} chars). " +
                   $"Contains '{{Black': {scriptWithMarkers.Contains("{Black")}\n---\n{preview}\n---");
 
-        // Parse position markers first (strips {Position:X} from script)
-        var posResult = ParsePositionMarkers(scriptWithMarkers, audio.length);
+        // Parse transition markers FIRST. A {Transition:...} claims the other
+        // state tags on its line — {Position:...}, the emotion tag, {Mood:...} and
+        // any content-card tag — and strips them from the script so they DON'T also
+        // fire on their own timelines. Instead they're applied together at the
+        // transition's full-cover midpoint (see ApplyTransitionCover), so Mugs is
+        // already repositioned and the old card is gone when the screen reveals.
+        var trResult = ParseTransitionMarkers(scriptWithMarkers, audio.length);
+        string scriptAfterTransitions = trResult.Item1;
+        transitionMarkers = trResult.Item2;
+
+        // Parse standalone {Mood:X} markers (transition-claimed ones already gone).
+        var moodResult = ParseMoodMarkers(scriptAfterTransitions, audio.length);
+        string scriptAfterMood = moodResult.Item1;
+        moodMarkers = moodResult.Item2;
+
+        // Parse position markers (strips {Position:X} from script)
+        var posResult = ParsePositionMarkers(scriptAfterMood, audio.length);
         string scriptAfterPositions = posResult.Item1;
         positionMarkers = posResult.Item2;
 
@@ -296,11 +357,14 @@ public class MediaPresentationSystem : MonoBehaviour
         // Forward to avatar system for emotion processing (unchanged)
         avatarSystem.ProcessWithExistingAudio(cleanScript, audio);
 
-        // Track media, positions, zoom, and content cards against audio time
+        // Track media, positions, zoom, content cards, transitions and mood
+        // against audio time
         StartCoroutine(TrackMediaByTime());
         StartCoroutine(TrackPositionsByTime());
         StartCoroutine(TrackZoomByTime());
         StartCoroutine(TrackBlackPanelByTime());
+        StartCoroutine(TrackTransitionsByTime());
+        StartCoroutine(TrackMoodByTime());
 
         if (contentZoneController != null)
             StartCoroutine(contentZoneController.TrackCardsByTime());
@@ -1243,6 +1307,326 @@ public class MediaPresentationSystem : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
+    // Transition + Mood Tracking
+    //
+    // {Transition:<Wipe|Shutter|Iris>[,<durationScale>]} fires a whole-screen
+    // cover -> reveal. Under cover (onCovered) the scene is reconfigured so each
+    // transition reads as a fresh section. {Transition:...} CLAIMS the other state
+    // tags on its line ({Position:...}, the emotion tag, {Mood:...} and any content
+    // card) at parse time and applies them at the cover midpoint, in snap form —
+    // so Mugs never slides and the old card never pops out in view. A {Mood:...}
+    // NOT on a transition line crossfades on its own timeline.
+    // -----------------------------------------------------------------------
+
+    // {Transition:Wipe} / {Transition:Iris,1.2} / {Transition:Wipe,T=5.0} / {Transition:Iris,1.2,T=5.0}
+    static readonly Regex TransitionRegex = new Regex(
+        @"\{Transition:(\w+)(?:,(\d+(?:\.\d+)?))?(?:,T=(\d+(?:\.\d+)?))?\}",
+        RegexOptions.IgnoreCase);
+    // {Mood:Tense} / {Mood:Tense,T=5.0}
+    static readonly Regex MoodRegex = new Regex(
+        @"\{Mood:(\w+)(?:,T=(\d+(?:\.\d+)?))?\}",
+        RegexOptions.IgnoreCase);
+    // Co-located {Position:...} on a transition line (only the position value is used — the
+    // change is always a snap under cover, so any Cut/Smooth qualifier is ignored).
+    static readonly Regex BundlePositionRegex = new Regex(
+        @"\{Position:(\w+)(?:,(?:Cut|Smooth))?(?:,T=(\d+(?:\.\d+)?))?\}",
+        RegexOptions.IgnoreCase);
+    // Co-located emotion tag — a bare {Word}[,T=X] (colon tags are excluded by the
+    // pattern), matching HybridAvatarSystem's own emotion regex.
+    static readonly Regex BundleEmotionRegex = new Regex(
+        @"\{(\w+)(?:,T=(\d+(?:\.\d+)?))?\}");
+
+    (string, List<TransitionMarkerData>) ParseTransitionMarkers(string script, float audioDuration)
+    {
+        var markers = new List<TransitionMarkerData>();
+
+        if (script.IndexOf("{Transition:", System.StringComparison.OrdinalIgnoreCase) < 0)
+            return (script, markers);
+
+        // Denominator for the no-T= fallback (same idiom as the other parsers:
+        // strip only this marker type, measure the remainder).
+        int totalChars = Mathf.Max(1, TransitionRegex.Replace(script, "").Length);
+
+        string[] lines = script.Split('\n');
+        int lineStartGlobal = 0;
+
+        for (int li = 0; li < lines.Length; li++)
+        {
+            string line = lines[li];
+            Match tr = TransitionRegex.Match(line);
+            if (tr.Success)
+            {
+                ScreenTransition type = ParseTransitionType(tr.Groups[1].Value);
+
+                float scale = 1f;
+                if (tr.Groups[2].Success)
+                    float.TryParse(tr.Groups[2].Value,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out scale);
+                if (scale <= 0f) scale = 1f;
+
+                float markerTime = TryParseTimestamp(tr.Groups[3]);
+                if (markerTime < 0f)
+                {
+                    string before = script.Substring(0, lineStartGlobal + tr.Index);
+                    markerTime = (TransitionRegex.Replace(before, "").Length / (float)totalChars) * audioDuration;
+                }
+
+                // Work on the line with the transition tag removed, then claim the
+                // co-located state tags off it (each removed as it's claimed).
+                string work = line.Remove(tr.Index, tr.Length);
+                var data = new TransitionMarkerData
+                {
+                    triggerTime = markerTime,
+                    transition = type,
+                    durationScale = scale
+                };
+
+                Match pos = BundlePositionRegex.Match(work);
+                if (pos.Success)
+                {
+                    data.hasPosition = true;
+                    data.position = ParsePositionValue(pos.Groups[1].Value);
+                    work = work.Remove(pos.Index, pos.Length);
+                }
+
+                Match moodMatch = MoodRegex.Match(work);
+                if (moodMatch.Success)
+                {
+                    if (TryMapMood(moodMatch.Groups[1].Value, out var mt))
+                    {
+                        data.hasMood = true;
+                        data.mood = mt;
+                    }
+                    work = work.Remove(moodMatch.Index, moodMatch.Length);
+                }
+
+                // Reuse the content-card parser on the single line; the events'
+                // own trigger times are unused (ShowCard is called directly at cover).
+                var cardResult = ContentZoneTagParser.ParseContentTags(work, audioDuration);
+                if (cardResult.Item2.Count > 0)
+                {
+                    data.contentCards = cardResult.Item2;
+                    work = cardResult.Item1;
+                }
+
+                // Emotion last — only bare {Word} tags remain (colon tags already claimed/left).
+                Match emo = BundleEmotionRegex.Match(work);
+                if (emo.Success)
+                {
+                    data.emotion = emo.Groups[1].Value;
+                    work = work.Remove(emo.Index, emo.Length);
+                }
+
+                markers.Add(data);
+                Debug.Log($"[Transition] '{type}' x{scale:F2} at {markerTime:F2}s — " +
+                          $"pos={(data.hasPosition ? data.position.ToString() : "none")}, " +
+                          $"emotion={(string.IsNullOrEmpty(data.emotion) ? "none" : data.emotion)}, " +
+                          $"mood={(data.hasMood ? data.mood.ToString() : "none")}, " +
+                          $"cards={(data.contentCards != null ? data.contentCards.Count : 0)}");
+
+                lines[li] = work;
+            }
+
+            lineStartGlobal += line.Length + 1; // original line length + the split '\n'
+        }
+
+        return (string.Join("\n", lines), markers);
+    }
+
+    (string, List<MoodMarkerData>) ParseMoodMarkers(string script, float audioDuration)
+    {
+        var markers = new List<MoodMarkerData>();
+        string clean = script;
+
+        MatchCollection matches = MoodRegex.Matches(script);
+        if (matches.Count == 0) return (clean, markers);
+
+        int totalChars = Mathf.Max(1, MoodRegex.Replace(script, "").Length);
+
+        foreach (Match match in matches)
+        {
+            float markerTime = TryParseTimestamp(match.Groups[2]);
+            if (markerTime < 0f)
+            {
+                string before = script.Substring(0, match.Index);
+                markerTime = (MoodRegex.Replace(before, "").Length / (float)totalChars) * audioDuration;
+            }
+
+            if (TryMapMood(match.Groups[1].Value, out var mt))
+            {
+                markers.Add(new MoodMarkerData { triggerTime = markerTime, mood = mt });
+                Debug.Log($"[Mood] '{mt}' will crossfade at {markerTime:F2}s");
+            }
+
+            clean = clean.Replace(match.Value, "");
+        }
+
+        return (clean, markers);
+    }
+
+    IEnumerator TrackTransitionsByTime()
+    {
+        lastTriggeredTransitionMarker = -1;
+        if (transitionMarkers == null || transitionMarkers.Count == 0) yield break;
+
+        // `|| isShowingMedia` keeps tracking alive while a {Video:} marker has
+        // paused narration, so the end-of-audio flush only runs once playback has
+        // genuinely finished.
+        while (voiceAudio != null && (voiceAudio.isPlaying || isShowingMedia))
+        {
+            float currentTime = voiceAudio.time;
+
+            for (int i = lastTriggeredTransitionMarker + 1; i < transitionMarkers.Count; i++)
+            {
+                if (currentTime >= transitionMarkers[i].triggerTime)
+                {
+                    ApplyTransition(transitionMarkers[i]);
+                    lastTriggeredTransitionMarker = i;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            yield return null;
+        }
+
+        // Flush a transition clamped to the final word (same end-of-audio race as
+        // cards / black). The recorder holds the take open while a trailing visual
+        // is on screen.
+        for (int i = lastTriggeredTransitionMarker + 1; i < transitionMarkers.Count; i++)
+        {
+            ApplyTransition(transitionMarkers[i]);
+            lastTriggeredTransitionMarker = i;
+        }
+    }
+
+    void ApplyTransition(TransitionMarkerData m)
+    {
+        // Per-transition sound effect (silent unless a clip is assigned in TagSfxPlayer).
+        TagSfxPlayer.Instance.Play(m.transition);
+
+        ScreenTransitionController controller =
+            screenTransitionController != null ? screenTransitionController : ScreenTransitionController.Instance;
+
+        if (controller == null)
+        {
+            Debug.LogWarning("[Transition] No ScreenTransitionController — applying the scene change with no cover.");
+            ApplyTransitionCover(m);
+            return;
+        }
+
+        // Play does nothing if a transition is already running, so two transition
+        // tags can't overlap. The mutation runs at the cover midpoint.
+        controller.Play(m.transition, () => ApplyTransitionCover(m), null, m.durationScale);
+    }
+
+    // Runs at the instant of full cover (onCovered). Everything here is hidden
+    // behind the overlay, so the reveal shows a fresh scene: Mugs already
+    // repositioned (snap, never a visible slide), the new card swapped in (or the
+    // zone cleared), the new expression set, and the mood crossfade started.
+    void ApplyTransitionCover(TransitionMarkerData m)
+    {
+        if (m.hasPosition)
+            MoveToPosition(m.position, cutOverride: true); // SNAP — never smooth, inside cover
+
+        if (!string.IsNullOrEmpty(m.emotion) && avatarSystem != null)
+            avatarSystem.SetEmotionImmediate(m.emotion);
+
+        if (m.hasMood && moodController != null)
+            moodController.SetMood(m.mood, moodCrossfadeSeconds);
+
+        if (contentZoneController != null)
+        {
+            // Clear first so a new card cleanly REPLACES the old one (ShowCard would
+            // otherwise queue behind it). With no card on the line the zone stays
+            // cleared — the headline is gone on reveal.
+            contentZoneController.ClearForTransition();
+            if (m.contentCards != null)
+                for (int i = 0; i < m.contentCards.Count; i++)
+                    contentZoneController.ShowCard(m.contentCards[i]);
+        }
+    }
+
+    IEnumerator TrackMoodByTime()
+    {
+        lastTriggeredMoodMarker = -1;
+        if (moodMarkers == null || moodMarkers.Count == 0) yield break;
+
+        while (voiceAudio != null && (voiceAudio.isPlaying || isShowingMedia))
+        {
+            float currentTime = voiceAudio.time;
+
+            for (int i = lastTriggeredMoodMarker + 1; i < moodMarkers.Count; i++)
+            {
+                if (currentTime >= moodMarkers[i].triggerTime)
+                {
+                    if (moodController != null)
+                        moodController.SetMood(moodMarkers[i].mood, moodCrossfadeSeconds);
+                    lastTriggeredMoodMarker = i;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            yield return null;
+        }
+    }
+
+    static ScreenTransition ParseTransitionType(string s)
+    {
+        switch (s.Trim().ToLowerInvariant())
+        {
+            case "wipe": return ScreenTransition.Wipe;
+            case "shutter": return ScreenTransition.Shutter;
+            case "iris": return ScreenTransition.Iris;
+            default:
+                Debug.LogWarning($"[Transition] Unknown transition '{s}', defaulting to Wipe.");
+                return ScreenTransition.Wipe;
+        }
+    }
+
+    static CharacterPosition ParsePositionValue(string s)
+    {
+        switch (s.Trim().ToLowerInvariant())
+        {
+            case "left": return CharacterPosition.Left;
+            case "right": return CharacterPosition.Right;
+            case "center": return CharacterPosition.Center;
+            default:
+                Debug.LogWarning($"[Transition] Unknown position '{s}', defaulting to Center.");
+                return CharacterPosition.Center;
+        }
+    }
+
+    // Maps the script's mood variant (Calm/Energetic/Tense/Playful/Minimal — the
+    // blueprint names) onto BackgroundMoodController.MoodType. The enum's own names
+    // are accepted too. Returns false (and logs) for an unknown variant.
+    static bool TryMapMood(string s, out MugsTech.Background.BackgroundMoodController.MoodType mood)
+    {
+        switch (s.Trim().ToLowerInvariant())
+        {
+            case "calm":
+            case "calmneutral":   mood = MugsTech.Background.BackgroundMoodController.MoodType.CalmNeutral;   return true;
+            case "energetic":     mood = MugsTech.Background.BackgroundMoodController.MoodType.Energetic;     return true;
+            case "tense":
+            case "tensedramatic": mood = MugsTech.Background.BackgroundMoodController.MoodType.TenseDramatic; return true;
+            case "playful":
+            case "playfullight":  mood = MugsTech.Background.BackgroundMoodController.MoodType.PlayfulLight;  return true;
+            case "minimal":
+            case "minimalfocus":  mood = MugsTech.Background.BackgroundMoodController.MoodType.MinimalFocus;  return true;
+            default:
+                mood = MugsTech.Background.BackgroundMoodController.MoodType.CalmNeutral;
+                Debug.LogWarning($"[Mood] Unknown mood '{s}' — ignored. Use Calm/Energetic/Tense/Playful/Minimal.");
+                return false;
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Shared helper — parse a T=X.XXX capture. Returns -1 if the group is
     // empty or the value can't be parsed.
     // -----------------------------------------------------------------------
@@ -1335,4 +1719,36 @@ public class BlackPanelMarkerData
 {
     public float triggerTime;
     public float duration;
+}
+
+/// <summary>
+/// A whole-screen scene transition ({Transition:Wipe/Shutter/Iris}) plus the scene
+/// mutation it carries — the state tags that shared its script line, applied
+/// together at the cover midpoint so each transition reveals a fresh section.
+/// </summary>
+[System.Serializable]
+public class TransitionMarkerData
+{
+    public float triggerTime;
+    public ScreenTransition transition;
+    public float durationScale = 1f;     // 1 = the 1x baseline; 1.2 = 20% slower, 0.8 = faster
+
+    // --- Bundled scene mutation, applied at full cover (onCovered) ---
+    public bool hasPosition;
+    public CharacterPosition position;   // snap, never a smooth slide
+    public string emotion;               // null/empty = no emotion change
+    public bool hasMood;
+    public MugsTech.Background.BackgroundMoodController.MoodType mood;
+    public System.Collections.Generic.List<ContentCardEvent> contentCards; // null/empty = clear the zone
+}
+
+/// <summary>
+/// A standalone {Mood:...} marker — crossfades the background mood on its own
+/// timeline (moods bundled onto a transition line are applied at cover instead).
+/// </summary>
+[System.Serializable]
+public class MoodMarkerData
+{
+    public float triggerTime;
+    public MugsTech.Background.BackgroundMoodController.MoodType mood;
 }
