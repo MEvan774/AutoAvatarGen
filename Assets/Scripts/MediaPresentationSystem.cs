@@ -114,6 +114,18 @@ public class MediaPresentationSystem : MonoBehaviour
              "~0.7s transition; may finish slightly after the reveal (per the blueprint's 2-4s guidance).")]
     public float moodCrossfadeSeconds = 3f;
 
+    [Header("Transition Sound Effects")]
+    [Tooltip("Optional sound played as a {Transition:Wipe} starts. Drag an AudioClip here in the " +
+             "Inspector; leave empty for a silent transition.")]
+    public AudioClip transitionWipeSfx;
+    [Tooltip("Optional sound played as a {Transition:Shutter} starts. Leave empty for silent.")]
+    public AudioClip transitionShutterSfx;
+    [Tooltip("Optional sound played as a {Transition:Iris} starts. Leave empty for silent.")]
+    public AudioClip transitionIrisSfx;
+    [Range(0f, 1f)]
+    [Tooltip("Playback volume for the transition sound effects above (0 = silent, 1 = full).")]
+    public float transitionSfxVolume = 1f;
+
     [Header("Media Settings")]
     [Tooltip("Legacy fallback — Resources subfolder used only if external folders below are blank or a file can't be found on disk.")]
     public string mediaFolderPath = "Media";
@@ -184,6 +196,7 @@ public class MediaPresentationSystem : MonoBehaviour
     private int lastTriggeredTransitionMarker = -1;
     private List<MoodMarkerData> moodMarkers;
     private int lastTriggeredMoodMarker = -1;
+    private AudioSource transitionSfxSource;
 
     void Awake()
     {
@@ -1525,9 +1538,6 @@ public class MediaPresentationSystem : MonoBehaviour
 
     void ApplyTransition(TransitionMarkerData m)
     {
-        // Per-transition sound effect (silent unless a clip is assigned in TagSfxPlayer).
-        TagSfxPlayer.Instance.Play(m.transition);
-
         ScreenTransitionController controller =
             screenTransitionController != null ? screenTransitionController : ScreenTransitionController.Instance;
 
@@ -1538,9 +1548,35 @@ public class MediaPresentationSystem : MonoBehaviour
             return;
         }
 
+        // Play the transition's sound effect as the cover starts — but only if the
+        // transition will actually run. Play() ignores the call while another
+        // transition is mid-flight, so gating on IsBusy avoids a stray double whoosh.
+        if (!controller.IsBusy)
+            PlayTransitionSfx(m.transition);
+
         // Play does nothing if a transition is already running, so two transition
         // tags can't overlap. The mutation runs at the cover midpoint.
         controller.Play(m.transition, () => ApplyTransitionCover(m), null, m.durationScale);
+    }
+
+    // Plays the Inspector-assigned clip for this transition (if any) on a dedicated
+    // 2D AudioSource (created on first use), so it layers over the narration and is
+    // captured by the recorder. Silent when the matching clip slot is left empty.
+    void PlayTransitionSfx(ScreenTransition type)
+    {
+        AudioClip clip =
+            type == ScreenTransition.Wipe    ? transitionWipeSfx :
+            type == ScreenTransition.Shutter ? transitionShutterSfx :
+                                               transitionIrisSfx;
+        if (clip == null) return;
+
+        if (transitionSfxSource == null)
+        {
+            transitionSfxSource = gameObject.AddComponent<AudioSource>();
+            transitionSfxSource.playOnAwake  = false;
+            transitionSfxSource.spatialBlend = 0f; // 2D — non-positional, captured by the recorder
+        }
+        transitionSfxSource.PlayOneShot(clip, transitionSfxVolume);
     }
 
     // Runs at the instant of full cover (onCovered). Everything here is hidden

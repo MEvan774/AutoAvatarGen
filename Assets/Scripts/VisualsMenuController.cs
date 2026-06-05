@@ -194,16 +194,15 @@ public class VisualsMenuController : MonoBehaviour
     BigTextStyleData bigTextStyle = new BigTextStyleData();
     Button           bigTextEditButton;
 
-    // Background mp4 path saved with the preset. The main menu's
-    // BackgroundVideoOverridePrefKey still wins at scene load.
+    // Background mp4 path persisted with the preset. The editing UI was
+    // removed, but the field is kept so existing saves keep round-tripping and
+    // VisualsRuntimeApplier can still apply a path baked into an older save.
     string           backgroundVideoPath = "";
-    Text             bgVideoLabel;
-    Button           bgVideoLoadButton;
-    Button           bgVideoClearButton;
 
-    // Background music — playlist of paths + volume (default 0.25 per README).
+    // Background music — playlist of paths + volume. The editing UI was removed
+    // (no music is authored from the menu anymore); the data is retained so
+    // existing save files keep loading without errors.
     BackgroundMusicData musicData = new BackgroundMusicData();
-    Button              musicEditButton;
 
     // Auto-built font picker controls (runtime, no scene wiring required).
     Text   fontDisplayLabel;
@@ -261,8 +260,6 @@ public class VisualsMenuController : MonoBehaviour
         EnsureTmpCardPreview();
         BuildFontRow();
         BuildBigTextEditButton();
-        BuildBgVideoRow();
-        BuildMusicEditButton();
 
         // Bottom row.
         saveButton.onClick.AddListener(OnQuickSave);
@@ -304,6 +301,10 @@ public class VisualsMenuController : MonoBehaviour
         // fallback) so the editor reflects the currently-active preset rather
         // than whatever was left in memory from a previous open.
         LoadActivePresetOrDefaults();
+
+        // Skin every button to the cohesive minimalist palette. Done on open so
+        // it also catches emotion rows added since the last time it ran.
+        UITheme.Apply(gameObject);
     }
 
     // Loads the editor state from the named JSON save selected as active in
@@ -1357,44 +1358,10 @@ public class VisualsMenuController : MonoBehaviour
 #endif
     }
 
-    // -----------------------------------------------------------------------
-    // Background music editor (preset-saved playlist, with main-menu override)
-    // -----------------------------------------------------------------------
-
-    void BuildMusicEditButton()
-    {
-        if (panelRoot == null) return;
-        // Tucked next to the Big Text edit button at y=-395 so it shares the
-        // bottom strip with the other compound editors.
-        musicEditButton = AddFontRowButton(panelRoot.transform, "MusicEditButton",
-            "Edit Music…", new Vector2(-340f, -395f), new Vector2(280f, 50f));
-        musicEditButton.onClick.AddListener(OnMusicEditClicked);
-    }
-
-    void OnMusicEditClicked()
-    {
-        if (panelRoot == null) return;
-        MusicEditPopup.GetOrCreate(panelRoot.transform)
-                      .Show(musicData, OnMusicChanged);
-    }
-
-    // Mirror to PlayerPrefs (working state) and to the active named save's
-    // JSON so the playlist + volume flow into the next recording without
-    // requiring a Quick Save.
-    void OnMusicChanged()
-    {
-        PlayerPrefs.SetString(MusicListWorkingKey,
-            MugsTech.Background.BackgroundMusicPlayer.SerializePathList(musicData.filePaths));
-        PlayerPrefs.SetFloat (MusicVolumeWorkingKey, musicData.volume);
-        PlayerPrefs.Save();
-
-        if (!string.IsNullOrEmpty(activeSaveName) && VisualsSaveStore.Exists(activeSaveName))
-        {
-            try { VisualsSaveStore.Save(CaptureCurrentState(activeSaveName)); }
-            catch (Exception e) { Debug.LogWarning($"[VisualsMenu] Music mirror failed: {e.Message}"); }
-        }
-    }
-
+    // Background music + background video editing UIs were removed. The save
+    // data they wrote (musicData / backgroundVideoPath) is still round-tripped
+    // by CaptureCurrentState / ApplySaveData below so existing presets load
+    // unchanged; CloneMusicData stays because the save/load path uses it.
     static BackgroundMusicData CloneMusicData(BackgroundMusicData src)
     {
         return new BackgroundMusicData
@@ -1402,118 +1369,6 @@ public class VisualsMenuController : MonoBehaviour
             filePaths = src.filePaths != null ? new List<string>(src.filePaths) : new List<string>(),
             volume    = src.volume,
         };
-    }
-
-    // -----------------------------------------------------------------------
-    // Background video (preset-saved, overridden by main menu's field)
-    // -----------------------------------------------------------------------
-
-    void BuildBgVideoRow()
-    {
-        if (panelRoot == null) return;
-
-        var row = new GameObject("BgVideoRow", typeof(RectTransform));
-        row.transform.SetParent(panelRoot.transform, false);
-        var rt = (RectTransform)row.transform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-        // Sits between the font / Big-Text row (y=-395) and the action button
-        // strip (y=-495, top edge at -455). 36 px tall to keep clear of both.
-        rt.anchoredPosition = new Vector2(0f, -432f);
-        rt.sizeDelta        = new Vector2(1700f, 36f);
-
-        // Label (path display)
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(row.transform, false);
-        var lRT = (RectTransform)labelGO.transform;
-        lRT.anchorMin = lRT.anchorMax = lRT.pivot = new Vector2(0.5f, 0.5f);
-        lRT.anchoredPosition = new Vector2(-300f, 0f);
-        lRT.sizeDelta        = new Vector2(1000f, 40f);
-        bgVideoLabel = labelGO.AddComponent<Text>();
-        bgVideoLabel.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        bgVideoLabel.fontSize  = 20;
-        bgVideoLabel.alignment = TextAnchor.MiddleLeft;
-        bgVideoLabel.color     = new Color(0.85f, 0.88f, 0.93f, 1f);
-        bgVideoLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
-
-        bgVideoLoadButton  = AddFontRowButton(row.transform, "BgVideoLoad",  "Load…",
-            new Vector2(390f, 0f), new Vector2(160f, 40f));
-        bgVideoClearButton = AddFontRowButton(row.transform, "BgVideoClear", "Clear",
-            new Vector2(580f, 0f), new Vector2(160f, 40f));
-
-        bgVideoLoadButton.onClick.AddListener(OnBgVideoLoadClicked);
-        bgVideoClearButton.onClick.AddListener(OnBgVideoClearClicked);
-        UpdateBgVideoLabel();
-    }
-
-    void UpdateBgVideoLabel()
-    {
-        if (bgVideoLabel == null) return;
-        bgVideoLabel.text = "BG Video:  " + (string.IsNullOrEmpty(backgroundVideoPath)
-            ? "(none — uses scene default)"
-            : Path.GetFileName(backgroundVideoPath));
-    }
-
-    void OnBgVideoLoadClicked()
-    {
-        string picked = TryPickVideoPath(backgroundVideoPath);
-        Debug.Log($"[BgVideoDiag] VisualsMenu OnBgVideoLoadClicked picked='{picked}'");
-        if (string.IsNullOrEmpty(picked)) return;
-        backgroundVideoPath = picked;
-        UpdateBgVideoLabel();
-        OnBgVideoChanged();
-    }
-
-    void OnBgVideoClearClicked()
-    {
-        if (string.IsNullOrEmpty(backgroundVideoPath)) return;
-        backgroundVideoPath = "";
-        UpdateBgVideoLabel();
-        OnBgVideoChanged();
-    }
-
-    // Mirror to PlayerPrefs (editor working state) and to the active named
-    // save's JSON so the change flows into the next recording without an
-    // explicit Quick Save.
-    void OnBgVideoChanged()
-    {
-        PlayerPrefs.SetString(BgVideoPathKey, backgroundVideoPath ?? "");
-        PlayerPrefs.Save();
-        Debug.Log($"[BgVideoDiag] VisualsMenu OnBgVideoChanged wrote BgVideoPathKey='{backgroundVideoPath ?? ""}' " +
-                  $"activeSaveName='{activeSaveName}'");
-
-        if (!string.IsNullOrEmpty(activeSaveName) && VisualsSaveStore.Exists(activeSaveName))
-        {
-            try
-            {
-                VisualsSaveStore.Save(CaptureCurrentState(activeSaveName));
-                Debug.Log($"[BgVideoDiag]   mirrored to JSON save '{activeSaveName}'");
-            }
-            catch (Exception e) { Debug.LogWarning($"[VisualsMenu] BG video mirror failed: {e.Message}"); }
-        }
-        else
-        {
-            Debug.Log("[BgVideoDiag]   no active save; only PlayerPrefs working-state updated.");
-        }
-    }
-
-    static string TryPickVideoPath(string current)
-    {
-        string startDir = !string.IsNullOrEmpty(current) ? Path.GetDirectoryName(current) : "";
-#if STANDALONE_FILE_BROWSER
-        var ext = new[]
-        {
-            new SFB.ExtensionFilter("Video Files", "mp4", "mov", "webm", "m4v"),
-            new SFB.ExtensionFilter("All Files",   "*"),
-        };
-        var picked = SFB.StandaloneFileBrowser.OpenFilePanel(
-            "Pick background video", startDir, ext, false);
-        return (picked != null && picked.Length > 0) ? picked[0] : "";
-#elif UNITY_EDITOR
-        return UnityEditor.EditorUtility.OpenFilePanel(
-            "Pick background video", startDir, "mp4,mov,webm,m4v");
-#else
-        return "";
-#endif
     }
 
     // -----------------------------------------------------------------------
@@ -1758,7 +1613,6 @@ public class VisualsMenuController : MonoBehaviour
         UpdateFontDisplay();
 
         backgroundVideoPath = PlayerPrefs.GetString(BgVideoPathKey, "");
-        UpdateBgVideoLabel();
 
         musicData = new BackgroundMusicData
         {
@@ -2044,7 +1898,6 @@ public class VisualsMenuController : MonoBehaviour
         bigTextStyle = data.bigText != null ? CloneBigTextStyle(data.bigText) : new BigTextStyleData();
 
         backgroundVideoPath = data.backgroundVideoPath ?? "";
-        UpdateBgVideoLabel();
 
         musicData = data.music != null ? CloneMusicData(data.music) : new BackgroundMusicData();
 

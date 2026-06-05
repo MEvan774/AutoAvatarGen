@@ -18,9 +18,6 @@ using MugsTech.Style;
 ///   - A text field + Browse button for the external media root folder
 ///     (containing BRoll / Images / Logos subfolders). MediaPresentationSystem
 ///     reads the same PlayerPrefs key and overrides its own externalMediaRoot.
-///   - A text field + Load button for a runtime background-video override.
-///     BackgroundVideoOverride reads the same PlayerPrefs key and hijacks the
-///     scene's VideoPlayer with it.
 ///
 /// All path fields auto-save to PlayerPrefs on edit (onEndEdit) and on Browse,
 /// so once a folder is linked the user doesn't have to relink it next session.
@@ -55,24 +52,12 @@ public class MainMenuController : MonoBehaviour
     // (which is empty too, meaning "fall back to Resources/Media").
     public const string MediaRootFolderPrefKey = MediaPresentationSystem.MediaRootFolderPrefKey;
 
-    // Shared with BackgroundVideoOverride. Empty string = use the scene's default.
-    public const string BackgroundVideoOverridePrefKey = MugsTech.Background.BackgroundVideoOverride.OverridePathPrefKey;
-
-    // Shared with BackgroundMusicPlayer. Empty string = no override (use the
-    // visuals preset's playlist or no music).
-    public const string MusicOverridePrefKey           = MugsTech.Background.BackgroundMusicPlayer.OverridePathPrefKey;
-
     [SerializeField] TMP_Text statusText;
     [SerializeField] TMP_Text pathText;
     [SerializeField] TMP_InputField pathInput;
     [SerializeField] Button pathBrowseButton;
     [SerializeField] Button startButton;
     [SerializeField] Button quitButton;
-
-    [Header("Background Video Override")]
-    [SerializeField] TMP_InputField videoPathInput;
-    [SerializeField] Button         videoLoadButton;
-    [SerializeField] Button         videoClearButton;
 
     [Header("External Media Root (BRoll / Images / Logos)")]
     [Tooltip("Optional. If left null, the controller spawns its own row at runtime.")]
@@ -96,13 +81,6 @@ public class MainMenuController : MonoBehaviour
              "files stay editable in the project so you can tune timestamps and " +
              "re-test the recording in a build without rerunning the TTS pipeline.")]
     [SerializeField] Toggle useBundledTtsOutputToggle;
-
-    // Music override row is built at runtime — keep it null-safe so existing
-    // scenes don't need a rebuild.
-    Text   musicOverrideLabel;
-    Button musicOverrideLoadButton;
-    Button musicOverrideClearButton;
-    string musicOverridePath = "";
 
     // Output library (generation chooser) — generated at runtime by
     // OutputLibraryController; no scene authoring or Tools menu needed.
@@ -130,11 +108,6 @@ public class MainMenuController : MonoBehaviour
         pathInput.text = PlayerPrefs.GetString(PythonOutputFolderPrefKey, DefaultPythonOutputFolder);
         if (pathBrowseButton != null)
             pathBrowseButton.onClick.AddListener(OnPathBrowseClicked);
-
-        videoPathInput.onEndEdit.AddListener(OnVideoPathChanged);
-        videoPathInput.text = PlayerPrefs.GetString(BackgroundVideoOverridePrefKey, "");
-        videoLoadButton.onClick.AddListener(OnVideoLoadClicked);
-        videoClearButton.onClick.AddListener(OnVideoClearClicked);
 
         EnsureMediaRootControls();
         if (mediaRootInput != null)
@@ -167,7 +140,6 @@ public class MainMenuController : MonoBehaviour
         if (activeSaveImportButton != null) activeSaveImportButton.onClick.AddListener(OnImportSaveClicked);
         RefreshActiveSaves();
 
-        BuildMusicOverrideRow();
         WireGenerateAudioButton();
         WireBackgroundModeRow();
         EnsurePresenterTransitionControls();
@@ -175,6 +147,11 @@ public class MainMenuController : MonoBehaviour
         EnsureOutputLibrary();
 
         RefreshResult();
+
+        // Skin every button to the cohesive minimalist palette. Runs last so it
+        // catches the rows built above at runtime, and reaches the (inactive)
+        // TTS panel that lives under this canvas.
+        UITheme.Apply(gameObject);
     }
 
     // -----------------------------------------------------------------------
@@ -487,11 +464,8 @@ public class MainMenuController : MonoBehaviour
     {
         // Flush field values in case the user typed but didn't click out before hitting Start.
         OnPathChanged(pathInput.text);
-        OnVideoPathChanged(videoPathInput.text);
         if (mediaRootInput != null) OnMediaRootChanged(mediaRootInput.text);
         if (recordingOutputInput != null) OnRecordingOutputChanged(recordingOutputInput.text);
-        Debug.Log($"[BgVideoDiag] MainMenu OnStartClicked — videoPathInput.text='{videoPathInput.text}' " +
-                  $"OverridePref='{PlayerPrefs.GetString(BackgroundVideoOverridePrefKey, "")}'");
         RecordingSession.Begin();
     }
 
@@ -541,50 +515,6 @@ public class MainMenuController : MonoBehaviour
 #else
         return "";
 #endif
-    }
-
-    // -----------------------------------------------------------------------
-    // Background video override
-    // -----------------------------------------------------------------------
-
-    void OnVideoPathChanged(string value)
-    {
-        // Empty / whitespace = "use the scene's default". Don't normalise to a
-        // placeholder string here; an empty PrefValue is the documented signal.
-        string trimmed = string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
-        PlayerPrefs.SetString(BackgroundVideoOverridePrefKey, trimmed);
-        PlayerPrefs.Save();
-        Debug.Log($"[BgVideoDiag] MainMenu OnVideoPathChanged wrote OverridePathPrefKey='{trimmed}'");
-        if (videoPathInput.text != trimmed) videoPathInput.text = trimmed;
-    }
-
-    void OnVideoLoadClicked()
-    {
-        string current = videoPathInput.text;
-        string startDir = !string.IsNullOrEmpty(current) ? Path.GetDirectoryName(current) : "";
-
-#if STANDALONE_FILE_BROWSER
-        var ext = new[]
-        {
-            new SFB.ExtensionFilter("Video Files", "mp4", "mov", "webm", "m4v"),
-            new SFB.ExtensionFilter("All Files",   "*"),
-        };
-        string[] picked = SFB.StandaloneFileBrowser.OpenFilePanel(
-            "Pick background video", startDir, ext, false);
-        if (picked != null && picked.Length > 0 && !string.IsNullOrEmpty(picked[0]))
-            OnVideoPathChanged(picked[0]);
-#elif UNITY_EDITOR
-        string p = UnityEditor.EditorUtility.OpenFilePanel(
-            "Pick background video", startDir, "mp4,mov,webm,m4v");
-        if (!string.IsNullOrEmpty(p)) OnVideoPathChanged(p);
-#else
-        // No picker available — user must paste a path into the field.
-#endif
-    }
-
-    void OnVideoClearClicked()
-    {
-        OnVideoPathChanged("");
     }
 
     // -----------------------------------------------------------------------
@@ -658,8 +588,8 @@ public class MainMenuController : MonoBehaviour
     }
 
     // Builds the media-root row at runtime if it hasn't been hand-wired in the
-    // inspector. Same trick as EnsureActiveSaveControls / BuildMusicOverrideRow:
-    // existing scenes don't need a UI rebuild to get the new controls.
+    // inspector. Same trick as EnsureActiveSaveControls: existing scenes don't
+    // need a UI rebuild to get the new controls.
     void EnsureMediaRootControls()
     {
         if (mediaRootInput != null) return; // already wired in the inspector
@@ -667,7 +597,7 @@ public class MainMenuController : MonoBehaviour
         Canvas canvas = GetComponentInChildren<Canvas>();
         if (canvas == null) return;
 
-        // Row container, anchored top-center, sitting below the music override row.
+        // Row container, anchored top-center.
         var row = new GameObject("MediaRootRow", typeof(RectTransform));
         row.transform.SetParent(canvas.transform, false);
         var rowRT = (RectTransform)row.transform;
@@ -1043,119 +973,4 @@ public class MainMenuController : MonoBehaviour
         return btn;
     }
 
-    // -----------------------------------------------------------------------
-    // Music override (single track) — same pattern as the bg-video override
-    // -----------------------------------------------------------------------
-
-    void BuildMusicOverrideRow()
-    {
-        Canvas canvas = GetComponentInChildren<Canvas>();
-        if (canvas == null) return;
-
-        var row = new GameObject("MusicOverrideRow", typeof(RectTransform));
-        row.transform.SetParent(canvas.transform, false);
-        var rt = (RectTransform)row.transform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);
-        rt.anchoredPosition = new Vector2(0f, -8f);
-        rt.sizeDelta        = new Vector2(1500f, 40f);
-
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(row.transform, false);
-        var lRT = (RectTransform)labelGO.transform;
-        lRT.anchorMin = lRT.anchorMax = lRT.pivot = new Vector2(0.5f, 0.5f);
-        lRT.anchoredPosition = new Vector2(-300f, 0f);
-        lRT.sizeDelta        = new Vector2(900f, 40f);
-        var labelText = labelGO.AddComponent<Text>();
-        labelText.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        labelText.fontSize  = 20;
-        labelText.alignment = TextAnchor.MiddleLeft;
-        labelText.color     = new Color(0.82f, 0.85f, 0.9f, 1f);
-        labelText.horizontalOverflow = HorizontalWrapMode.Overflow;
-        musicOverrideLabel = labelText;
-
-        musicOverrideLoadButton  = BuildMusicOverrideButton(row.transform, "Load",  "Load Music…",  new Vector2(330f, 0f), new Vector2(160f, 40f));
-        musicOverrideClearButton = BuildMusicOverrideButton(row.transform, "Clear", "Clear",        new Vector2(520f, 0f), new Vector2(160f, 40f));
-        musicOverrideLoadButton.onClick.AddListener(OnMusicOverrideLoadClicked);
-        musicOverrideClearButton.onClick.AddListener(OnMusicOverrideClearClicked);
-
-        musicOverridePath = PlayerPrefs.GetString(MusicOverridePrefKey, "");
-        UpdateMusicOverrideLabel();
-    }
-
-    static Button BuildMusicOverrideButton(Transform parent, string name, string label, Vector2 pos, Vector2 size)
-    {
-        var go = new GameObject(name, typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var rt = (RectTransform)go.transform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = pos;
-        rt.sizeDelta        = size;
-
-        var img = go.AddComponent<Image>();
-        img.color = new Color(0.20f, 0.45f, 0.65f, 1f);
-        var btn = go.AddComponent<Button>();
-        btn.targetGraphic = img;
-
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(go.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = Vector2.zero;
-        labelRT.anchorMax = Vector2.one;
-        labelRT.offsetMin = Vector2.zero;
-        labelRT.offsetMax = Vector2.zero;
-        var t = labelGO.AddComponent<Text>();
-        t.text       = label;
-        t.font       = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        t.fontSize   = 22;
-        t.fontStyle  = FontStyle.Bold;
-        t.alignment  = TextAnchor.MiddleCenter;
-        t.color      = Color.white;
-        return btn;
-    }
-
-    void UpdateMusicOverrideLabel()
-    {
-        if (musicOverrideLabel == null) return;
-        musicOverrideLabel.text = "Music Override:  " +
-            (string.IsNullOrEmpty(musicOverridePath)
-                ? "(none — use preset playlist)"
-                : Path.GetFileName(musicOverridePath));
-    }
-
-    void OnMusicOverrideLoadClicked()
-    {
-        string picked = TryPickMusicPath(musicOverridePath);
-        if (string.IsNullOrEmpty(picked)) return;
-        musicOverridePath = picked;
-        PlayerPrefs.SetString(MusicOverridePrefKey, musicOverridePath);
-        PlayerPrefs.Save();
-        UpdateMusicOverrideLabel();
-    }
-
-    void OnMusicOverrideClearClicked()
-    {
-        if (string.IsNullOrEmpty(musicOverridePath)) return;
-        musicOverridePath = "";
-        PlayerPrefs.DeleteKey(MusicOverridePrefKey);
-        PlayerPrefs.Save();
-        UpdateMusicOverrideLabel();
-    }
-
-    static string TryPickMusicPath(string current)
-    {
-        string startDir = !string.IsNullOrEmpty(current) ? Path.GetDirectoryName(current) : "";
-#if STANDALONE_FILE_BROWSER
-        var ext = new[]
-        {
-            new SFB.ExtensionFilter("Audio Files", "mp3", "wav", "ogg", "aif", "aiff"),
-            new SFB.ExtensionFilter("All Files",   "*"),
-        };
-        var picked = SFB.StandaloneFileBrowser.OpenFilePanel("Pick music file", startDir, ext, false);
-        return (picked != null && picked.Length > 0) ? picked[0] : "";
-#elif UNITY_EDITOR
-        return UnityEditor.EditorUtility.OpenFilePanel("Pick music file", startDir, "mp3,wav,ogg,aif,aiff");
-#else
-        return "";
-#endif
-    }
 }

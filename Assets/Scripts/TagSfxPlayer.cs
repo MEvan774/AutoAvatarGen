@@ -105,6 +105,11 @@ public class TagSfxPlayer : MonoBehaviour
     // volume edits — are left untouched.
     private void EnsureAllEventsPresent()
     {
+        // Drop any stale rows whose event no longer exists in the enum (e.g. the
+        // old Transition* events, now owned by ScreenTransitionController), so they
+        // don't linger as broken entries in the Inspector.
+        entries.RemoveAll(e => e == null || !Enum.IsDefined(typeof(TagSfxEvent), e.tagEvent));
+
         var present = new HashSet<TagSfxEvent>();
         foreach (var e in entries)
             if (e != null) present.Add(e.tagEvent);
@@ -181,15 +186,10 @@ public class TagSfxPlayer : MonoBehaviour
         }
     }
 
-    public void Play(ScreenTransition t)
-    {
-        switch (t)
-        {
-            case ScreenTransition.Wipe:    Play(TagSfxEvent.TransitionWipe);    break;
-            case ScreenTransition.Shutter: Play(TagSfxEvent.TransitionShutter); break;
-            case ScreenTransition.Iris:    Play(TagSfxEvent.TransitionIris);    break;
-        }
-    }
+    // NOTE: Whole-screen transition SFX are NOT handled here — they live on
+    // ScreenTransitionController (its Wipe/Shutter/Iris clip slots) so the clip
+    // plays exactly as the cover starts. Keeping them off this shared list avoids
+    // a second place that could double-trigger the same sound.
 
     public void Play(ContentCardType c)
     {
@@ -239,8 +239,4 @@ public enum TagSfxEvent
     BigMedia,
     BigCenter,
     BigText,
-    // Whole-screen scene transitions
-    TransitionWipe,
-    TransitionShutter,
-    TransitionIris,
 }

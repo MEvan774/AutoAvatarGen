@@ -225,33 +225,6 @@ public static class MainMenuUIBuilder
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
             new Vector2(460, 0), new Vector2(160, 56));
 
-        // ---------- Background video override row ----------
-        var videoLabel = CreateText("VideoLabel", canvasObj.transform,
-            "Background video override (leave blank for default):",
-            24, TextAlignmentOptions.Center, FontStyles.Normal);
-        videoLabel.color = new Color(0.82f, 0.85f, 0.9f, 1f);
-        SetRect(videoLabel.rectTransform,
-            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(0, -75), new Vector2(1100, 32));
-
-        var videoPathInput = CreateInputField("VideoPathInput", canvasObj.transform,
-            "", "C:\\path\\to\\background.mp4");
-        SetRect(videoPathInput.GetComponent<RectTransform>(),
-            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(-90, -130), new Vector2(920, 56));
-
-        var videoLoadBtn = CreateButton("VideoLoadButton", canvasObj.transform,
-            "Load…", new Color(0.20f, 0.45f, 0.65f), labelSize: 26);
-        SetRect(videoLoadBtn.GetComponent<RectTransform>(),
-            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(440, -130), new Vector2(140, 56));
-
-        var videoClearBtn = CreateButton("VideoClearButton", canvasObj.transform,
-            "Clear", new Color(0.32f, 0.34f, 0.40f), labelSize: 26);
-        SetRect(videoClearBtn.GetComponent<RectTransform>(),
-            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-            new Vector2(580, -130), new Vector2(110, 56));
-
         // ---------- Start button ----------
         var startBtn = CreateButton("StartButton", canvasObj.transform,
             "Start Recording", new Color(0.18f, 0.62f, 0.34f));
@@ -306,9 +279,6 @@ public static class MainMenuUIBuilder
         so.FindProperty("pathBrowseButton").objectReferenceValue = pathBrowseBtn;
         so.FindProperty("startButton").objectReferenceValue      = startBtn;
         so.FindProperty("quitButton").objectReferenceValue       = quitBtn;
-        so.FindProperty("videoPathInput").objectReferenceValue   = videoPathInput;
-        so.FindProperty("videoLoadButton").objectReferenceValue  = videoLoadBtn;
-        so.FindProperty("videoClearButton").objectReferenceValue = videoClearBtn;
         so.FindProperty("mediaRootInput").objectReferenceValue        = mediaRootInput;
         so.FindProperty("mediaRootBrowseButton").objectReferenceValue = mediaRootBrowseBtn;
         so.ApplyModifiedProperties();
