@@ -29,6 +29,16 @@ public abstract class ContentCard : MonoBehaviour
     // a fallback when the animator's per-card row has Override Direction off.
     private EntryDirection runtimeDirection = EntryDirection.FromBottom;
 
+    // +1 normally; -1 when the parent zone is horizontally mirrored (a 180°
+    // Y-rotation or negative X-scale somewhere above it — the scene renders
+    // mirrored for recording). ContentZoneController sets this from the SAME
+    // reflection test it uses to flip the card's own X scale so text reads
+    // correctly. That counter-scale fixes the card's graphics but NOT its slide:
+    // the slide animates anchoredPosition in the still-mirrored zone space, so a
+    // "FromLeft" entry would visually come in from the right. We negate the
+    // horizontal start offset to bring the on-screen motion back in line.
+    private float parentMirrorSign = 1f;
+
     /// <summary>
     /// Concrete card type — used by <see cref="CardEntryAnimator"/> to look up
     /// per-card direction & timing.
@@ -87,6 +97,18 @@ public abstract class ContentCard : MonoBehaviour
     }
 
     /// <summary>
+    /// Tells the card whether its parent zone is horizontally mirrored so the
+    /// entry slide can be flipped to enter from the visually-correct side. Pass
+    /// the parent's X-scale sign (+1 or -1). Set by ContentZoneController from the
+    /// same reflection test that counters the card's text mirroring, so the slide
+    /// and the text always agree.
+    /// </summary>
+    public void SetParentMirrorSign(float sign)
+    {
+        parentMirrorSign = sign < 0f ? -1f : 1f;
+    }
+
+    /// <summary>
     /// Fade in + slide from the resolved direction with the central overshoot
     /// curve. With an active style preset, also applies a small random Z
     /// rotation and an optional elastic wobble.
@@ -100,6 +122,16 @@ public abstract class ContentCard : MonoBehaviour
         EntryDirection dir = ResolvedEntryDirection;
         Vector2 endPos = rectTransform.anchoredPosition;
         Vector2 startOffset = ComputeStartOffset(dir, rectTransform, SlideDistanceFactor);
+
+        // Counter a horizontally-mirrored parent zone. anchoredPosition's +X then
+        // points to screen-LEFT, so a horizontal slide enters from the wrong side
+        // (the bug: cards easing in right-to-left during recording). Negating X
+        // makes the on-screen motion match the intended direction. Vertical
+        // entries have x == 0, so they're untouched. (This lives only here, on the
+        // card-root slide — the Big* cards slide child containers that sit under
+        // the card's own counter-scale, which already cancels the mirror.)
+        startOffset.x *= parentMirrorSign;
+
         rectTransform.anchoredPosition = endPos + startOffset;
 
         if (preset != null)

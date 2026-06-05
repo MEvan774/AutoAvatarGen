@@ -22,12 +22,12 @@ Paste this whole file to the model before asking it to write a script, or keep i
 ## 2. HARD RULES (break these and the video breaks)
 
 1. **Start the file with a `## SECTION` heading.** Any text before the first heading is silently discarded.
-2. **One tag per line, on its own line.** Don't put two tags on one line and don't bury a tag mid-sentence (emotion tags are the one exception — see §4).
+2. **One tag per line, on its own line.** Don't put two tags on one line and don't bury a tag mid-sentence (emotion tags are one exception; the **transition line** is the other — a `{Transition:…}` deliberately gathers all of a section's tags onto one line, see §4).
 3. **Use straight ASCII double quotes `"` only.** Never curly/smart quotes (`“ ”`). Smart quotes break card tags.
 4. **Never put a `"` *inside* a quoted card field.** The field ends at the first `"`. If you need a quote inside quoted text, rephrase or use single quotes `'`. (Commas, periods, em‑dashes `—`, `%`, `$`, `€` inside quotes are fine.)
 5. **Every content card, `Logo`, `BRoll`, `BigMedia`, and `BigText` MUST end with a duration number** (`,5` = 5 seconds). Decimals allowed (`,4.5`).
 6. **Unquoted names (`Logo`, `BRoll`, `BigMedia`, `BigText`) must not contain commas.** The comma is a delimiter. Use `+` to join multiple items.
-7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback`, `Cut`, `Smooth`, `bigCenter`.
+7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback`, `Cut`, `Smooth`, `bigCenter`, `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. (The `Transition` and `Mood` keywords especially — mis-capitalize them and the strip regex misses the tag, so ElevenLabs reads it out loud.)
 8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`) are exempt** — they render in front of everything and appear in any position, including `Center`.
 9. Keep the narration itself natural — it can contain quotes, commas, anything. The rules above apply to **tags only**.
 
@@ -41,6 +41,8 @@ Paste this whole file to the model before asking it to write a script, or keep i
 | Character position | `{Position:Left}` (+ optional `,Cut` or `,Smooth`) | no |
 | Camera zoom | `{Zoom:In}` (+ optional `,Cut` and/or `,D=seconds`) | no |
 | Black cut | `{Black:3}` | yes |
+| Scene transition | `{Transition:Wipe}` `{Transition:Iris,1.2}` (Wipe/Shutter/Iris, optional speed) | no |
+| Background mood | `{Mood:Tense}` (Calm/Energetic/Tense/Playful/Minimal) | no |
 | Image | `{Image:name}` or `{Image:name,4}` | optional (default 3s) |
 | Video clip | `{Video:name}` or `{Video:name,6}` | optional (full clip) |
 | Headline card | `{Headline:"headline text","Source",5}` (+ optional `,bigCenter`) | yes |
@@ -106,6 +108,42 @@ Hard-cuts a **fullscreen** black plane in (covering the character and all cards)
 {Black:2}
 ```
 > Authoring is unchanged — you still just write `{Black:seconds}`. (Implementation note: the black plane now renders above the character via a high-sorting-order sprite on the recorded camera, so the character no longer shows through it.)
+
+### Scene transitions — `{Transition:Type}` `[,speed]`
+A **whole-screen transition** that covers the screen, reconfigures the scene *behind* the cover, then reveals — so each one reads as a fresh section break. Three variants:
+
+| Type | What it looks like | Total |
+|---|---|---|
+| `Wipe` | An orange panel, slightly skewed, sweeps left → right across the whole screen. | ~0.72s |
+| `Shutter` | Two dark bars close in from the top and bottom, meet in the middle (a thin orange line on each inner edge), then retract. | ~0.68s |
+| `Iris` | A dark circle grows from the center until it covers the frame, then shrinks back open on the new scene. | ~0.72s |
+
+Optional second value = **speed scale** — `1.0` is normal, `1.2` is 20% slower, `0.8` is 20% faster:
+```
+{Transition:Wipe}
+{Transition:Iris,1.2}
+{Transition:Shutter,0.8}
+```
+
+**The key rule — put the whole scene change on the transition's own line.** Unlike every other tag, a transition *gathers the other tags sitting on its line* and applies them **at the hidden midpoint, the moment the screen is fully covered** — not when the narration reaches each one. So write the transition first, then on the **same line** put every tag for the new section: position, emotion, mood, a content card, an image/video, a zoom. The instant the screen reveals, the character is already in its new spot, the old card already swapped or cleared, the new image already up, and the camera already at its new zoom — nothing is ever seen sliding in or popping up.
+```
+{Transition:Wipe} {Position:Right} {Serious} {Mood:Tense}
+Okay, here's the part that should actually worry them.
+```
+- **Position and zoom are snapped** under cover (no visible glide).
+- **No content card on the line → the content zone is cleared** under cover (any headline/card on screen disappears). **A content card on the line → it replaces** whatever was showing.
+- It does **not** pause narration — the audio keeps playing right over it.
+- A transition fired while another is still playing is ignored, so two can't overlap.
+
+> Place a `{Transition:…}` on the **first line of a new section** (just under the `## HEADING`). Want a *smooth* zoom that glides in over the new section instead of a snap? Put that `{Zoom:In}` on the **next** line, not the transition line — only tags on the transition's own line are applied under cover.
+
+### Background mood — `{Mood:Variant}`
+Crossfades the animated background to a new mood over ~3 seconds. Variants: `Calm`, `Energetic`, `Tense`, `Playful`, `Minimal`. Use it on a transition line (it starts crossfading at cover) or on its own line anywhere. No duration needed.
+```
+{Mood:Energetic}
+{Transition:Iris} {Position:Center} {Mood:Calm}
+```
+> No-op if the scene has no background mood system wired up — safe to use either way.
 
 ### Image — `{Image:name}` or `{Image:name,seconds}`
 Shows an image in the media area. `name` is the file name (extension optional) found in the configured Images/Logos media folders. Duration optional — defaults to **3s**.
@@ -183,6 +221,7 @@ Fields: `"value","label","context",duration`
 ```
 - **Side cards need a side position.** Set `{Position:Left,...}` or `{Position:Right,...}` *before* a `Headline`/`Excerpt`/`Quote`/`Stat`/`Logo`/`BRoll` tag. While the character is `Center`, side cards are suppressed (they'd overlap the centered character).
 - **Fullscreen feature cards work anywhere.** `BigText`/`BigMedia`/`BigCenter` (and a `Headline` with `,bigCenter`) render in front of everything, so they appear in any position — including `Center`. Use them for the "front and center" moments.
+- **Transitions open a new section.** Put `{Transition:…}` on the **first line of a section** and group that section's whole scene change onto the same line (position, emotion, mood, a card, an image, a zoom). They're applied under cover — see §4. This is the one place you deliberately stack several tags on a single line. A side card grouped on a transition line still needs a `Left`/`Right` position on that same line (rule 8).
 - **Don't place a tag on the script's very last word and expect it to fire late** — it's fine, the recording now holds until trailing tags (e.g. an end-card `{Logo:...,8}` or final `{Black:2}`) finish their full duration.
 - Reasonable default durations: cards 5s, excerpts 6s, big text 3–4s, logos 3–4s, black cuts 2–3s.
 
@@ -198,7 +237,7 @@ Fields: `"value","label","context",duration`
 [genuine disbelief] No — actually bad. Like, read it twice to make sure bad.
 
 ## BREAKDOWN
-{Position:Left,Smooth} {Serious}
+{Transition:Wipe} {Position:Left} {Serious}
 [slowing down, serious] Here's what the policy change actually says.
 {Headline:"Tech Giant Quietly Changes Privacy Policy","The Verge",5}
 [dry] Page eleven. Buried under the cookie banner.
@@ -208,8 +247,7 @@ Fields: `"value","label","context",duration`
 [dry] Point three percent. The rest of us just hit "I Agree."
 
 ## TAKE
-{Position:Center,Smooth} {Concerned}
-{Zoom:In}
+{Transition:Iris} {Position:Center} {Concerned} {Zoom:In} {Mood:Tense}
 [tired but amused] Every few months a company quietly rewrites the rules.
 {BigText:YOUR DATA+→+THEIR MODEL,6}
 [slowing down, serious] That's the real transaction here.
@@ -219,7 +257,8 @@ Fields: `"value","label","context",duration`
 
 Notes on the example:
 - Starts with `## COLD OPEN` (rule 1).
-- The `Headline`, `Excerpt`, and `Stat` cards all appear in the `BREAKDOWN` section while the character is at `Left` (rule 8).
+- `BREAKDOWN` and `TAKE` each open with a `{Transition:…}` on the section's first line, with that section's other tags on the same line — so the `Wipe` snaps the character to `Left` + sets `Serious` under cover, and the `Iris` snaps to `Center` + `Concerned` + zoom-in + a `Tense` mood crossfade under cover. Each section reveals already reconfigured (§4).
+- The `Headline`, `Excerpt`, and `Stat` cards all appear in the `BREAKDOWN` section while the character is at `Left` (rule 8) — they're on their own later lines, so they animate in a beat after the transition rather than under cover.
 - The narration `…hit "I Agree."` uses quotes freely — that's fine, it's narration, not a tag field.
 - `{BigText:YOUR DATA+→+THEIR MODEL,6}` is three stacked lines via `+`.
 - No tag has a `T=`; the processor adds those.
@@ -233,6 +272,8 @@ Notes on the example:
 - [ ] No smart quotes anywhere; no `"` inside a quoted field.
 - [ ] No commas inside `Logo` / `BRoll` / `BigMedia` / `BigText` names (used `+` for multiples, ≤4).
 - [ ] Emotion / Position / Zoom keywords spelled exactly and capitalized.
+- [ ] `Transition` / `Mood` (and their variants) spelled exactly and capitalized.
+- [ ] Each `{Transition:…}` is on the first line of its section, with that section's other tags grouped onto the same line.
 - [ ] Every content card is preceded by a `Left` or `Right` position.
 - [ ] No `T=` written by hand.
 - [ ] One tag per line.

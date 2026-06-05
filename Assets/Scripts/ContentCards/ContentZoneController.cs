@@ -409,6 +409,13 @@ public class ContentZoneController : MonoBehaviour
         // (falls back to FromBottom if no preset is active).
         activeCard.SetEntryDirection(ComputeEntryDirection());
 
+        // The reflection we just countered on the card's localScale (so text
+        // reads correctly) ALSO reverses a horizontal entry slide, because the
+        // slide animates anchoredPosition in the still-mirrored zone space. Hand
+        // the card the same sign so it flips the slide to enter from the intended
+        // side instead of easing in backwards.
+        activeCard.SetParentMirrorSign(xSign);
+
         activeCard.Show();
 
         // Per-tag sound effect — fires as the card actually appears. Queued or

@@ -1410,6 +1410,24 @@ public class MediaPresentationSystem : MonoBehaviour
                     work = cardResult.Item1;
                 }
 
+                // Claim co-located {Image:}/{Video:} media and {Zoom:} off the line
+                // too, so they ALSO fire at full cover (onCovered) instead of on
+                // their own timelines at the transition's start time — otherwise
+                // they'd pop in mid-sweep, while the old scene is still partly visible.
+                var mediaResult = ParseMediaMarkers(work, audioDuration);
+                if (mediaResult.Item2.Count > 0)
+                {
+                    data.mediaMarkers = mediaResult.Item2;
+                    work = mediaResult.Item1;
+                }
+
+                var zoomResult = ParseZoomMarkers(work, audioDuration);
+                if (zoomResult.Item2.Count > 0)
+                {
+                    data.zoomMarkers = zoomResult.Item2;
+                    work = zoomResult.Item1;
+                }
+
                 // Emotion last — only bare {Word} tags remain (colon tags already claimed/left).
                 Match emo = BundleEmotionRegex.Match(work);
                 if (emo.Success)
@@ -1423,7 +1441,9 @@ public class MediaPresentationSystem : MonoBehaviour
                           $"pos={(data.hasPosition ? data.position.ToString() : "none")}, " +
                           $"emotion={(string.IsNullOrEmpty(data.emotion) ? "none" : data.emotion)}, " +
                           $"mood={(data.hasMood ? data.mood.ToString() : "none")}, " +
-                          $"cards={(data.contentCards != null ? data.contentCards.Count : 0)}");
+                          $"cards={(data.contentCards != null ? data.contentCards.Count : 0)}, " +
+                          $"media={(data.mediaMarkers != null ? data.mediaMarkers.Count : 0)}, " +
+                          $"zoom={(data.zoomMarkers != null ? data.zoomMarkers.Count : 0)}");
 
                 lines[li] = work;
             }
@@ -1526,7 +1546,9 @@ public class MediaPresentationSystem : MonoBehaviour
     // Runs at the instant of full cover (onCovered). Everything here is hidden
     // behind the overlay, so the reveal shows a fresh scene: Mugs already
     // repositioned (snap, never a visible slide), the new card swapped in (or the
-    // zone cleared), the new expression set, and the mood crossfade started.
+    // zone cleared), the new expression set, the mood crossfade started, any
+    // {Image:}/{Video:} now on screen, and the camera already at its new zoom —
+    // none of it visible until the screen is fully covered.
     void ApplyTransitionCover(TransitionMarkerData m)
     {
         if (m.hasPosition)
@@ -1548,6 +1570,24 @@ public class MediaPresentationSystem : MonoBehaviour
                 for (int i = 0; i < m.contentCards.Count; i++)
                     contentZoneController.ShowCard(m.contentCards[i]);
         }
+
+        // Zoom — snap under cover (cut), like the position snap, so the reveal shows
+        // the new framing with no camera glide over the visible scene. Pullback /
+        // Reset manage their own cuts; the flag is harmless for them.
+        if (m.zoomMarkers != null)
+            for (int i = 0; i < m.zoomMarkers.Count; i++)
+                ApplyZoom(m.zoomMarkers[i].zoomType, cut: true, holdDuration: m.zoomMarkers[i].holdDuration);
+
+        // Media ({Image:}/{Video:}) — show at full cover so it's only ever visible
+        // once the screen is covered, never mid-sweep. (A {Video:} still pauses
+        // narration while it plays, exactly as it does on its own timeline.)
+        if (m.mediaMarkers != null)
+            for (int i = 0; i < m.mediaMarkers.Count; i++)
+            {
+                if (currentMediaCoroutine != null)
+                    StopCoroutine(currentMediaCoroutine);
+                currentMediaCoroutine = StartCoroutine(ShowMedia(m.mediaMarkers[i]));
+            }
     }
 
     IEnumerator TrackMoodByTime()
@@ -1739,7 +1779,9 @@ public class TransitionMarkerData
     public string emotion;               // null/empty = no emotion change
     public bool hasMood;
     public MugsTech.Background.BackgroundMoodController.MoodType mood;
-    public System.Collections.Generic.List<ContentCardEvent> contentCards; // null/empty = clear the zone
+    public System.Collections.Generic.List<ContentCardEvent> contentCards;  // null/empty = clear the zone
+    public System.Collections.Generic.List<MediaMarkerData> mediaMarkers;    // {Image:}/{Video:} shown at cover
+    public System.Collections.Generic.List<ZoomMarkerData> zoomMarkers;      // {Zoom:} snapped at cover
 }
 
 /// <summary>
