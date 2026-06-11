@@ -8,6 +8,7 @@
     "com.unity.postprocessing": "3.5.4",
     "com.unity.recorder": "5.1.4",
     "com.unity.sdk.linux-x86_64": "1.1.0",
+    "com.unity.services.cloud-build": "2.0.8",
     "com.unity.toolchain.win-x86_64-linux": "1.1.0",
     "com.unity.ugui": "2.0.0",
     "com.unity.modules.accessibility": "1.0.0",

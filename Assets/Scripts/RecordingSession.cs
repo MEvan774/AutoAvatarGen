@@ -80,12 +80,37 @@ public class RecordingSession : MonoBehaviour
 
     public static void Begin()
     {
-        if (Instance != null) return;
+        // Tear down any leftover session before starting a new one. A previous
+        // take can still be alive here if it's finalizing a video in the
+        // background, or if it got stuck because Evereal never raised
+        // OnComplete/OnError (the watchdog otherwise keeps the session around
+        // for up to 180 s). The Start button only exists on the main menu, so
+        // reaching this point always means a fresh take is wanted — never let a
+        // stale session silently block it. This is what lets the user record
+        // repeatedly without restarting the app.
+        if (Instance != null)
+            Instance.DisposeSession();
 
         GameObject host = new GameObject("RecordingSession");
         DontDestroyOnLoad(host);
         Instance = host.AddComponent<RecordingSession>();
         SceneManager.LoadScene(RecordingSceneName);
+    }
+
+    // Fully tears down this session right now, so a new one can take its place.
+    // Stops coroutines (watchdog / finalize), drops capture subscriptions,
+    // removes the overlay, and clears the singleton BEFORE the replacement
+    // session's Awake runs (otherwise Awake would see a non-null Instance that
+    // isn't itself and destroy the new session instead).
+    void DisposeSession()
+    {
+        finished = true;            // neutralise any late OnComplete/OnError
+        StopAllCoroutines();
+        UnsubscribeFromCapture();
+        SceneManager.sceneLoaded -= HandleSceneLoaded;
+        if (indicatorRoot != null) { Destroy(indicatorRoot); indicatorRoot = null; }
+        if (Instance == this) Instance = null;
+        Destroy(gameObject);
     }
 
     // If the game is started with the recording scene already active (typical
@@ -127,6 +152,10 @@ public class RecordingSession : MonoBehaviour
     {
         SceneManager.sceneLoaded -= HandleSceneLoaded;
         UnsubscribeFromCapture();
+        // The indicator canvas is a separate DontDestroyOnLoad object, so it
+        // isn't taken down with this GameObject automatically — destroy it here
+        // so each finished take doesn't leave an orphan overlay canvas behind.
+        if (indicatorRoot != null) { Destroy(indicatorRoot); indicatorRoot = null; }
         if (Instance == this) Instance = null;
     }
 

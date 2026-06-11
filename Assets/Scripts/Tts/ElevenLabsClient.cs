@@ -17,8 +17,8 @@ namespace MugsTech.Tts
     /// </summary>
     public static class ElevenLabsClient
     {
-        public const string DefaultVoiceId = "rPMkKgdwgIwqv4fXgR6N";
-        public const string DefaultModelId = "eleven_multilingual_v2";
+        public const string DefaultVoiceId = "dE8L6fWUYU7muhStLUXt";
+        public const string DefaultModelId = "eleven_v3";
 
         /// <summary>
         /// Voice settings sent in the request body. Defaults mirror the
