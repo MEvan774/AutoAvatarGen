@@ -61,6 +61,21 @@ public class RecordingSession : MonoBehaviour
     bool subscribed;
     bool handedOff;   // capture has stopped and we've returned to the main menu
     bool finished;    // final result (saved/failed) has been delivered; session may be destroyed
+    bool finalizing;          // OnComplete arrived; FinalizeAfterMux owns completion now
+    bool muxRecoveryStarted;  // watchdog self-mux fallback owns completion now
+
+    // The Evereal capture rig (the VideoCapture prefab's root GameObject) is
+    // carried across the scene swap back to the main menu so its encoder
+    // thread callbacks, muxer and event-delivering Update() keep running while
+    // the video finalizes. Destroyed in OnDestroy with the session.
+    GameObject preservedCaptureRoot;
+
+    // Exact output paths snapshotted at hand-off time, while the encoder
+    // objects are still alive, so the fallback mux never has to guess via
+    // folder scans.
+    string pendingVideoTempPath;   // encoder's video file (silent on wav+mux paths)
+    string pendingWavPath;         // AudioRecorder's wav (null on GPU-native audio path)
+    string pendingFinalVideoPath;  // where Evereal's muxer puts the finished file
 
     GameObject indicatorRoot;
     Image spinnerImage;
@@ -156,6 +171,11 @@ public class RecordingSession : MonoBehaviour
         // isn't taken down with this GameObject automatically — destroy it here
         // so each finished take doesn't leave an orphan overlay canvas behind.
         if (indicatorRoot != null) { Destroy(indicatorRoot); indicatorRoot = null; }
+        // Same for the preserved capture rig — every terminal path destroys
+        // this session, so tearing the rig down here guarantees a stale
+        // VideoCapture (and its AudioRecorder/FFmpegMuxer singletons) never
+        // leaks into the next take.
+        if (preservedCaptureRoot != null) { Destroy(preservedCaptureRoot); preservedCaptureRoot = null; }
         if (Instance == this) Instance = null;
     }
 
@@ -173,6 +193,11 @@ public class RecordingSession : MonoBehaviour
     {
         finished = false;
         handedOff = false;
+        finalizing = false;
+        muxRecoveryStarted = false;
+        pendingVideoTempPath = null;
+        pendingWavPath = null;
+        pendingFinalVideoPath = null;
         voiceAudio = null;
         displayedPercent = 0f;
         if (percentText != null) percentText.text = "0%";
@@ -255,37 +280,264 @@ public class RecordingSession : MonoBehaviour
         Debug.Log("[RecordingSession] Capture stopped — generating video, returning to main menu.");
         HandOffAsGenerating();
 
-        // If OnComplete/OnError never arrive, surface a failure so the menu
-        // doesn't stay stuck on "Generating..." forever. The window covers both
-        // Evereal's native encode/mux and our post-mux ffmpeg pass.
-        const float finalizeTimeout = 180f;
+        // With the capture rig preserved across the scene swap, OnComplete
+        // normally arrives within seconds. If it never does (encoder hiccup,
+        // muxer parked, event lost), don't just fail: the finished silent
+        // video and the wav are sitting on disk and ffmpeg is bundled, so mux
+        // them ourselves and still deliver one video WITH sound.
+        const float finalizeTimeout = 60f;
         float elapsed = 0f;
-        while (!finished && elapsed < finalizeTimeout)
+        while (!finished && !finalizing && elapsed < finalizeTimeout)
         {
             elapsed += Time.unscaledDeltaTime;
             yield return null;
         }
-        if (finished) yield break;
+        if (finished || finalizing) yield break;
 
-        Debug.LogWarning("[RecordingSession] Video generation timed out — no OnComplete after " + finalizeTimeout + "s.");
-        finished = true;
-        LastResult = new RecordingResult
-        {
-            State = RecordingResult.Status.Failed,
-            ErrorMessage = "Video generation timed out (no completion event after " + finalizeTimeout + "s)."
-        };
-        RaiseResultChanged();
+        Debug.LogWarning("[RecordingSession] No completion event after " + finalizeTimeout +
+                         "s — attempting manual audio/video mux fallback.");
+        yield return SelfMuxRecover();
+    }
+
+    // Last-resort finalization when Evereal never raises OnComplete: combine
+    // the snapshotted video + wav into the intended final file ourselves.
+    IEnumerator SelfMuxRecover()
+    {
+        muxRecoveryStarted = true;
+        // A late OnComplete must not start a second, concurrent finalize pass
+        // over the same files.
         UnsubscribeFromCapture();
-        Destroy(gameObject);
+
+        // If Evereal's muxer actually finished and only the completion event
+        // got lost, the final file on disk is the source of truth.
+        if (!string.IsNullOrEmpty(pendingFinalVideoPath) && File.Exists(pendingFinalVideoPath))
+        {
+            FinishRecovery(true, pendingFinalVideoPath, null);
+            yield break;
+        }
+
+        string video = pendingVideoTempPath;
+        if (string.IsNullOrEmpty(video) || !File.Exists(video))
+        {
+            FinishRecovery(false, null,
+                "Recording produced no video file (expected '" + video + "').");
+            yield break;
+        }
+
+        // The encoder thread may still be flushing — wait until the file size
+        // is stable across two consecutive checks (capped at 30s).
+        long lastSize = -1;
+        for (float waited = 0f; waited < 30f; waited += 1f)
+        {
+            long size;
+            try { size = new FileInfo(video).Length; }
+            catch { size = -1; }
+            if (size > 0 && size == lastSize) break;
+            lastSize = size;
+            yield return new WaitForSecondsRealtime(1f);
+        }
+
+        string wav = (!string.IsNullOrEmpty(pendingWavPath) && File.Exists(pendingWavPath))
+            ? pendingWavPath
+            : FindRecentOrphanWav(Path.GetDirectoryName(video));
+        string finalPath = !string.IsNullOrEmpty(pendingFinalVideoPath) ? pendingFinalVideoPath : video;
+
+        if (wav == null)
+        {
+            // No separate audio file — GPU-native paths bake audio straight
+            // into the video. Just give the file its intended final name.
+            string dest = finalPath;
+            try
+            {
+                if (!string.Equals(video, dest, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (File.Exists(dest)) File.Delete(dest);
+                    File.Move(video, dest);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[RecordingSession] Could not rename '{video}' to '{dest}': {e.Message}");
+                dest = video; // keep the original location — still a valid take
+            }
+            FinishRecovery(true, dest, null);
+            yield break;
+        }
+
+        string ffmpegPath = GetBundledFfmpegPath();
+        if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
+        {
+            FinishRecovery(false, null,
+                $"ffmpeg not found at '{ffmpegPath}'. Video: '{video}', audio: '{wav}'.");
+            yield break;
+        }
+
+        // If the video already carries sound (GPU-native encoding bakes the
+        // audio in directly), the wav we found is stale or belongs to another
+        // take — muxing it in would REPLACE the correct audio. Rename only.
+        ProcResult probe = new ProcResult();
+        yield return RunFfmpeg(ffmpegPath, $"-hide_banner -i \"{video}\"", probe);
+        if (probe.started && probe.stderr != null && probe.stderr.Contains("Audio:"))
+        {
+            Debug.Log("[RecordingSession] Video already has an audio stream — renaming only.");
+            string dest = finalPath;
+            try
+            {
+                if (!string.Equals(video, dest, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (File.Exists(dest)) File.Delete(dest);
+                    File.Move(video, dest);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[RecordingSession] Could not rename '{video}' to '{dest}': {e.Message}");
+                dest = video;
+            }
+            FinishRecovery(true, dest, null);
+            yield break;
+        }
+
+        string muxedTemp = finalPath + ".muxing.mp4";
+        try { if (File.Exists(muxedTemp)) File.Delete(muxedTemp); }
+        catch (Exception e)
+        {
+            FinishRecovery(false, null, $"Could not clear temp file '{muxedTemp}': {e.Message}");
+            yield break;
+        }
+
+        string ffArgs = string.Format(
+            "-y -hide_banner -loglevel warning -i \"{0}\" -i \"{1}\" " +
+            "-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -shortest \"{2}\"",
+            video, wav, muxedTemp);
+        Debug.Log($"[RecordingSession] Mux fallback: '{Path.GetFileName(video)}' + " +
+                  $"'{Path.GetFileName(wav)}' -> '{Path.GetFileName(finalPath)}'.");
+
+        ProcResult mux = new ProcResult();
+        yield return RunFfmpeg(ffmpegPath, ffArgs, mux);
+        if (!mux.started || mux.exitCode != 0 || !File.Exists(muxedTemp))
+        {
+            try { if (File.Exists(muxedTemp)) File.Delete(muxedTemp); } catch { }
+            FinishRecovery(false, null,
+                $"Mux fallback failed (ffmpeg exit {mux.exitCode}). stderr: {mux.stderr} " +
+                $"Files kept: video '{video}', audio '{wav}'.");
+            yield break;
+        }
+
+        try
+        {
+            if (File.Exists(finalPath) &&
+                !string.Equals(finalPath, muxedTemp, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(finalPath);
+            }
+            File.Move(muxedTemp, finalPath);
+        }
+        catch (Exception e)
+        {
+            FinishRecovery(false, null, $"Muxed file could not be moved to '{finalPath}': {e.Message}");
+            yield break;
+        }
+
+        // Cleanup of the now-redundant inputs must never fail the take.
+        if (!string.Equals(video, finalPath, StringComparison.OrdinalIgnoreCase))
+            yield return DeleteFileWithRetry(video);
+        yield return DeleteFileWithRetry(wav);
+
+        FinishRecovery(true, finalPath, null);
+    }
+
+    void FinishRecovery(bool ok, string savePath, string error)
+    {
+        finished = true;
+        if (ok)
+        {
+            Debug.Log($"[RecordingSession] Recovery produced '{savePath}'.");
+            LastResult = new RecordingResult
+            {
+                State = RecordingResult.Status.Saved,
+                SavePath = savePath
+            };
+        }
+        else
+        {
+            Debug.LogError($"[RecordingSession] {error}");
+            LastResult = new RecordingResult
+            {
+                State = RecordingResult.Status.Failed,
+                ErrorMessage = error
+            };
+        }
+        RaiseResultChanged();
+        Destroy(gameObject); // OnDestroy tears down the preserved rig + indicator
     }
 
     void HandOffAsGenerating()
     {
         if (handedOff) return;
         handedOff = true;
+        // Must run BEFORE the scene swap: loading the main menu destroys the
+        // recording scene, and with it the Evereal capture rig whose encoder
+        // thread is still finishing the video.
+        PreserveCapturePipeline();
         LastResult = new RecordingResult { State = RecordingResult.Status.Generating };
         RaiseResultChanged();
         ReturnToMainMenu();
+    }
+
+    // Carries the Evereal capture rig across the scene swap. Destroying it
+    // with the recording scene (the old behavior) fires VideoCapture.OnDisable,
+    // which unsubscribes the encoder-thread completion callback BEFORE the
+    // encoder finishes (~1s after StopCapture). The muxer thread then never
+    // receives the video file and parks forever, leaving a silent .mp4 plus an
+    // orphan audio_*.wav, and OnComplete never fires — THAT was the
+    // split-audio/video bug. The rig must stay ACTIVE (deactivating triggers
+    // the same OnDisable), so only the components that would interfere with
+    // the main menu are disabled.
+    void PreserveCapturePipeline()
+    {
+        if (capture == null) return;
+
+        // Snapshot the exact output paths while the encoder objects are alive,
+        // for the self-mux fallback and the orphan-wav cleanup.
+        EncoderBase encoder = capture.GetEncoder();
+        pendingVideoTempPath = encoder != null ? encoder.videoSavePath : null;
+
+        if (AudioRecorder.singleton != null)
+        {
+            string wav = AudioRecorder.singleton.GetRecordedAudio();
+            // Recency guard: the singleton can outlive a take, so only trust a
+            // wav that was actually written by this session's recording.
+            if (!string.IsNullOrEmpty(wav) && File.Exists(wav) &&
+                File.GetLastWriteTime(wav) > DateTime.Now.AddMinutes(-10))
+            {
+                pendingWavPath = wav;
+            }
+        }
+
+        if (FFmpegMuxer.singleton != null && encoder != null &&
+            !string.IsNullOrEmpty(FFmpegMuxer.singleton.customFileName))
+        {
+            // Mirrors FFmpegMuxer.StartMux's output naming (saveFolderFullPath
+            // already ends with a separator).
+            pendingFinalVideoPath = FFmpegMuxer.singleton.saveFolderFullPath +
+                                    FFmpegMuxer.singleton.customFileName + "." +
+                                    Utils.GetEncoderPresetExt(encoder.encoderPreset);
+        }
+
+        GameObject root = capture.transform.root.gameObject;
+        DontDestroyOnLoad(root);
+        preservedCaptureRoot = root;
+        foreach (Camera cam in root.GetComponentsInChildren<Camera>(true))
+            cam.enabled = false;
+        foreach (AudioListener listener in root.GetComponentsInChildren<AudioListener>(true))
+            listener.enabled = false;
+        foreach (AudioSource src in root.GetComponentsInChildren<AudioSource>(true))
+            src.Stop();
+
+        Debug.Log("[RecordingSession] Capture rig preserved across scene swap. " +
+                  $"video='{pendingVideoTempPath}', audio='{pendingWavPath}', " +
+                  $"final='{pendingFinalVideoPath}'.");
     }
 
     void UnsubscribeFromCapture()
@@ -304,7 +556,8 @@ public class RecordingSession : MonoBehaviour
 
     void HandleCaptureComplete(object sender, CaptureCompleteEventArgs args)
     {
-        if (finished) return;
+        if (finished || muxRecoveryStarted) return;
+        finalizing = true; // the watchdog must not start a concurrent recovery
         Debug.Log($"[RecordingSession] Capture complete: {args.SavePath}");
         UnsubscribeFromCapture();
         // Fold a leftover audio_*.wav (Evereal's intermediate or a failed-mux
@@ -610,7 +863,11 @@ public class RecordingSession : MonoBehaviour
         if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
             yield break;
 
-        string orphanWav = FindRecentOrphanWav(folder);
+        // Prefer the wav path snapshotted at hand-off; fall back to scanning
+        // the video's folder for takes that never went through hand-off.
+        string orphanWav = (!string.IsNullOrEmpty(pendingWavPath) && File.Exists(pendingWavPath))
+            ? pendingWavPath
+            : FindRecentOrphanWav(folder);
         if (orphanWav == null) yield break;
 
         string ffmpegPath = GetBundledFfmpegPath();
@@ -618,6 +875,18 @@ public class RecordingSession : MonoBehaviour
         {
             Debug.LogWarning(
                 $"[RecordingSession] ffmpeg not found at '{ffmpegPath}' — leaving .wav beside the .mp4.");
+            yield break;
+        }
+
+        // When Evereal's own muxer succeeded (the normal path now that the
+        // capture rig survives the scene swap), the video already carries the
+        // sound and the leftover wav is just the muxer thread's cleanup still
+        // in flight — re-muxing would race that deletion for no benefit.
+        ProcResult probe = new ProcResult();
+        yield return RunFfmpeg(ffmpegPath, $"-hide_banner -i \"{videoPath}\"", probe);
+        if (probe.started && probe.stderr != null && probe.stderr.Contains("Audio:"))
+        {
+            Debug.Log("[RecordingSession] Video already has an audio stream — no re-mux needed.");
             yield break;
         }
 
@@ -640,18 +909,63 @@ public class RecordingSession : MonoBehaviour
         Debug.Log($"[RecordingSession] Combining '{Path.GetFileName(videoPath)}' + " +
                   $"'{Path.GetFileName(orphanWav)}' into one file.");
 
-        Diag.Process process = null;
+        ProcResult mux = new ProcResult();
+        yield return RunFfmpeg(ffmpegPath, ffArgs, mux);
+
+        if (!mux.started || mux.exitCode != 0 || !File.Exists(muxedTemp))
+        {
+            Debug.LogError($"[RecordingSession] ffmpeg mux failed (exit {mux.exitCode}). stderr: {mux.stderr}");
+            try { if (File.Exists(muxedTemp)) File.Delete(muxedTemp); } catch { }
+            yield break;
+        }
+
+        bool swapped = false;
+        try
+        {
+            File.Delete(videoPath);
+            File.Move(muxedTemp, videoPath);
+            swapped = true;
+            Debug.Log($"[RecordingSession] Combined into '{videoPath}'.");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[RecordingSession] Mux succeeded but swap failed: {e.Message}");
+        }
+        if (swapped)
+            yield return DeleteFileWithRetry(orphanWav);
+    }
+
+    // -----------------------------------------------------------------------
+    // ffmpeg process helpers
+    // -----------------------------------------------------------------------
+
+    class ProcResult
+    {
+        public bool started;
+        public int exitCode = -1;
+        public string stderr = "";
+    }
+
+    IEnumerator RunFfmpeg(string ffmpegPath, string args, ProcResult result)
+    {
+        Diag.Process process;
+        System.Threading.Tasks.Task<string> stderrTask;
         try
         {
             process = Diag.Process.Start(new Diag.ProcessStartInfo
             {
                 FileName = ffmpegPath,
-                Arguments = ffArgs,
+                Arguments = args,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,
             });
+            // Drain both pipes asynchronously so ffmpeg can never block on a
+            // full pipe buffer while we wait for it to exit.
+            stderrTask = process.StandardError.ReadToEndAsync();
+            process.StandardOutput.ReadToEndAsync();
+            result.started = true;
         }
         catch (Exception e)
         {
@@ -659,31 +973,44 @@ public class RecordingSession : MonoBehaviour
             yield break;
         }
 
-        while (!process.HasExited)
-            yield return null;
-
-        int code = process.ExitCode;
-        string stderr = process.StandardError.ReadToEnd();
-        process.Dispose();
-
-        if (code != 0 || !File.Exists(muxedTemp))
+        float waited = 0f;
+        while (!process.HasExited && waited < 180f)
         {
-            Debug.LogError($"[RecordingSession] ffmpeg mux failed (exit {code}). stderr: {stderr}");
-            try { if (File.Exists(muxedTemp)) File.Delete(muxedTemp); } catch { }
+            waited += Time.unscaledDeltaTime;
+            yield return null;
+        }
+        if (!process.HasExited)
+        {
+            Debug.LogError("[RecordingSession] ffmpeg did not finish within 180s — killing it.");
+            try { process.Kill(); } catch { }
+            process.Dispose();
             yield break;
         }
 
-        try
+        result.exitCode = process.ExitCode;
+        try { result.stderr = stderrTask.Result; } catch { result.stderr = ""; }
+        process.Dispose();
+    }
+
+    // Deleting leftover inputs must never fail a take — the wav can still be
+    // briefly locked by Evereal's muxer thread. Retry a few times, then leave
+    // the file in place with a warning.
+    IEnumerator DeleteFileWithRetry(string path)
+    {
+        if (string.IsNullOrEmpty(path)) yield break;
+        for (int attempt = 0; attempt < 3; attempt++)
         {
-            File.Delete(videoPath);
-            File.Move(muxedTemp, videoPath);
-            File.Delete(orphanWav);
-            Debug.Log($"[RecordingSession] Combined into '{videoPath}'; removed orphan .wav.");
+            bool done = false;
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                done = true;
+            }
+            catch { }
+            if (done) yield break;
+            yield return new WaitForSecondsRealtime(1f);
         }
-        catch (Exception e)
-        {
-            Debug.LogError($"[RecordingSession] Mux succeeded but cleanup failed: {e.Message}");
-        }
+        Debug.LogWarning($"[RecordingSession] Could not delete '{path}' — leaving it in place.");
     }
 
     // Evereal writes "audio_<timestamp>_<rand>.wav" next to the video. Pick
@@ -691,6 +1018,9 @@ public class RecordingSession : MonoBehaviour
     // fold in a file from an earlier session.
     static string FindRecentOrphanWav(string folder)
     {
+        if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
+            return null;
+
         string newest = null;
         DateTime newestTime = DateTime.MinValue;
         DateTime cutoff = DateTime.Now.AddMinutes(-5);

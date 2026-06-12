@@ -108,8 +108,29 @@ public class CrossPlatformRecorder : MonoBehaviour
                   $"GameObject='{gameObject.name}', activeInHierarchy={gameObject.activeInHierarchy}, " +
                   $"verboseLogging={verboseLogging}, saveFolder='{saveFolder}'.");
 
-        // If using the Evereal prefab's built-in camera, read it from the component
-        // so ApplyBackgroundMode still works on the correct camera.
+        ResolveTargetCamera();
+
+        // The main-menu "Background recording mode" selector writes a
+        // PlayerPref that ranks above the inspector default. This way the
+        // user can flip Video / Green Screen / Transparent at runtime
+        // without re-saving the scene.
+        ApplyBackgroundModeOverrideFromPrefs();
+
+        // Same pattern for the recording output folder — the main menu's
+        // input field writes a PlayerPref that overrides the inspector
+        // saveFolder. Must run before ConfigureVideoCapture() so the
+        // override is in place when it resolves the path.
+        ApplyRecordingOutputFolderOverrideFromPrefs();
+
+        ApplyBackgroundMode();
+        ConfigureVideoCapture();
+    }
+
+    // Picks the camera ApplyBackgroundMode operates on. If using the Evereal
+    // prefab's built-in camera, read it from the component so the background
+    // is applied to the camera that actually records.
+    void ResolveTargetCamera()
+    {
         if (useEverealBuiltInCamera && videoCaptureComponent != null)
         {
             targetCamera = videoCaptureComponent.regularCamera;
@@ -130,21 +151,6 @@ public class CrossPlatformRecorder : MonoBehaviour
         {
             Debug.LogError("[Recorder] No camera found! Assign one or add a Camera tagged 'MainCamera'.");
         }
-
-        // The main-menu "Background recording mode" selector writes a
-        // PlayerPref that ranks above the inspector default. This way the
-        // user can flip Video / Green Screen / Transparent at runtime
-        // without re-saving the scene.
-        ApplyBackgroundModeOverrideFromPrefs();
-
-        // Same pattern for the recording output folder — the main menu's
-        // input field writes a PlayerPref that overrides the inspector
-        // saveFolder. Must run before ConfigureVideoCapture() so the
-        // override is in place when it resolves the path.
-        ApplyRecordingOutputFolderOverrideFromPrefs();
-
-        ApplyBackgroundMode();
-        ConfigureVideoCapture();
     }
 
     // Reads the main menu's "Recording Output Folder" PlayerPref and, if
@@ -233,17 +239,23 @@ public class CrossPlatformRecorder : MonoBehaviour
             return;
         }
 
-        // Apply the main-menu "Recording Output Folder" override RIGHT HERE,
-        // not in Awake(). On this project Awake() doesn't fire for the
-        // recorder (some Unity import quirk we haven't been able to pin down
-        // — see the absent "Awake() entered" log even with the smoking-gun
-        // Debug.Log in place). StartRecordingWithAudio IS called directly by
-        // HybridAvatarSystem via a serialized reference though, so applying
-        // the override from inside this method works. Called before any
-        // SetCustomFileName / StartCapture so Evereal picks up the new path
-        // when it resolves saveFolderFullPath in its PrepareForCapture.
+        // Apply the FULL configuration RIGHT HERE, not in Awake(). On this
+        // project Awake() doesn't fire for the recorder (some Unity import
+        // quirk we haven't been able to pin down — see the absent "Awake()
+        // entered" log even with the smoking-gun Debug.Log in place).
+        // StartRecordingWithAudio IS called directly by HybridAvatarSystem via
+        // a serialized reference though, so configuring from inside this
+        // method works. Until this ran the whole inspector setup — GPU
+        // encoding, resolution, bitrate, background mode, captureAudio — was
+        // silently ignored and Evereal recorded with its prefab defaults.
+        // Everything below is idempotent, and runs before SetCustomFileName /
+        // StartCapture so Evereal picks it all up when it resolves
+        // saveFolderFullPath in its PrepareCapture.
         ApplyRecordingOutputFolderOverrideFromPrefs();
-        ApplySaveFolderToVideoCapture();
+        ApplyBackgroundModeOverrideFromPrefs();
+        ResolveTargetCamera();
+        ApplyBackgroundMode();
+        ConfigureVideoCapture(); // ends with ApplySaveFolderToVideoCapture()
 
         // Set a unique timestamped filename for this take. Format:
         //   <videoTitle>_<yyyy-MM-dd_HH-mm-ss>.mp4
@@ -406,8 +418,23 @@ public class CrossPlatformRecorder : MonoBehaviour
         videoCaptureComponent.horizontalFlip = horizontalFlip;
         videoCaptureComponent.verticalFlip = verticalFlip;
 
-        // GPU encoding (paid)
-        videoCaptureComponent.gpuEncoding = gpuEncoding;
+        // GPU encoding (paid). On NVIDIA GPUs Evereal routes to its uNvEncoder
+        // native plugin WITHOUT any support check, and that plugin only works
+        // on D3D11 — under D3D12 (this project uses Auto Graphics API, which
+        // is D3D12 on Unity 6/Windows) uNvEncoderCreateEncoder hard-crashes
+        // the whole editor/player with an access violation (crash dumps
+        // 2026-06-11). The non-NVIDIA GPUEncoder branch has its own
+        // IsSupported fallback inside Evereal, so it needs no guard here.
+        bool allowGpuEncoding = gpuEncoding;
+        if (allowGpuEncoding && SystemInfo.graphicsDeviceVendor == "NVIDIA" &&
+            SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Direct3D11)
+        {
+            Debug.LogWarning("[Recorder] GPU encoding disabled: NVIDIA encoding requires D3D11 but " +
+                             $"the current graphics API is {SystemInfo.graphicsDeviceType}. " +
+                             "Using software encoding instead.");
+            allowGpuEncoding = false;
+        }
+        videoCaptureComponent.gpuEncoding = allowGpuEncoding;
 
         // Resolution / framerate / bitrate
         videoCaptureComponent.resolutionPreset = ResolutionPreset.CUSTOM;
@@ -426,7 +453,7 @@ public class CrossPlatformRecorder : MonoBehaviour
 
         Log($"VideoCapture configured: {frameWidth}x{frameHeight} @ {frameRate}fps, " +
             $"{bitrateKbps}kbps, transparent={videoCaptureComponent.transparent}, " +
-            $"gpu={gpuEncoding}, flipH={horizontalFlip}, flipV={verticalFlip}");
+            $"gpu={allowGpuEncoding}, flipH={horizontalFlip}, flipV={verticalFlip}");
     }
 
     // -----------------------------------------------------------------------
