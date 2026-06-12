@@ -145,6 +145,7 @@ public class MainMenuController : MonoBehaviour
         EnsurePresenterTransitionControls();
         WirePresenterTransitionRow();
         EnsureOutputLibrary();
+        EnsureOpenFolderButton();
 
         RefreshResult();
 
@@ -413,6 +414,207 @@ public class MainMenuController : MonoBehaviour
             outputLibrary = gameObject.AddComponent<OutputLibraryController>();
     }
 
+    // -----------------------------------------------------------------------
+    // Open output folder
+    //
+    // After a take is saved, this button reveals the new video in the system
+    // file browser (selecting the file itself on Windows / macOS / Linux where
+    // supported) so the user can check or edit it straight away. It stays
+    // hidden until a recording finishes successfully, and is updated each time
+    // RefreshResult runs. Built at runtime when not wired in the inspector,
+    // mirroring the other Ensure* rows so existing scenes need no UI rebuild.
+    // -----------------------------------------------------------------------
+
+    [Header("Open Output Folder")]
+    [Tooltip("Optional. Appears only after a recording is saved; opens the folder " +
+             "containing the new video and selects it. If left null, it is built at runtime.")]
+    [SerializeField] Button openFolderButton;
+
+    // Full path of the most recently saved video — the target of openFolderButton.
+    string lastSavedVideoPath;
+
+    void EnsureOpenFolderButton()
+    {
+        if (openFolderButton == null)
+        {
+            Canvas canvas = GetComponentInChildren<Canvas>();
+            if (canvas == null) return;
+
+            var go = new GameObject("OpenFolderButton",
+                typeof(RectTransform), typeof(Image), typeof(Button));
+            go.transform.SetParent(canvas.transform, false);
+            var rt = (RectTransform)go.transform;
+            // Bottom-right corner, just above the result panel.
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
+            rt.anchoredPosition = new Vector2(-40f, 185f);
+            rt.sizeDelta        = new Vector2(340f, 64f);
+
+            var img = go.GetComponent<Image>();
+            img.color = new Color(0.20f, 0.45f, 0.65f, 1f);
+            openFolderButton = go.GetComponent<Button>();
+            openFolderButton.targetGraphic = img;
+
+            var labelGO = new GameObject("Label", typeof(RectTransform));
+            labelGO.transform.SetParent(go.transform, false);
+            var labelRT = (RectTransform)labelGO.transform;
+            labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
+            labelRT.offsetMin = Vector2.zero; labelRT.offsetMax = Vector2.zero;
+            var t = labelGO.AddComponent<TextMeshProUGUI>();
+            t.text      = "Open video folder";
+            t.fontSize  = 24;
+            t.fontStyle = FontStyles.Bold;
+            t.alignment = TextAlignmentOptions.Center;
+            t.color     = Color.white;
+            t.raycastTarget = false;
+        }
+
+        openFolderButton.onClick.AddListener(OnOpenFolderClicked);
+        openFolderButton.gameObject.SetActive(false); // revealed once a take is saved
+    }
+
+    void SetOpenFolderButtonVisible(bool visible)
+    {
+        if (openFolderButton != null)
+            openFolderButton.gameObject.SetActive(visible);
+    }
+
+    void OnOpenFolderClicked()
+    {
+        if (string.IsNullOrEmpty(lastSavedVideoPath))
+        {
+            FlashMessage("No saved video to open yet.");
+            return;
+        }
+        RevealInFileBrowser(lastSavedVideoPath);
+    }
+
+    // Opens the system file browser at the saved video, selecting the file
+    // itself where the platform supports it (Windows Explorer, macOS Finder,
+    // and Linux file managers via the freedesktop D-Bus interface). Where
+    // selecting isn't available it falls back to just opening the containing
+    // folder; if the file has since been moved, it opens the folder too.
+    static void RevealInFileBrowser(string filePath)
+    {
+        string full;
+        try { full = Path.GetFullPath(filePath); }
+        catch (Exception e)
+        {
+            Debug.LogError($"[MainMenu] Bad video path '{filePath}': {e.Message}");
+            return;
+        }
+
+        bool fileExists = File.Exists(full);
+        string folder = fileExists ? Path.GetDirectoryName(full)
+                                   : (Directory.Exists(full) ? full : Path.GetDirectoryName(full));
+        bool folderExists = !string.IsNullOrEmpty(folder) && Directory.Exists(folder);
+
+        try
+        {
+#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
+            if (fileExists)
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{full}\"");
+            else if (folderExists)
+                System.Diagnostics.Process.Start("explorer.exe", $"\"{folder}\"");
+            else
+                Debug.LogWarning($"[MainMenu] Output location no longer exists: '{full}'.");
+#elif UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
+            if (fileExists)
+                System.Diagnostics.Process.Start("open", $"-R \"{full}\"");
+            else if (folderExists)
+                System.Diagnostics.Process.Start("open", $"\"{folder}\"");
+            else
+                Debug.LogWarning($"[MainMenu] Output location no longer exists: '{full}'.");
+#else
+            // Linux (e.g. Nobara) and any other Unix: reveal-and-select via the
+            // freedesktop D-Bus FileManager1 interface, then fall back to a
+            // plain folder open if that isn't available.
+            if (!RevealOnLinux(full, folder, fileExists, folderExists))
+                Debug.LogWarning($"[MainMenu] Could not open a file browser for '{full}'.");
+#endif
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[MainMenu] Could not open the output folder for '{full}': {e.Message}");
+        }
+    }
+
+    // Linux reveal. Returns true once something was launched. Tries, in order:
+    //   1. D-Bus FileManager1.ShowItems — selects the file in Nautilus (GNOME),
+    //      Dolphin (KDE), Nemo (Cinnamon), etc. (the desktop-agnostic way).
+    //   2. nautilus / dolphin --select on the file.
+    //   3. xdg-open on the folder (no selection — the requested fallback).
+    static bool RevealOnLinux(string full, string folder, bool fileExists, bool folderExists)
+    {
+        if (fileExists)
+        {
+            string fileUri = null;
+            try { fileUri = new Uri(full).AbsoluteUri; } catch { /* leave null */ }
+
+            if (fileUri != null && TryDbusReveal(fileUri)) return true;
+
+            if (TryStartProcess("nautilus", $"--select \"{full}\"")) return true;
+            if (TryStartProcess("dolphin",  $"--select \"{full}\"")) return true;
+            if (TryStartProcess("nemo",     $"\"{full}\"")) return true;
+            if (TryStartProcess("caja",     $"\"{full}\"")) return true;
+        }
+
+        // Fallback: open the containing folder without selecting the file.
+        if (folderExists)
+        {
+            if (TryStartProcess("xdg-open", $"\"{folder}\"")) return true;
+            foreach (string fm in new[] { "nautilus", "dolphin", "nemo", "caja", "thunar", "pcmanfm" })
+                if (TryStartProcess(fm, $"\"{folder}\"")) return true;
+        }
+        return false;
+    }
+
+    // Runs dbus-send briefly (synchronously) so we can tell whether a file
+    // manager actually answered; returns true only on a clean reply.
+    static bool TryDbusReveal(string fileUri)
+    {
+        try
+        {
+            var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName  = "dbus-send",
+                Arguments = "--session --print-reply " +
+                            "--dest=org.freedesktop.FileManager1 --type=method_call " +
+                            "/org/freedesktop/FileManager1 " +
+                            "org.freedesktop.FileManager1.ShowItems " +
+                            $"array:string:\"{fileUri}\" string:\"\"",
+                UseShellExecute        = false,
+                CreateNoWindow         = true,
+                RedirectStandardError  = true,
+                RedirectStandardOutput = true,
+            });
+            if (p == null) return false;
+            // The reply is tiny, so this returns near-instantly on a live
+            // session. If the service is unresponsive it likely still popped the
+            // window — don't keep blocking the menu past the timeout.
+            if (!p.WaitForExit(2000)) return true;
+            return p.ExitCode == 0;
+        }
+        catch { return false; }
+    }
+
+    // Launches a process by name (resolved via PATH), returning true if it
+    // started. Used for the Linux file-manager fallbacks — a throw means that
+    // manager isn't installed, so the caller moves on to the next candidate.
+    static bool TryStartProcess(string fileName, string arguments)
+    {
+        try
+        {
+            return System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName        = fileName,
+                Arguments       = arguments,
+                UseShellExecute = false,
+                CreateNoWindow  = true,
+            }) != null;
+        }
+        catch { return false; }
+    }
+
     void OnEnable()
     {
         RecordingSession.ResultChanged += RefreshResult;
@@ -434,6 +636,8 @@ public class MainMenuController : MonoBehaviour
             statusText.text  = "Ready to record.";
             statusText.color = new Color(0.82f, 0.85f, 0.90f, 1f);
             pathText.text    = "No recording has been completed yet in this session.";
+            lastSavedVideoPath = null;
+            SetOpenFolderButtonVisible(false);
             return;
         }
 
@@ -444,18 +648,26 @@ public class MainMenuController : MonoBehaviour
                 statusText.color = new Color(0.98f, 0.80f, 0.30f, 1f);
                 pathText.text    = "Generating video… Evereal is finalising the file, " +
                                    "this usually takes a few seconds.";
+                // Path isn't final yet — keep the open-folder button hidden.
+                lastSavedVideoPath = null;
+                SetOpenFolderButtonVisible(false);
                 break;
 
             case RecordingSession.RecordingResult.Status.Saved:
                 statusText.text  = "✓  Video saved";
                 statusText.color = new Color(0.35f, 0.85f, 0.45f, 1f);
                 pathText.text    = string.IsNullOrEmpty(r.SavePath) ? "(no path returned)" : r.SavePath;
+                // Offer to reveal the finished file only when we actually have a path.
+                lastSavedVideoPath = r.SavePath;
+                SetOpenFolderButtonVisible(!string.IsNullOrEmpty(r.SavePath));
                 break;
 
             case RecordingSession.RecordingResult.Status.Failed:
                 statusText.text  = "✗  Recording failed";
                 statusText.color = new Color(0.95f, 0.35f, 0.35f, 1f);
                 pathText.text    = string.IsNullOrEmpty(r.ErrorMessage) ? "(no error details)" : r.ErrorMessage;
+                lastSavedVideoPath = null;
+                SetOpenFolderButtonVisible(false);
                 break;
         }
     }

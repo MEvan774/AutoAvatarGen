@@ -37,10 +37,14 @@ public class HybridAvatarSystem : MonoBehaviour
              "to tune amplitude / angle / duration in the Inspector.")]
     public MugsShake mugsShake;
     [Tooltip("Emotion changes scheduled within this many seconds of the start " +
-             "jump-cut instead of animating, so no squash / crossfade / shake " +
-             "plays in the first moment of a recording. Set to 0 to animate from " +
-             "the very first marker.")]
+             "jump-cut instead of animating, so no squash / crossfade / shake / " +
+             "blink plays in the first moment of a recording. Set to 0 to animate " +
+             "from the very first marker.")]
     public float instantCutStartWindow = 1f;
+    [Tooltip("Optional MugsEmotionTransition driving the 'Blink' / 'Blink (Heavy)' " +
+             "styles. If left empty, one is added to the pivot at runtime. Attach " +
+             "your own on the centred visual holder to tune the blink timings.")]
+    public MugsEmotionTransition mugsBlink;
 
     [Header("Sprite Size Normalization")]
     [Tooltip("If true, all emotion sprites render at the same size as the neutral sprite, regardless of source image dimensions.")]
@@ -151,6 +155,12 @@ public class HybridAvatarSystem : MonoBehaviour
         // an ancestor). Auto-add one if the user didn't wire their own.
         if (mugsShake == null && pivot != null)
             mugsShake = pivot.GetComponent<MugsShake>() ?? pivot.AddComponent<MugsShake>();
+
+        // The Blink / Blink (Heavy) styles are driven by MugsEmotionTransition,
+        // which squashes the pivot's height around its centre. Auto-add one if the
+        // user didn't wire their own. (Cut needs no component — it's an instant swap.)
+        if (mugsBlink == null && pivot != null)
+            mugsBlink = pivot.GetComponent<MugsEmotionTransition>() ?? pivot.AddComponent<MugsEmotionTransition>();
     }
 
     void Update()
@@ -278,12 +288,20 @@ public class HybridAvatarSystem : MonoBehaviour
             {
                 if (currentTime >= timeMarkers[i].triggerTime)
                 {
-                    // Emotions scheduled within the start window jump-cut instead
-                    // of animating, so no transition plays in the first moment of
-                    // the recording.
-                    bool instant = timeMarkers[i].triggerTime < instantCutStartWindow;
-                    Debug.Log($"Triggering emotion {timeMarkers[i].emotion} at {currentTime:F2}s{(instant ? " (instant)" : "")}");
-                    ChangeEmotion(timeMarkers[i].emotion, instant);
+                    var marker = timeMarkers[i];
+
+                    // Precedence: an explicit per-tag override ({Emotion,Style})
+                    // wins; otherwise markers inside the start window jump-cut
+                    // (Cut) so nothing animates in the first moment of the
+                    // recording; otherwise the global style from the main menu.
+                    PresenterTransitionSettings.Style style =
+                        marker.transitionOverride
+                        ?? (marker.triggerTime < instantCutStartWindow
+                                ? PresenterTransitionSettings.Style.Cut
+                                : activeTransition);
+
+                    Debug.Log($"Triggering emotion {marker.emotion} at {currentTime:F2}s ({PresenterTransitionSettings.Label(style)})");
+                    ChangeEmotion(marker.emotion, style);
                     lastTriggeredMarker = i;
                 }
                 else
@@ -307,10 +325,10 @@ public class HybridAvatarSystem : MonoBehaviour
     /// </summary>
     public void SetEmotionImmediate(string emotion)
     {
-        ChangeEmotion(emotion, instant: true);
+        ChangeEmotion(emotion, PresenterTransitionSettings.Style.Cut);
     }
 
-    void ChangeEmotion(string emotion, bool instant = false)
+    void ChangeEmotion(string emotion, PresenterTransitionSettings.Style style)
     {
         if (emotionMap == null || string.IsNullOrEmpty(emotion))
         {
@@ -327,28 +345,25 @@ public class HybridAvatarSystem : MonoBehaviour
                     StopCoroutine(currentAnimation);
                 }
 
-                if (instant)
+                Sprite sprite = emotionMap[emotion];
+                switch (style)
                 {
-                    // Jump-cut — no transition plays (used at the very start of a
-                    // recording so the first moment has no squash/crossfade/shake).
-                    ApplyEmotionInstant(emotionMap[emotion]);
+                    case PresenterTransitionSettings.Style.Crossfade:
+                        currentAnimation = StartCoroutine(CrossfadeAnimation(sprite));
+                        break;
+                    case PresenterTransitionSettings.Style.Shake:
+                        currentAnimation = StartCoroutine(ShakeTransition(sprite));
+                        break;
+                    case PresenterTransitionSettings.Style.Blink:
+                    case PresenterTransitionSettings.Style.BlinkHeavy:
+                    case PresenterTransitionSettings.Style.Cut:
+                        RouteThroughBlink(style, sprite);
+                        break;
+                    default:
+                        currentAnimation = StartCoroutine(SquashStretchAnimation(sprite));
+                        break;
                 }
-                else
-                {
-                    switch (activeTransition)
-                    {
-                        case PresenterTransitionSettings.Style.Crossfade:
-                            currentAnimation = StartCoroutine(CrossfadeAnimation(emotionMap[emotion]));
-                            break;
-                        case PresenterTransitionSettings.Style.Shake:
-                            currentAnimation = StartCoroutine(ShakeTransition(emotionMap[emotion]));
-                            break;
-                        default:
-                            currentAnimation = StartCoroutine(SquashStretchAnimation(emotionMap[emotion]));
-                            break;
-                    }
-                }
-                Debug.Log($"Changed emotion to: {emotion}{(instant ? " (instant)" : "")}");
+                Debug.Log($"Changed emotion to: {emotion} ({PresenterTransitionSettings.Label(style)})");
             }
         }
         else
@@ -357,18 +372,37 @@ public class HybridAvatarSystem : MonoBehaviour
         }
     }
 
-    // Instantly swaps the expression with no animation — a clean jump-cut.
-    // Clears any crossfade overlay and lets idle sway resume (currentAnimation
-    // = null) so nothing lingers from a previous transition.
-    void ApplyEmotionInstant(Sprite newSprite)
+    // Routes Blink / Blink (Heavy) / Cut through MugsEmotionTransition: the actual
+    // sprite swap (and crossfade-overlay cleanup) runs at the fully-closed instant
+    // of the blink — or immediately, for Cut. The blink only scales the pivot's
+    // height, so idle sway (position/rotation) composes with it and we leave
+    // currentAnimation null. Falls back to an instant swap if no blink component
+    // is available (e.g. pivot unassigned).
+    void RouteThroughBlink(PresenterTransitionSettings.Style style, Sprite newSprite)
     {
-        avatarRenderer.sprite = newSprite;
-        NormalizeSpriteSize(avatarRenderer);
-
-        if (crossfadeRenderer != null)
+        System.Action apply = () =>
         {
-            crossfadeRenderer.color  = new Color(1f, 1f, 1f, 0f);
-            crossfadeRenderer.sprite = null;
+            avatarRenderer.sprite = newSprite;
+            NormalizeSpriteSize(avatarRenderer);
+
+            if (crossfadeRenderer != null)
+            {
+                crossfadeRenderer.color  = new Color(1f, 1f, 1f, 0f);
+                crossfadeRenderer.sprite = null;
+            }
+        };
+
+        if (mugsBlink != null)
+        {
+            EmotionTransition t =
+                style == PresenterTransitionSettings.Style.BlinkHeavy ? EmotionTransition.BlinkHeavy :
+                style == PresenterTransitionSettings.Style.Cut        ? EmotionTransition.Cut        :
+                                                                        EmotionTransition.Blink;
+            mugsBlink.ChangeEmotion(apply, t);
+        }
+        else
+        {
+            apply();
         }
 
         currentAnimation = null;
@@ -534,9 +568,16 @@ public class HybridAvatarSystem : MonoBehaviour
         List<TimeMarkerData> markerList = new List<TimeMarkerData>();
         string clean = script;
 
-        // {Emotion} or {Emotion,T=X.XXX}. Position/Zoom/Media markers have a ':'
-        // in the tag, so \w+ won't match them — they're handled elsewhere.
-        Regex regex = new Regex(@"\{(\w+)(?:,T=(\d+(?:\.\d+)?))?\}");
+        // {Emotion}, {Emotion,T=X.XXX}, or with a per-tag transition override:
+        // {Emotion,Style} where Style is one of Cut / Blink / BlinkHeavy /
+        // SquashStretch / Crossfade / Shake (BlinkHeavy is listed before Blink so
+        // the longer keyword wins). The Style modifier is accepted either before
+        // (group 2) or after (group 4) the pre-processor's appended ,T= so all of
+        // {Emotion,Style}, {Emotion,Style,T=X} and {Emotion,T=X,Style} parse.
+        // Position/Zoom/Media markers carry a ':' and are stripped before this runs.
+        const string styleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake";
+        Regex regex = new Regex(
+            @"\{(\w+)(?:,(" + styleAlt + @"))?(?:,T=(\d+(?:\.\d+)?))?(?:,(" + styleAlt + @"))?\}");
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
@@ -546,9 +587,23 @@ public class HybridAvatarSystem : MonoBehaviour
         {
             string emotion = match.Groups[1].Value;
 
+            // Optional per-tag transition override, accepted before (group 2) or
+            // after (group 4) the appended ,T=. Null when absent → the marker uses
+            // the global / start-window style chosen at trigger time.
+            string modifier = match.Groups[2].Success ? match.Groups[2].Value
+                            : match.Groups[4].Success ? match.Groups[4].Value
+                            : null;
+            PresenterTransitionSettings.Style? styleOverride = null;
+            if (modifier != null &&
+                PresenterTransitionSettings.TryParse(modifier,
+                                                     out PresenterTransitionSettings.Style parsedStyle))
+            {
+                styleOverride = parsedStyle;
+            }
+
             float markerTime;
-            if (match.Groups[2].Success &&
-                float.TryParse(match.Groups[2].Value,
+            if (match.Groups[3].Success &&
+                float.TryParse(match.Groups[3].Value,
                                System.Globalization.NumberStyles.Float,
                                System.Globalization.CultureInfo.InvariantCulture,
                                out float parsed))
@@ -565,10 +620,11 @@ public class HybridAvatarSystem : MonoBehaviour
             markerList.Add(new TimeMarkerData
             {
                 triggerTime = markerTime,
-                emotion = emotion
+                emotion = emotion,
+                transitionOverride = styleOverride
             });
 
-            Debug.Log($"Marker '{emotion}' will trigger at {markerTime:F2}s");
+            Debug.Log($"Marker '{emotion}'{(styleOverride.HasValue ? $" [{styleOverride.Value}]" : "")} will trigger at {markerTime:F2}s");
 
             clean = clean.Replace(match.Value, "");
         }
@@ -582,4 +638,8 @@ public class TimeMarkerData
 {
     public float triggerTime; // Time in seconds when emotion should trigger
     public string emotion;
+
+    // Optional per-tag transition override from {Emotion,Style}. Null = use the
+    // global style (or the start-window jump-cut) chosen at trigger time.
+    public PresenterTransitionSettings.Style? transitionOverride;
 }
