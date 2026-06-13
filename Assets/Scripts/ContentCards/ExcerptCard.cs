@@ -52,7 +52,7 @@ public class ExcerptCard : ContentCard
         sourceText = ContentCardUIBuilder.CreateText(
             rectTransform, "SourceText",
             ContentCardUIBuilder.TextTertiary,
-            22f, TextAlignmentOptions.MidlineLeft);
+            26f, TextAlignmentOptions.MidlineLeft);
         sourceText.rectTransform.anchorMin = new Vector2(0f, 0f);
         sourceText.rectTransform.anchorMax = new Vector2(1f, 0f);
         sourceText.rectTransform.pivot = new Vector2(0f, 0f);
