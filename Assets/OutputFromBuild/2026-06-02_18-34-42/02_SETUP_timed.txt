@@ -1,7 +1,7 @@
-{Position:Left,Smooth,T=0.000} {Neutral,T=0.766}
+{Position:right,Smooth,T=0.000} {Neutral,T=0.766}
 {Zoom:Reset,T=0.766}
 [tired but amused,T=1.022] So here is the situation. A smart mattress company turned the cooling feature you paid for into a monthly subscription.
-{Headline:"Smart Mattress Locks Cooling Behind $19 Monthly Fee","Tech Press",T=8.847,D=5}
+{BigImage:ArticleTemp,5}
 [dry,T=8.847] Nineteen dollars a month. To make a bed colder. A feature that is, physically, just a fan.
 {Stat:"$228","Per Year","to keep your own mattress cold",T=16.254,D=5}
 {Serious,T=16.254}

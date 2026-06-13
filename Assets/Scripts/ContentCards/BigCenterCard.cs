@@ -109,7 +109,7 @@ public class BigCenterCard : ContentCard
         sourceText = ContentCardUIBuilder.CreateText(
             headlineContainer, "SourceText",
             ContentCardUIBuilder.TextTertiary,
-            32f, TextAlignmentOptions.Center,
+            35f, TextAlignmentOptions.Center,
             FontStyles.Italic);
         RectTransform srt = sourceText.rectTransform;
         srt.anchorMin = new Vector2(0f, 0f);

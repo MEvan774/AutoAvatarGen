@@ -50,6 +50,11 @@ public class ContentZoneController : MonoBehaviour
     // word — which used to clobber so only the last one showed.
     private readonly Queue<ContentCardEvent> cardQueue = new Queue<ContentCardEvent>();
 
+    // Lazily-built mirror of `contentZone` on the right side of the screen. Side
+    // cards tagged ",Right" rest here so they land on the right, mirroring how
+    // default/",Left" cards sit in `contentZone` on the left.
+    private RectTransform contentZoneRight;
+
     /// <summary>True when a content card is currently visible.</summary>
     public bool IsCardActive => activeCard != null;
 
@@ -268,7 +273,7 @@ public class ContentZoneController : MonoBehaviour
     /// </summary>
     public void ShowCard(ContentCardEvent evt)
     {
-        RectTransform zone = GetZoneForCard(evt.cardType);
+        RectTransform zone = GetZoneForCard(evt);
         if (zone == null)
         {
             Debug.LogError($"ContentZoneController: Cannot show {evt.cardType} card — no zone available!");
@@ -303,7 +308,7 @@ public class ContentZoneController : MonoBehaviour
             if (isPaused && !IsFeatureCard(next.cardType))
                 continue; // centered — drop pending side cards
 
-            RectTransform zone = GetZoneForCard(next.cardType);
+            RectTransform zone = GetZoneForCard(next);
             if (zone == null)
                 continue;
 
@@ -312,11 +317,55 @@ public class ContentZoneController : MonoBehaviour
         }
     }
 
-    private RectTransform GetZoneForCard(ContentCardType type)
+    private RectTransform GetZoneForCard(ContentCardEvent evt)
     {
-        if (IsFeatureCard(type))
+        if (IsFeatureCard(evt.cardType))
             return featureMediaZone != null ? featureMediaZone : contentZone;
+
+        // A side card tagged ",Right" rests on the right: route it to the
+        // mirrored right-hand zone (built lazily). Default and ",Left" cards
+        // stay in the original left-hand contentZone.
+        if (evt.entryDirectionOverride == EntryDirection.FromRight)
+        {
+            RectTransform right = EnsureRightContentZone();
+            if (right != null) return right;
+        }
         return contentZone;
+    }
+
+    // Lazily builds the right-side content zone as a horizontal mirror of
+    // `contentZone` about their shared parent's center, so a side card tagged
+    // ",Right" comes to rest on the right of the screen — an exact mirror of how
+    // default cards sit on the left. The card fills this zone the same way it
+    // fills the left one, and the text/slide mirror-correction in
+    // HideAndShowSequence reads THIS zone's matrix (same handedness as the left
+    // zone), so glyphs read correctly and a FromRight slide still enters from the
+    // right. Returns null only if there is no left zone to mirror.
+    private RectTransform EnsureRightContentZone()
+    {
+        if (contentZoneRight != null) return contentZoneRight;
+        if (contentZone == null) return null;
+
+        GameObject go = new GameObject("ContentZone_Cards_Right", typeof(RectTransform));
+        go.transform.SetParent(contentZone.parent, false);
+
+        RectTransform rt = go.GetComponent<RectTransform>();
+        // Reflect the X anchors, pivot and position about the parent's center;
+        // leave the vertical layout and the size untouched.
+        rt.anchorMin        = new Vector2(1f - contentZone.anchorMax.x, contentZone.anchorMin.y);
+        rt.anchorMax        = new Vector2(1f - contentZone.anchorMin.x, contentZone.anchorMax.y);
+        rt.pivot            = new Vector2(1f - contentZone.pivot.x,     contentZone.pivot.y);
+        rt.sizeDelta        = contentZone.sizeDelta;
+        rt.anchoredPosition = new Vector2(-contentZone.anchoredPosition.x, contentZone.anchoredPosition.y);
+        rt.localScale       = contentZone.localScale;
+
+        // Same render order as the left zone (above the green-screen backdrop).
+        go.transform.SetSiblingIndex(contentZone.GetSiblingIndex() + 1);
+        EnsureSortingCanvas(rt, 30000);
+
+        contentZoneRight = rt;
+        Debug.Log("ContentZoneController: created mirrored right content zone");
+        return contentZoneRight;
     }
 
     /// <summary>
@@ -329,7 +378,8 @@ public class ContentZoneController : MonoBehaviour
     private static bool IsFeatureCard(ContentCardType type)
         => type == ContentCardType.BigMedia
         || type == ContentCardType.BigCenter
-        || type == ContentCardType.BigText;
+        || type == ContentCardType.BigText
+        || type == ContentCardType.BigImage;
 
     // Gives a zone its own override-sorting canvas so its cards render at a fixed
     // order regardless of the parent canvas — used to lift side cards above the
@@ -396,6 +446,7 @@ public class ContentZoneController : MonoBehaviour
             case ContentCardType.BigMedia: activeCard = cardObj.AddComponent<BigMediaCard>(); break;
             case ContentCardType.BigCenter: activeCard = cardObj.AddComponent<BigCenterCard>(); break;
             case ContentCardType.BigText: activeCard = cardObj.AddComponent<BigTextCard>(); break;
+            case ContentCardType.BigImage: activeCard = cardObj.AddComponent<BigImageCard>(); break;
             default:
                 Debug.LogWarning($"Unknown card type: {evt.cardType}");
                 Destroy(cardObj);
@@ -408,6 +459,11 @@ public class ContentZoneController : MonoBehaviour
         // Compute and apply entry direction based on the active style preset
         // (falls back to FromBottom if no preset is active).
         activeCard.SetEntryDirection(ComputeEntryDirection());
+
+        // A per-tag ",Left"/",Right" suffix (side cards only) forces the side the
+        // card flies in from, overriding the preset/animator default above. null
+        // when the tag had no side modifier, leaving the default untouched.
+        activeCard.SetDirectionOverride(evt.entryDirectionOverride);
 
         // The reflection we just countered on the card's localScale (so text
         // reads correctly) ALSO reverses a horizontal entry slide, because the

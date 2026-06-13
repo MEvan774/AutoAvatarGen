@@ -29,6 +29,12 @@ public abstract class ContentCard : MonoBehaviour
     // a fallback when the animator's per-card row has Override Direction off.
     private EntryDirection runtimeDirection = EntryDirection.FromBottom;
 
+    // Per-event forced direction from a "{Tag:...,Left|Right}" suffix in the
+    // script. When set it wins over BOTH the animator's per-card override and the
+    // runtime direction — it's an explicit author choice for this one card.
+    // null = no suffix; resolve direction the usual way.
+    private EntryDirection? eventDirectionOverride = null;
+
     // +1 normally; -1 when the parent zone is horizontally mirrored (a 180°
     // Y-rotation or negative X-scale somewhere above it — the scene renders
     // mirrored for recording). ContentZoneController sets this from the SAME
@@ -53,7 +59,7 @@ public abstract class ContentCard : MonoBehaviour
     protected float FastFadeDuration => CardEntryAnimator.Instance.fastFadeOutDuration;
     protected float SlideDistanceFactor => CardEntryAnimator.Instance.GetSlideDistanceFactor(CardType);
     protected EntryDirection ResolvedEntryDirection
-        => CardEntryAnimator.Instance.ResolveDirection(CardType, runtimeDirection);
+        => eventDirectionOverride ?? CardEntryAnimator.Instance.ResolveDirection(CardType, runtimeDirection);
 
     protected virtual void Awake()
     {
@@ -94,6 +100,19 @@ public abstract class ContentCard : MonoBehaviour
     public void SetEntryDirection(EntryDirection direction)
     {
         runtimeDirection = direction;
+    }
+
+    /// <summary>
+    /// Force the entry direction for this one card from a script "{Tag:...,Left|Right}"
+    /// suffix. Overrides both the animator's per-card setting and the runtime
+    /// direction. Pass null (or don't call) to leave direction resolution to the
+    /// usual animator/runtime path. The horizontal slide is still mirror-corrected
+    /// in Show() via the parent mirror sign, so a forced FromRight enters from the
+    /// visually-correct side during the mirrored recording too.
+    /// </summary>
+    public void SetDirectionOverride(EntryDirection? direction)
+    {
+        eventDirectionOverride = direction;
     }
 
     /// <summary>

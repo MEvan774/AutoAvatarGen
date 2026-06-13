@@ -1158,6 +1158,30 @@ public class MediaPresentationSystem : MonoBehaviour
         return FindFileInFolder(Path.Combine(externalMediaRoot, logosSubfolder), mediaName, ImageExtensions);
     }
 
+    /// <summary>
+    /// Resolves and loads an image by name for content cards that need a disk
+    /// texture (e.g. the {BigImage:...} article card). Uses the SAME lookup as
+    /// {Image:name}: the external Images folder first, then Logos, then a final
+    /// Resources/{mediaFolderPath} fallback. Returns null if nothing matched.
+    ///
+    /// <paramref name="ownedByCaller"/> is true when the returned texture was
+    /// decoded from disk and the caller MUST Destroy() it when done; false for a
+    /// Resources asset (shared — destroying it would break other users).
+    /// </summary>
+    public Texture2D LoadImageTexture(string mediaName, out bool ownedByCaller)
+    {
+        ownedByCaller = false;
+
+        string diskPath = ResolveImagePath(mediaName);
+        if (diskPath != null)
+        {
+            Texture2D tex = LoadTextureFromDisk(diskPath);
+            if (tex != null) { ownedByCaller = true; return tex; }
+        }
+
+        return Resources.Load<Texture2D>($"{mediaFolderPath}/{mediaName}");
+    }
+
     string ResolveVideoPath(string mediaName)
     {
         if (string.IsNullOrWhiteSpace(externalMediaRoot)) return null;

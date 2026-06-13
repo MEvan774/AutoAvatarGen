@@ -3,5 +3,5 @@
 [deadpan,T=0.209] A company did a thing. It was bad. Let's talk about it.
 {Zoom:In,T=3.855}
 [genuine disbelief,T=3.855] No — actually bad. Like, "read it twice to make sure" bad.
-{Headline:"Tech Giant Quietly Changes Privacy Policy","The Verge",T=8.742,D=5}
+{Headline:"Tech Giant Quietly Changes Privacy PolicyTEST","The Verge",T=8.742,D=5,Right}
 [tired but amused,T=8.742] Here's the headline. Take a second.

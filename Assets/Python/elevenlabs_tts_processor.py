@@ -85,14 +85,15 @@ _ALL_MARKERS = re.compile(
     r'|\{Mood:\w+\}'                                        # background mood crossfade
     r'|\{Black:\d+(?:\.\d+)?\}'                             # black panel markers
     r'|\{(?:Image|Video):[^}]+\}'                           # media markers
-    r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*bigCenter)?\}'  # headline cards (+optional bigCenter)
-    r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?\}'   # excerpt cards
-    r'|\{Quote:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?\}'     # quote cards
-    r'|\{Stat:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?\}'      # stat cards
-    r'|\{Logo:[^,}]+,\d+(?:\.\d+)?\}'                       # logo cards
-    r'|\{BRoll:[^,}]+,\d+(?:\.\d+)?\}'                      # broll cards
+    r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}'  # headline cards (+optional bigCenter / side)
+    r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'   # excerpt cards (+optional side)
+    r'|\{Quote:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'     # quote cards (+optional side)
+    r'|\{Stat:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'      # stat cards (+optional side)
+    r'|\{Logo:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
+    r'|\{BRoll:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
     r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                   # big-media feature cards
     r'|\{BigText:[^,}]+,\d+(?:\.\d+)?\}'                    # big-text feature cards
+    r'|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}'                   # big-image article cards
     r'|\[[^\]]*\]'                                          # [stage directions] (any chars, incl. commas)
 )
 
@@ -344,16 +345,23 @@ def _stamp_marker(marker: str, t: float) -> str:
         dur = m_media.group(3) or '0'
         return f"{{{m_media.group(1)}:{m_media.group(2)},{ts},D={dur}}}"
 
-    # {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}  /  {BigText:line,5}
-    m_lb = re.match(r'^(Logo|BRoll|BigMedia|BigText):([^,}]+),(\d+(?:\.\d+)?)$', inner)
+    # {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}
+    # Logo/BRoll may carry a trailing ",Left"/",Right" side modifier; preserve
+    # it after D= so the runtime parser still sees the side.
+    m_lb = re.match(r'^(Logo|BRoll|BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?$', inner)
     if m_lb:
-        return f"{{{m_lb.group(1)}:{m_lb.group(2)},{ts},D={m_lb.group(3)}}}"
+        side = f",{m_lb.group(4)}" if m_lb.group(4) else ''
+        return f"{{{m_lb.group(1)}:{m_lb.group(2)},{ts},D={m_lb.group(3)}{side}}}"
 
     # Content cards: Headline / Excerpt / Quote / Stat
-    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?)$',
+    # Preserve an optional trailing modifier after D= — ",bigCenter" (Headline →
+    # centered feature card) or ",Left"/",Right" (the side a side card flies in
+    # from) — so the runtime parser still sees it.
+    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?)(?:,\s*(bigCenter|Left|Right))?$',
                       inner, re.DOTALL)
     if m_card:
-        return f"{{{m_card.group(1)}:{m_card.group(2)},{ts},D={m_card.group(3)}}}"
+        suffix = f",{m_card.group(4)}" if m_card.group(4) else ''
+        return f"{{{m_card.group(1)}:{m_card.group(2)},{ts},D={m_card.group(3)}{suffix}}}"
 
     # Fallback
     return f"{{{inner},{ts}}}"

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Text.RegularExpressions;
 using UnityEngine;
+using MugsTech.Style;
 
 /// <summary>
 /// Static parser that extracts content card tags from a video script and builds
@@ -15,38 +16,47 @@ public static class ContentZoneTagParser
     // pre-processed forms) — used to compute totalCleanChars and to strip.
     // Pre-processed form has ",T=X.XXX,D=Y"; legacy form has just ",Y".
     // Headline supports an optional trailing ",bigCenter" modifier that promotes
-    // the card to the fullscreen BigCenter variant.
+    // the card to the fullscreen BigCenter variant. The side cards
+    // (Headline/Excerpt/Quote/Stat/Logo/BRoll) also accept an optional trailing
+    // ",Left"/",Right" picking the side they slide in from. The fullscreen
+    // feature cards (BigMedia/BigText/BigImage) take no side modifier.
     private static readonly Regex StripAllRegex = new Regex(
-        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*bigCenter)?\}" +
-        @"|\{(?:Logo|BRoll|BigMedia|BigText):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}");
+        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}" +
+        @"|\{(?:Logo|BRoll):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
+        @"|\{(?:BigMedia|BigText|BigImage):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}");
 
     // Individual extraction patterns. Each accepts an optional ",T=X.XXX"
     // between the content fields and the duration, and an optional "D=" prefix
     // on the duration itself. Headline also accepts an optional ",bigCenter"
-    // modifier after the duration.
+    // modifier after the duration. The side cards each accept an optional
+    // trailing ",Left"/",Right" (the last capture group) that picks the side the
+    // card slides in from — null/absent keeps the default (Left).
     private static readonly Regex HeadlineRegex = new Regex(
-        @"\{Headline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(bigCenter))?\}");
+        @"\{Headline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(bigCenter))?(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex ExcerptRegex = new Regex(
-        @"\{Excerpt:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+        @"\{Excerpt:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex QuoteRegex = new Regex(
-        @"\{Quote:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+        @"\{Quote:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex StatRegex = new Regex(
-        @"\{Stat:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+        @"\{Stat:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex LogoRegex = new Regex(
-        @"\{Logo:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+        @"\{Logo:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex BRollRegex = new Regex(
-        @"\{BRoll:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+        @"\{BRoll:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex BigMediaRegex = new Regex(
         @"\{BigMedia:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
     private static readonly Regex BigTextRegex = new Regex(
         @"\{BigText:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+
+    private static readonly Regex BigImageRegex = new Regex(
+        @"\{BigImage:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
     /// <summary>
     /// Parses all content card tags from the script, builds timed events, and returns
@@ -69,6 +79,7 @@ public static class ContentZoneTagParser
         ExtractBRolls(script, audioDuration, totalCleanChars, events);
         ExtractBigMedias(script, audioDuration, totalCleanChars, events);
         ExtractBigTexts(script, audioDuration, totalCleanChars, events);
+        ExtractBigImages(script, audioDuration, totalCleanChars, events);
 
         // Sort by trigger time
         events.Sort((a, b) => a.triggerTime.CompareTo(b.triggerTime));
@@ -99,6 +110,15 @@ public static class ContentZoneTagParser
         return float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 
+    // Translates an optional ",Left"/",Right" capture group into a forced entry
+    // direction. Returns null when the group is absent so the card keeps its
+    // default side (the CardEntryAnimator's per-card direction / runtime choice).
+    private static EntryDirection? ParseSide(Group sideGroup)
+    {
+        if (sideGroup == null || !sideGroup.Success) return null;
+        return sideGroup.Value == "Right" ? EntryDirection.FromRight : EntryDirection.FromLeft;
+    }
+
     private static void ExtractHeadlines(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
     {
         foreach (Match match in HeadlineRegex.Matches(script))
@@ -112,7 +132,9 @@ public static class ContentZoneTagParser
                 cardType = type,
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
-                duration = ParseFloat(match.Groups[4].Value)
+                duration = ParseFloat(match.Groups[4].Value),
+                // bigCenter is a centered feature card, so a side has no meaning there.
+                entryDirectionOverride = isBigCenter ? null : ParseSide(match.Groups[6])
             });
             Debug.Log($"  {type} at {time:F2}s: \"{match.Groups[1].Value}\"");
         }
@@ -130,7 +152,8 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
-                duration = ParseFloat(match.Groups[5].Value)
+                duration = ParseFloat(match.Groups[5].Value),
+                entryDirectionOverride = ParseSide(match.Groups[6])
             });
             Debug.Log($"  Excerpt at {time:F2}s: highlight=\"{match.Groups[2].Value}\"");
         }
@@ -148,7 +171,8 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
-                duration = ParseFloat(match.Groups[5].Value)
+                duration = ParseFloat(match.Groups[5].Value),
+                entryDirectionOverride = ParseSide(match.Groups[6])
             });
             Debug.Log($"  Quote at {time:F2}s: by {match.Groups[2].Value}");
         }
@@ -166,7 +190,8 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
-                duration = ParseFloat(match.Groups[5].Value)
+                duration = ParseFloat(match.Groups[5].Value),
+                entryDirectionOverride = ParseSide(match.Groups[6])
             });
             Debug.Log($"  Stat at {time:F2}s: {match.Groups[1].Value}");
         }
@@ -182,7 +207,8 @@ public static class ContentZoneTagParser
                 triggerTime = time,
                 cardType = ContentCardType.Logo,
                 primaryText = match.Groups[1].Value.Trim(),
-                duration = ParseFloat(match.Groups[3].Value)
+                duration = ParseFloat(match.Groups[3].Value),
+                entryDirectionOverride = ParseSide(match.Groups[4])
             });
             Debug.Log($"  Logo at {time:F2}s: {match.Groups[1].Value.Trim()}");
         }
@@ -198,7 +224,8 @@ public static class ContentZoneTagParser
                 triggerTime = time,
                 cardType = ContentCardType.BRoll,
                 primaryText = match.Groups[1].Value.Trim(),
-                duration = ParseFloat(match.Groups[3].Value)
+                duration = ParseFloat(match.Groups[3].Value),
+                entryDirectionOverride = ParseSide(match.Groups[4])
             });
             Debug.Log($"  BRoll at {time:F2}s: {match.Groups[1].Value.Trim()}");
         }
@@ -233,6 +260,22 @@ public static class ContentZoneTagParser
                 duration = ParseFloat(match.Groups[3].Value)
             });
             Debug.Log($"  BigText at {time:F2}s: {match.Groups[1].Value.Trim()}");
+        }
+    }
+
+    private static void ExtractBigImages(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        foreach (Match match in BigImageRegex.Matches(script))
+        {
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.BigImage,
+                primaryText = match.Groups[1].Value.Trim(),
+                duration = ParseFloat(match.Groups[3].Value)
+            });
+            Debug.Log($"  BigImage at {time:F2}s: {match.Groups[1].Value.Trim()}");
         }
     }
 }

@@ -195,6 +195,8 @@ public class CardEntryAnimator : MonoBehaviour
     {
         switch (t)
         {
+            case ContentCardType.BigImage:
+                return EntryDirection.FromTop;
             case ContentCardType.BigCenter:
             case ContentCardType.BigText:
                 return EntryDirection.FromBottom;

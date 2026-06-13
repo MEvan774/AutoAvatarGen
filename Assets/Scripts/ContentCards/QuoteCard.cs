@@ -59,7 +59,7 @@ public class QuoteCard : ContentCard
         personName = ContentCardUIBuilder.CreateText(
             rectTransform, "PersonName",
             ContentCardUIBuilder.TextPrimary,
-            26f, TextAlignmentOptions.Center, FontStyles.Bold);
+            29f, TextAlignmentOptions.Center, FontStyles.Bold);
         personName.rectTransform.anchorMin = new Vector2(0f, 0f);
         personName.rectTransform.anchorMax = new Vector2(1f, 0f);
         personName.rectTransform.pivot = new Vector2(0.5f, 0f);
@@ -70,7 +70,7 @@ public class QuoteCard : ContentCard
         roleTitle = ContentCardUIBuilder.CreateText(
             rectTransform, "RoleTitle",
             ContentCardUIBuilder.TextSecondary,
-            20f, TextAlignmentOptions.Center);
+            22f, TextAlignmentOptions.Center);
         roleTitle.rectTransform.anchorMin = new Vector2(0f, 0f);
         roleTitle.rectTransform.anchorMax = new Vector2(1f, 0f);
         roleTitle.rectTransform.pivot = new Vector2(0.5f, 0f);

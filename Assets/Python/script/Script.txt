@@ -11,14 +11,14 @@
 {Position:Left,Smooth} {Excited}
 [speeding up] So here's the background. This company has been around for fifteen years.
 {BigText:FIFTEEN YEARS,2.5}
-{Stat:"2.3 billion","Monthly Active Users","as of Q2 2025",5}
+{Stat:"2.3 billion","Monthly Active Users","as of Q2 2025",5,Right}
 [deadpan] Two point three billion people. That's not a user base, that's a small planet.
-{Logo:Google,4}
+{Logo:Google,4,Right}
 [sips coffee] You know the logo. Everyone knows the logo.
 {Zoom:Out}
 [tired but amused] And now they've decided those two billion people don't need to know what happens to their data.
 {BigMedia:Google+Brave+X,4}
-{Headline:"Company Updates Terms of Service for the Fourth Time This Year","TechCrunch",5}
+{Headline:"Company Updates Terms of Service for the Fourth Time This Year","TechCrunch",5,Right}
 [dry] Fourth time. This year. It's only August.
 
 ## BREAKDOWN

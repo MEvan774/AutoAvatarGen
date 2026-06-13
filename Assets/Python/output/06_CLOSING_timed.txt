@@ -3,7 +3,7 @@
 {Zoom:In,T=7.488}
 [slowing down, serious] The thing worth keeping in mind — these policies compound. Each one that goes unchallenged makes the next one easier to push through.
 {BigText:POLICIES+COMPOUND,T=11.500,D=4}
-{BigMedia:X,T=19.040,D=5}
+{BigImage:ArticleTemp,T=19.040,D=5}
 [tired but amused,T=19.040] If this kind of thing is on your radar, stick around. I cover it so you don't have to read the terms of service yourself.
 {Zoom:Reset,T=25.077}
 [dry,T=25.077] You're welcome.

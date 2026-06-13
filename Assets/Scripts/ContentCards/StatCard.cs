@@ -87,7 +87,7 @@ public class StatCard : ContentCard
         labelText = ContentCardUIBuilder.CreateText(
             rectTransform, "LabelText",
             ContentCardUIBuilder.TextPrimary,
-            26f, TextAlignmentOptions.Center);
+            29f, TextAlignmentOptions.Center);
         labelText.rectTransform.anchorMin = new Vector2(0f, 0.2f);
         labelText.rectTransform.anchorMax = new Vector2(1f, 0.35f);
         labelText.rectTransform.offsetMin = new Vector2(24f, 0f);
@@ -97,7 +97,7 @@ public class StatCard : ContentCard
         contextText = ContentCardUIBuilder.CreateText(
             rectTransform, "ContextText",
             ContentCardUIBuilder.TextSecondary,
-            22f, TextAlignmentOptions.Center);
+            24f, TextAlignmentOptions.Center);
         contextText.rectTransform.anchorMin = new Vector2(0f, 0.05f);
         contextText.rectTransform.anchorMax = new Vector2(1f, 0.2f);
         contextText.rectTransform.offsetMin = new Vector2(24f, 0f);

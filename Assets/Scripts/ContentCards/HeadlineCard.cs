@@ -64,7 +64,7 @@ public class HeadlineCard : ContentCard
         sourceText = ContentCardUIBuilder.CreateText(
             sourceContainer, "SourceText",
             ContentCardUIBuilder.TextTertiary,
-            22f, TextAlignmentOptions.MidlineLeft);
+            24f, TextAlignmentOptions.MidlineLeft);
         ApplyDefaultFont(sourceText, ContentCardUIBuilder.InterRegular);
         sourceText.rectTransform.anchorMin = new Vector2(0f, 0f);
         sourceText.rectTransform.anchorMax = new Vector2(1f, 1f);

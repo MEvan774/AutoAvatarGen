@@ -60,14 +60,15 @@ namespace MugsTech.Tts
             @"|\{Mood:\w+\}" +                              // background mood crossfade
             @"|\{Black:\d+(?:\.\d+)?\}" +
             @"|\{(?:Image|Video):[^}]+\}" +
-            @"|\{Headline:""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*bigCenter)?\}" +
-            @"|\{Excerpt:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?\}" +
-            @"|\{Quote:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?\}" +
-            @"|\{Stat:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?\}" +
-            @"|\{Logo:[^,}]+,\d+(?:\.\d+)?\}" +
-            @"|\{BRoll:[^,}]+,\d+(?:\.\d+)?\}" +
+            @"|\{Headline:""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}" +
+            @"|\{Excerpt:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
+            @"|\{Quote:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
+            @"|\{Stat:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
+            @"|\{Logo:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
+            @"|\{BRoll:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
             @"|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}" +
             @"|\{BigText:[^,}]+,\d+(?:\.\d+)?\}" +
+            @"|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}" +
             // [stage directions] — match anything up to the closing bracket so
             // directions containing commas/punctuation (e.g. "[slowing down,
             // serious]") are stripped too. The OLD pattern \[[\w\s]+\] only
@@ -302,21 +303,29 @@ namespace MugsTech.Tts
                      + "," + ts + ",D=" + dur + "}";
             }
 
-            // {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}  /  {BigText:line,5}
+            // {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}
+            // Logo/BRoll may carry a trailing ",Left"/",Right" side modifier;
+            // preserve it after D= so the runtime parser still sees the side.
             Match mLb = Regex.Match(innerCurly,
-                @"^(Logo|BRoll|BigMedia|BigText):([^,}]+),(\d+(?:\.\d+)?)$");
+                @"^(Logo|BRoll|BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?$");
             if (mLb.Success)
+            {
+                string side = mLb.Groups[4].Success ? "," + mLb.Groups[4].Value : "";
                 return "{" + mLb.Groups[1].Value + ":" + mLb.Groups[2].Value
-                     + "," + ts + ",D=" + mLb.Groups[3].Value + "}";
+                     + "," + ts + ",D=" + mLb.Groups[3].Value + side + "}";
+            }
 
             // Content cards: Headline / Excerpt / Quote / Stat
-            // (DOTALL so embedded newlines in quoted text are tolerated)
+            // (DOTALL so embedded newlines in quoted text are tolerated). Preserve
+            // an optional trailing modifier after D= — ",bigCenter" (Headline →
+            // centered feature card) or ",Left"/",Right" (the side a side card
+            // flies in from) — so the runtime parser still sees it.
             Match mCard = Regex.Match(innerCurly,
-                @"^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?)(?:,\s*bigCenter)?$",
+                @"^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?)(?:,\s*(bigCenter|Left|Right))?$",
                 RegexOptions.Singleline);
             if (mCard.Success)
             {
-                string suffix = innerCurly.TrimEnd().EndsWith("bigCenter") ? ",bigCenter" : "";
+                string suffix = mCard.Groups[4].Success ? "," + mCard.Groups[4].Value : "";
                 return "{" + mCard.Groups[1].Value + ":" + mCard.Groups[2].Value
                      + "," + ts + ",D=" + mCard.Groups[3].Value + suffix + "}";
             }
