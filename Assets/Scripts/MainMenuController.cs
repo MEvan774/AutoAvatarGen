@@ -146,6 +146,7 @@ public class MainMenuController : MonoBehaviour
         WirePresenterTransitionRow();
         EnsureOutputLibrary();
         EnsureOpenFolderButton();
+        EnsureTimestampsPanel();
 
         RefreshResult();
 
@@ -412,6 +413,21 @@ public class MainMenuController : MonoBehaviour
         outputLibrary = FindObjectOfType<OutputLibraryController>();
         if (outputLibrary == null)
             outputLibrary = gameObject.AddComponent<OutputLibraryController>();
+    }
+
+    // -----------------------------------------------------------------------
+    // YouTube chapters / timestamps panel (build-facing)
+    //
+    // Adds the runtime TimestampsPanelController, which builds its own "YouTube
+    // Chapters" button + modal under the menu canvas. This is the in-build way to
+    // view and Copy the {Timestamp:"..."} markers captured during a recording —
+    // the Editor's MugsTech > Timestamps window doesn't exist in a player build.
+    // Self-contained, so the hand-tweaked MainMenu scene needs no rebuild.
+    // -----------------------------------------------------------------------
+    void EnsureTimestampsPanel()
+    {
+        if (FindObjectOfType<TimestampsPanelController>() == null)
+            gameObject.AddComponent<TimestampsPanelController>();
     }
 
     // -----------------------------------------------------------------------

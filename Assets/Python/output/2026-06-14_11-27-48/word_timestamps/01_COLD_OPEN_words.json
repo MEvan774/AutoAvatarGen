@@ -1,0 +1,42 @@
+[
+  {
+    "word": "A",
+    "start": 0,
+    "end": 0.08
+  },
+  {
+    "word": "company",
+    "start": 0.15,
+    "end": 0.64
+  },
+  {
+    "word": "did",
+    "start": 0.68,
+    "end": 0.8
+  },
+  {
+    "word": "a",
+    "start": 0.88,
+    "end": 0.96
+  },
+  {
+    "word": "thing.",
+    "start": 1.027,
+    "end": 1.44
+  },
+  {
+    "word": "It",
+    "start": 1.6,
+    "end": 1.92
+  },
+  {
+    "word": "was",
+    "start": 1.98,
+    "end": 2.16
+  },
+  {
+    "word": "bad.",
+    "start": 2.26,
+    "end": 2.72
+  }
+]

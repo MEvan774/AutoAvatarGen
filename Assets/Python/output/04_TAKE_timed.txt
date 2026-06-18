@@ -1,3 +1,4 @@
+{Timestamp:"Take"}
 {Position:Center,Smooth,T=0.000} {Concerned,T=0.546}
 [slowing down, serious] Here's where I land on this.
 {Zoom:In,T=4.563}

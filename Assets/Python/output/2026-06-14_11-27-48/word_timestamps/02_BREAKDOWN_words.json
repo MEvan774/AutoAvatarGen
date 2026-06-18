@@ -1,0 +1,32 @@
+[
+  {
+    "word": "Here's",
+    "start": 0,
+    "end": 0.32
+  },
+  {
+    "word": "what",
+    "start": 0.352,
+    "end": 0.48
+  },
+  {
+    "word": "the",
+    "start": 0.5,
+    "end": 0.56
+  },
+  {
+    "word": "policy",
+    "start": 0.651,
+    "end": 1.2
+  },
+  {
+    "word": "actually",
+    "start": 1.253,
+    "end": 1.68
+  },
+  {
+    "word": "says.",
+    "start": 1.76,
+    "end": 2.24
+  }
+]

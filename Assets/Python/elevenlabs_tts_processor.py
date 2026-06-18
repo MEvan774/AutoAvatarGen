@@ -23,6 +23,7 @@ and can trim it to produce seamless inter-segment pacing.
 What gets STRIPPED before TTS (never read aloud):
   - ## SECTION HEADERS
   - {Emotion}        e.g. {Concerned} {Excited} {Neutral} {Serious} {Sad}
+  - {Timestamp:...}  e.g. {Timestamp:"Cold Open"}  (YouTube chapter marker — non-spoken, non-visual)
   - {Position:...}   e.g. {Position:Left,Cut}
   - {Zoom:...}       e.g. {Zoom:In}
   - {Transition:...} e.g. {Transition:Wipe} {Transition:Iris,1.2}  (whole-screen scene transition; optional duration scale)
@@ -79,6 +80,7 @@ VOICE_CONFIG = {
 
 _ALL_MARKERS = re.compile(
     r'\{(?:Excited|Serious|Concerned|Neutral|Sad)\}'        # emotion states
+    r'|\{Timestamp:"[^"]*"\}'                               # YouTube chapter markers (never voiced/shown)
     r'|\{Position:\w+(?:,\w+)?\}'                           # position markers
     r'|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}'           # zoom markers (+optional Cut / D=)
     r'|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}'               # whole-screen transitions (+optional scale)
@@ -313,6 +315,11 @@ def _stamp_marker(marker: str, t: float) -> str:
     # [stage direction]
     if marker.startswith('['):
         return f"[{inner},{ts}]"
+
+    # {Timestamp:"Label"} — pure timeline/chapter marker; never voiced or shown.
+    # Just append the timestamp: {Timestamp:"Label"} -> {Timestamp:"Label",T=X.XXX}
+    if inner.startswith('Timestamp:'):
+        return f"{{{inner},{ts}}}"
 
     # {Emotion}
     if re.match(r'^(Excited|Serious|Concerned|Neutral|Sad)$', inner):

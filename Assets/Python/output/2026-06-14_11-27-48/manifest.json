@@ -1,0 +1,24 @@
+{
+  "segments": [
+    {
+      "order": 1,
+      "slug": "01_COLD_OPEN",
+      "name": "COLD OPEN",
+      "audio_file": "01_COLD_OPEN.mp3",
+      "script_file": "01_COLD_OPEN_timed.txt",
+      "duration": 2.72,
+      "speech_start": 0,
+      "speech_end": 2.72
+    },
+    {
+      "order": 2,
+      "slug": "02_BREAKDOWN",
+      "name": "BREAKDOWN",
+      "audio_file": "02_BREAKDOWN.mp3",
+      "script_file": "02_BREAKDOWN_timed.txt",
+      "duration": 2.24,
+      "speech_start": 0,
+      "speech_end": 2.24
+    }
+  ]
+}

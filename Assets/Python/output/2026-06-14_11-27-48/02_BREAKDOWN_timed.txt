@@ -1,0 +1,3 @@
+{Timestamp:"The Breakdown",T=0.000}
+{Transition:Wipe,T=0.352} {Position:Left,T=0.352} {Serious,T=0.352}
+Here's what the policy actually says.

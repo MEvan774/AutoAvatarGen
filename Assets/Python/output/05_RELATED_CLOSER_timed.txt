@@ -1,3 +1,4 @@
+{Timestamp:"Related Closer"}
 {Position:Right,Cut,T=0.000} {Neutral,T=0.650}
 [sips coffee,T=0.650] Meanwhile — same week — the EU opened a formal investigation into this exact policy change.
 {Stat:"€2.4 billion","Maximum Possible Fine","4% of global annual revenue",T=8.348,D=5}

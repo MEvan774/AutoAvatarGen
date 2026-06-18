@@ -54,6 +54,7 @@ namespace MugsTech.Tts
 
         private static readonly Regex AllMarkers = new Regex(
             @"\{(?:Excited|Serious|Concerned|Neutral|Sad)\}" +
+            @"|\{Timestamp:""[^""]*""\}" +                  // YouTube chapter markers — never voiced/shown
             @"|\{Position:\w+(?:,\w+)?\}" +
             @"|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}" +
             @"|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}" +     // whole-screen transitions (+optional duration scale)
@@ -267,6 +268,12 @@ namespace MugsTech.Tts
             }
 
             string innerCurly = marker.Substring(1, marker.Length - 2);
+
+            // {Timestamp:"Label"} — pure timeline/chapter marker; never voiced or
+            // shown. Just append the timestamp so the runtime logs it on the audio
+            // clock: {Timestamp:"Label"} -> {Timestamp:"Label",T=X.XXX}
+            if (innerCurly.StartsWith("Timestamp:", System.StringComparison.Ordinal))
+                return "{" + innerCurly + "," + ts + "}";
 
             // {Emotion}
             if (Regex.IsMatch(innerCurly, @"^(Excited|Serious|Concerned|Neutral|Sad)$"))

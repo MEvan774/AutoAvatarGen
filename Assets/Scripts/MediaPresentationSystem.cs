@@ -5,6 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
+using MugsTech;   // TimestampMarkerLog — the {Timestamp:"..."} chapter-marker capture buffer
 
 // ============================================================================
 // MediaPresentationSystem — expanded with character position markers.
@@ -198,6 +199,10 @@ public class MediaPresentationSystem : MonoBehaviour
     private int lastTriggeredMoodMarker = -1;
     private AudioSource transitionSfxSource;
 
+    // --- Timestamp (YouTube chapter) tracking ---
+    private List<TimestampMarkerData> timestampMarkers;
+    private int lastTriggeredTimestampMarker = -1;
+
     void Awake()
     {
         if (mediaDisplay != null)
@@ -301,13 +306,23 @@ public class MediaPresentationSystem : MonoBehaviour
         Debug.Log($"[MediaPresentation] Loaded script ({scriptWithMarkers.Length} chars). " +
                   $"Contains '{{Black': {scriptWithMarkers.Contains("{Black")}\n---\n{preview}\n---");
 
+        // Parse {Timestamp:"..."} chapter markers FIRST and strip them. They are
+        // pure timeline markers — never voiced, never shown, and they drive nothing
+        // visual — so removing them up front keeps them out of every other parser
+        // (and out of the clean text that reaches display/TTS). BeginRun() resets
+        // the capture buffer so the Timestamps window reflects only THIS run.
+        TimestampMarkerLog.BeginRun();
+        var tsResult = ParseTimestampMarkers(scriptWithMarkers, audio.length);
+        string scriptAfterTimestamps = tsResult.Item1;
+        timestampMarkers = tsResult.Item2;
+
         // Parse transition markers FIRST. A {Transition:...} claims the other
         // state tags on its line — {Position:...}, the emotion tag, {Mood:...} and
         // any content-card tag — and strips them from the script so they DON'T also
         // fire on their own timelines. Instead they're applied together at the
         // transition's full-cover midpoint (see ApplyTransitionCover), so Mugs is
         // already repositioned and the old card is gone when the screen reveals.
-        var trResult = ParseTransitionMarkers(scriptWithMarkers, audio.length);
+        var trResult = ParseTransitionMarkers(scriptAfterTimestamps, audio.length);
         string scriptAfterTransitions = trResult.Item1;
         transitionMarkers = trResult.Item2;
 
@@ -378,6 +393,7 @@ public class MediaPresentationSystem : MonoBehaviour
         StartCoroutine(TrackBlackPanelByTime());
         StartCoroutine(TrackTransitionsByTime());
         StartCoroutine(TrackMoodByTime());
+        StartCoroutine(TrackTimestampsByTime());
 
         if (contentZoneController != null)
             StartCoroutine(contentZoneController.TrackCardsByTime());
@@ -1727,6 +1743,117 @@ public class MediaPresentationSystem : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
+    // Parse Timestamp Markers  ({Timestamp:"Label"} -> YouTube chapter marker)
+    //
+    // Pure timeline markers. They are NEVER voiced (stripped before TTS by
+    // elevenlabs_tts_processor.py / TtsScriptProcessor.cs), NEVER shown, and drive
+    // nothing visual — parsing here only records (label, triggerTime) and strips
+    // the tag. The ElevenLabs pre-processor bakes a ,T=X.XXX onto each one (already
+    // shifted onto the stitched global timeline by SegmentSequencer); the
+    // char-proportional fallback covers a hand-written tag that has no T=.
+    // Format: {Timestamp:"Cold Open"}  or pre-processed  {Timestamp:"Cold Open",T=X.XXX}
+    // -----------------------------------------------------------------------
+
+    (string, List<TimestampMarkerData>) ParseTimestampMarkers(string script, float audioDuration)
+    {
+        List<TimestampMarkerData> markerList = new List<TimestampMarkerData>();
+        string clean = script;
+
+        // Group 1 = the free-text label (spaces/punctuation allowed, never a ");
+        // Group 2 = optional baked T= seconds.
+        Regex regex = new Regex(@"\{Timestamp:""([^""]*)""(?:,T=(\d+(?:\.\d+)?))?\}");
+        MatchCollection matches = regex.Matches(script);
+
+        string scriptWithoutMarkers = regex.Replace(script, "");
+        int totalChars = Mathf.Max(1, scriptWithoutMarkers.Length);
+
+        foreach (Match match in matches)
+        {
+            float markerTime = TryParseTimestamp(match.Groups[2]);
+            if (markerTime < 0f)
+            {
+                string textBeforeMarker = script.Substring(0, match.Index);
+                string cleanTextBefore = regex.Replace(textBeforeMarker, "");
+                markerTime = (cleanTextBefore.Length / (float)totalChars) * audioDuration;
+            }
+
+            markerList.Add(new TimestampMarkerData
+            {
+                triggerTime = markerTime,
+                label       = match.Groups[1].Value   // verbatim — spaces preserved
+            });
+
+            Debug.Log($"[Timestamp] '{match.Groups[1].Value}' marker will log at {markerTime:F2}s");
+
+            clean = clean.Replace(match.Value, "");
+        }
+
+        return (clean, markerList);
+    }
+
+    // -----------------------------------------------------------------------
+    // Timestamp Tracking — DEFERRED, AUDIO-CLOCK-TIED CAPTURE
+    //
+    // WHICH CASE APPLIES HERE: this project PRE-READS the whole script into marker
+    // lists up front (ProcessScriptWithMedia parses everything before a single word
+    // plays), so the parse/read moment is NOT when a listener hears that point. To
+    // record what is actually heard, this tracker does exactly what every other
+    // tracker does: it polls the audio playback clock (voiceAudio.time) each frame
+    // and acts the instant the clock reaches the marker's triggerTime. The value it
+    // LOGS is voiceAudio.time at that frame — the real playback position — NOT the
+    // parse-time triggerTime, NOT a frame count, NOT wall-clock time. voiceAudio
+    // plays the single stitched clip, so .time is the global position across the
+    // whole video, which is precisely the YouTube-chapter timeline.
+    // (Firing on `>=` means at most ~one frame of overshoot, identical to every
+    // other marker in this system; it rounds to the same whole second.)
+    // -----------------------------------------------------------------------
+
+    IEnumerator TrackTimestampsByTime()
+    {
+        lastTriggeredTimestampMarker = -1;
+        if (timestampMarkers == null || timestampMarkers.Count == 0) yield break;
+
+        // Wait one frame so voiceAudio.isPlaying can latch true if Play() ran on the
+        // same frame this coroutine started (same guard the black-panel tracker uses).
+        if (voiceAudio == null || !voiceAudio.isPlaying)
+            yield return null;
+
+        // `|| isShowingMedia` keeps tracking alive while a {Video:} marker has paused
+        // narration, so the end-of-audio flush only runs once playback truly ends.
+        while (voiceAudio != null && (voiceAudio.isPlaying || isShowingMedia))
+        {
+            float currentTime = voiceAudio.time;   // <-- the audio playback position (source of truth)
+
+            for (int i = lastTriggeredTimestampMarker + 1; i < timestampMarkers.Count; i++)
+            {
+                if (currentTime >= timestampMarkers[i].triggerTime)
+                {
+                    // Log the ACTUAL playback clock at the moment this point is reached.
+                    TimestampMarkerLog.Capture(timestampMarkers[i].label, currentTime);
+                    Debug.Log($"[Timestamp] Captured '{timestampMarkers[i].label}' at {currentTime:F2}s (audio playback position)");
+                    lastTriggeredTimestampMarker = i;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            yield return null;
+        }
+
+        // End-of-audio flush: a marker clamped to the final word is never hit by the
+        // loop above (it stops the instant playback ends). Capture it at its clamped
+        // global triggerTime — voiceAudio.time may have reset to 0 once the clip
+        // stopped, so triggerTime (the clip-end value) is the faithful position here.
+        for (int i = lastTriggeredTimestampMarker + 1; i < timestampMarkers.Count; i++)
+        {
+            TimestampMarkerLog.Capture(timestampMarkers[i].label, timestampMarkers[i].triggerTime);
+            lastTriggeredTimestampMarker = i;
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Shared helper — parse a T=X.XXX capture. Returns -1 if the group is
     // empty or the value can't be parsed.
     // -----------------------------------------------------------------------
@@ -1853,4 +1980,18 @@ public class MoodMarkerData
 {
     public float triggerTime;
     public MugsTech.Background.BackgroundMoodController.MoodType mood;
+}
+
+/// <summary>
+/// A pure timeline/chapter marker from a {Timestamp:"Label"} tag. Non-visual and
+/// non-spoken — it only carries a label and the audio time at which the marker
+/// should be logged (used to emit YouTube chapter timestamps). triggerTime is the
+/// baked/global T= value; the actually-logged time is the live voiceAudio.time
+/// captured when playback reaches it (see TrackTimestampsByTime).
+/// </summary>
+[System.Serializable]
+public class TimestampMarkerData
+{
+    public float triggerTime;
+    public string label;
 }

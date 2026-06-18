@@ -55,6 +55,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 | Big text (fullscreen) | `{BigText:ONE LINE,3}` or `{BigText:LINE 1+LINE 2,4}` (≤4) | yes |
 | Big image (article, left 3/4) | `{BigImage:name,5}` (pair with `{Position:Right}`) | yes |
 | Stage direction | `[deadpan]` `[slowing down, serious]` | no |
+| Chapter timestamp | `{Timestamp:"Cold Open"}` | no |
 | Section heading | `## COLD OPEN` | n/a |
 
 ---
@@ -65,6 +66,24 @@ Paste this whole file to the model before asking it to write a script, or keep i
 Splits the script into separately-rendered, stitched segments. Each section gets a short natural pause after it. Use them for major beats (cold open, setup, breakdown, take, closer, etc.). **The file must begin with one.**
 ```
 ## COLD OPEN
+```
+
+### Chapter timestamp — `{Timestamp:"Label"}`
+A **YouTube chapter marker**. It is **not spoken and not shown** — no audio, no on-screen visual, and it changes nothing about the character, camera, mood, or cards. It only records *"a chapter called Label starts here"* against the audio timeline, so the editor can copy a ready-made YouTube chapter list out of the **MugsTech ▸ Timestamps** window after a run.
+- Put one on its **own line, directly under each `## SECTION` heading** (above the transition line, if the section has one), so each chapter begins where that section does.
+- `Label` is free text in straight double quotes — spaces, commas, and punctuation are fine. Same quoting rule as any card field: **no `"` inside the label.**
+- **No duration** — it's an instant marker, not a card.
+- Give the **first** section a `{Timestamp:"..."}` at the very top so its chapter lands at **0:00** (YouTube only enables chapters when the first one is 0:00).
+```
+## COLD OPEN
+{Timestamp:"Cold Open"}
+{Position:Center,Cut} {Neutral}
+[deadpan] A company did a thing. It was bad. Let's talk about it.
+
+## BREAKDOWN
+{Timestamp:"The Breakdown"}
+{Transition:Wipe} {Position:Left} {Serious}
+[slowing down, serious] Here's what the policy change actually says.
 ```
 
 ### Stage directions — `[ ... ]`
@@ -245,12 +264,14 @@ Fields: `"value","label","context",duration[,Left|,Right]`
 
 ```
 ## COLD OPEN
+{Timestamp:"Cold Open"}
 {Position:Center,Cut} {Neutral}
 [deadpan] A company did a thing. It was bad. Let's talk about it.
 {Zoom:In}
 [genuine disbelief] No — actually bad. Like, read it twice to make sure bad.
 
 ## BREAKDOWN
+{Timestamp:"The Breakdown"}
 {Transition:Wipe} {Position:Left} {Serious}
 [slowing down, serious] Here's what the policy change actually says.
 {Headline:"Tech Giant Quietly Changes Privacy Policy","The Verge",5}
@@ -261,6 +282,7 @@ Fields: `"value","label","context",duration[,Left|,Right]`
 [dry] Point three percent. The rest of us just hit "I Agree."
 
 ## TAKE
+{Timestamp:"The Take"}
 {Transition:Iris} {Position:Center} {Concerned} {Zoom:In} {Mood:Tense}
 [tired but amused] Every few months a company quietly rewrites the rules.
 {BigText:YOUR DATA+→+THEIR MODEL,6}
@@ -275,6 +297,7 @@ Notes on the example:
 - The `Headline`, `Excerpt`, and `Stat` cards all appear in the `BREAKDOWN` section while the character is at `Left` (rule 8) — they're on their own later lines, so they animate in a beat after the transition rather than under cover.
 - The narration `…hit "I Agree."` uses quotes freely — that's fine, it's narration, not a tag field.
 - `{BigText:YOUR DATA+→+THEIR MODEL,6}` is three stacked lines via `+`.
+- Each section opens with a `{Timestamp:"..."}` on its own line so the run produces a clean YouTube chapter list; the cold open's sits at the very top so its chapter is `0:00`.
 - No tag has a `T=`; the processor adds those.
 
 ---
@@ -292,3 +315,4 @@ Notes on the example:
 - [ ] Any `,Left`/`,Right` entry-side modifier is the **last** value in the tag, spelled exactly (capitalized), and not combined with `,bigCenter`.
 - [ ] No `T=` written by hand.
 - [ ] One tag per line.
+- [ ] Each `## SECTION` that should be a YouTube chapter has a `{Timestamp:"..."}` on its first line, and the first section's is at the very top (so its chapter is `0:00`).
