@@ -49,7 +49,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 | Scene transition | `{Transition:Wipe}` `{Transition:Iris,1.2}` (Wipe/Shutter/Iris, optional speed) | no |
 | Background mood | `{Mood:Tense}` (Calm/Energetic/Tense/Playful/Minimal) | no |
 | Image 📁 | `{Image:name}` or `{Image:name,4}` | optional (default 3s) |
-| Video clip 📁 | `{Video:name}` or `{Video:name,6}` | optional (full clip) |
+| Video clip 📁 | `{Video:name}` — **no duration** | no (runs until the next beat) |
 | Headline card ✅ | `{Headline:"headline text","Source",5}` (+ optional `,bigCenter` **or** `,Left`/`,Right`) | yes |
 | Excerpt card ✅ | `{Excerpt:"full passage","phrase to highlight","Attribution",6}` (+ optional `,Left`/`,Right`) | yes |
 | Quote card ✅ | `{Quote:"the quote","Person Name","Role / Title",5}` (+ optional `,Left`/`,Right`) | yes |
@@ -206,7 +206,7 @@ There are **two separate places** a name can resolve against, and they do **not*
 
 Rules for every 📁 / 🎬 tag:
 - **Use only names that appear in `MEDIA_LIBRARY.md`.** Type them **exactly**, matching case, **without the file extension**. Don't invent names and don't reuse placeholders like `ArticleTemp` / `VideoTemp`.
-- **Note the two `BRoll`s are different tags.** `{Video:name,6}` plays a **file** from the `BRoll/` disk folder (silently, under the narration). `{BRoll:description,4}` is a **side card** that resolves a *description* through the Unity asset. They are not interchangeable.
+- **Note the two `BRoll`s are different tags.** `{Video:name}` plays a **file** from the `BRoll/` disk folder (silently, under the narration, until the next beat). `{BRoll:description,4}` is a **side card** that resolves a *description* through the Unity asset. They are not interchangeable.
 - **No `MEDIA_LIBRARY.md`? Don't use these tags at all.** Reach for a self-contained ✅ card instead: a `Headline`, `Stat`, `Quote`, `Excerpt`, or `BigText` conveys the same beat with text you write inline, and it always renders. A script full of working text cards beats a script with blank media slots.
 
 ---
@@ -217,8 +217,26 @@ Shows an image in the media area. `name` is the file name (**extension omitted**
 {Image:privacy_headline,4}
 ```
 
-### Video — `{Video:name}` or `{Video:name,seconds}`  📁
-Plays a video clip file from the `BRoll/` disk folder — `name` is the **filename without extension** (a real one from `MEDIA_LIBRARY.md`). **The clip is always silent and the narration keeps playing right over it** — treat it as b-roll under the voice, not as a break in the read. Omit the duration to play the whole clip; give one to cap it. (Not to be confused with the `{BRoll:description}` **side card**, which resolves a description through the Unity asset — see *"Media & asset cards"*.)
+### Video — `{Video:name}`  📁
+Plays a video clip file from the `BRoll/` disk folder — `name` is the **filename without extension** (a real one from `MEDIA_LIBRARY.md`). **The clip is always silent and the narration keeps playing right over it** — treat it as b-roll under the voice, not as a break in the read. (Not to be confused with the `{BRoll:description}` **side card**, which resolves a description through the Unity asset — see *"Media & asset cards"*.)
+
+**Don't give a video a duration — you can't know one.** You have no idea how many seconds the narration under a clip will take once it's spoken, so any number you write is a guess that cuts the b-roll off mid-sentence. Instead the clip **stays on screen, looping, until the next beat ends it**:
+
+- the presenter **moves to a different position** (`{Position:Center}`, or the other side),
+- a **content card** appears (`Stat`, `Quote`, `Headline`, `Excerpt`, `Logo`, `BRoll`, or a feature card),
+- the **next `{Image:}` or `{Video:}`** fires,
+- or the narration ends.
+
+So you control how long b-roll is on screen by **where you put the tag that ends it**, not by a number. A number is still accepted (`{Video:name,6}`) but it only sets a *minimum* — it can no longer cut a clip short, and it matters only for a clip placed on the script's final words.
+
+```
+{Position:Right}
+{Video:hardDriveSpinning}
+He killed the process. Most of it was already gone. Twenty years of files, walking out the door while he watched.
+{Position:Center}
+[flat] That's the whole story.
+```
+Here the clip runs under all three narrated sentences and ends exactly when the presenter steps to center — no guessing required.
 ```
 {Video:datacenter_broll,6}
 ```
@@ -301,6 +319,7 @@ Fields: `"value","label","context",duration[,Left|,Right]`
 - **Fullscreen feature cards work anywhere.** `BigText`/`BigMedia`/`BigCenter` (and a `Headline` with `,bigCenter`) render in front of everything, so they appear in any position — including `Center`. Use them for the "front and center" moments.
 - **`BigImage` is the feature card that wants a side.** It isn't suppressed at `Center`, but it covers only the left 3/4 — set `{Position:Right}` so the presenter stands in the open right quarter beside the article instead of hidden behind it.
 - **Transitions open a new section.** Put `{Transition:…}` on the **first line of a section** and group that section's whole scene change onto the same line (position, emotion, mood, a card, an image, a zoom). They're applied under cover — see §4. This is the one place you deliberately stack several tags on a single line. A side card grouped on a transition line still needs a `Left`/`Right` position on that same line (rule 8).
+- **A `{Video:}` has no duration — you end it by placing the next beat.** The clip loops under the narration until the presenter changes position, a content card appears, or another `{Image:}`/`{Video:}` fires. Want b-roll under three sentences? Put the tag before them and the `{Position:...}` or card after them (§4).
 - **Don't place a tag on the script's very last word and expect it to fire late** — it's fine, the recording now holds until trailing tags (e.g. an end-card `{Logo:...,8}` or final `{Black:2}`) finish their full duration.
 - Reasonable default durations: cards 5s, excerpts 6s, big text 3–4s, logos 3–4s, black cuts 2–3s.
 
@@ -352,6 +371,7 @@ Notes on the example:
 
 - [ ] File begins with `## SECTION`.
 - [ ] Every `{...}` card / Logo / BRoll / BigMedia / BigText / BigImage ends in `,number`.
+- [ ] **No `{Video:}` carries a duration** — each one is ended by the next `{Position:...}`, content card, or media tag you placed after it.
 - [ ] **Every 📁/🎬 media name (`Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll`) is a real name copied from `MEDIA_LIBRARY.md`** — exact spelling and case, no extension. Any beat without a confirmed name uses a ✅ text card (`Headline`/`Stat`/`Quote`/`Excerpt`/`BigText`) instead. No invented or placeholder names.
 - [ ] **No space next to a field-separating comma or between `"` and `"`** — `"a","b","c",5`, never `"a", "b", "c", 5`.
 - [ ] **No empty `""` fields; field counts exact** — `Headline` has 2 quoted fields, `Excerpt`/`Quote`/`Stat` have 3.

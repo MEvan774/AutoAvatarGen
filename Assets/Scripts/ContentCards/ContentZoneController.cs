@@ -290,6 +290,11 @@ public class ContentZoneController : MonoBehaviour
             return;
         }
 
+        // A card taking the zone ends any {Video:} on screen — clips no longer
+        // have a fixed lifetime, they run until the next beat, and this is one.
+        if (mediaPresentationSystem != null)
+            mediaPresentationSystem.DismissActiveMedia();
+
         hideAndShowCoroutine = StartCoroutine(HideAndShowSequence(evt, zone));
     }
 

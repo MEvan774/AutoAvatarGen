@@ -284,9 +284,34 @@ public class MediaPresentationSystem : MonoBehaviour
             vp.EnableAudioTrack(i, false);
     }
 
-    // Fallback on-screen time when neither the tag nor the container gives a
-    // usable one. Matches the {Image:} default documented in SCRIPT_TAG_GUIDE.
+    // Minimum on-screen time for a {Video:} that carries no duration.
     const float DefaultMediaSeconds = 3f;
+
+    // Bumped by anything that supersedes on-screen media: the presenter actually
+    // moving to a different position, or a content card appearing. A {Video:}
+    // watches this and ends the moment it changes.
+    private int mediaDismissToken;
+
+    /// <summary>
+    /// Ends whatever {Video:} is on screen, on the next frame. A script author
+    /// (human or Claude) cannot know how long the narration under a clip runs,
+    /// so a clip is not given a fixed lifetime — it lives until the beat it
+    /// belongs to ends. No-op when nothing is showing.
+    /// </summary>
+    public void DismissActiveMedia() => mediaDismissToken++;
+
+    // True once the NEXT {Image:}/{Video:} marker's trigger time has arrived —
+    // the third thing that supersedes a clip. Checking it here (rather than
+    // letting TrackMediaByTime interrupt) means the running coroutine always
+    // finishes its own cleanup before the next one starts.
+    bool NextMediaMarkerDue()
+    {
+        int next = lastTriggeredMediaMarker + 1;
+        return mediaMarkers != null
+            && next < mediaMarkers.Count
+            && voiceAudio != null
+            && voiceAudio.time >= mediaMarkers[next].triggerTime;
+    }
 
     // Reveal the display now that it holds a real texture. Kept as a single
     // call site so no future branch can activate an empty (white) RawImage.
@@ -558,6 +583,12 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         Transform target = GetTransformForPosition(targetPosition);
         if (target == null) return;
+
+        // The presenter genuinely changing sides ends any clip on screen — that
+        // beat is over. A {Position:} that repeats the current side is a no-op
+        // and must NOT dismiss, or a redundant tag would cut the clip short.
+        if (targetPosition != currentPosition)
+            DismissActiveMedia();
 
         // Per-tag sound effect ({Position:Left/Right/Center}).
         TagSfxPlayer.Instance.Play(targetPosition);
@@ -1233,8 +1264,12 @@ public class MediaPresentationSystem : MonoBehaviour
                 // player's internal track list.
                 videoPlayer.renderMode      = VideoRenderMode.RenderTexture;
                 videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
-                videoPlayer.isLooping       = false;
                 videoPlayer.targetTexture   = null;
+
+                // Looping, because the clip's lifetime is now decided by the
+                // script's beats rather than by its own length — a short clip
+                // under a long beat would otherwise freeze on its last frame.
+                videoPlayer.isLooping = true;
 
                 RenderTexture rt = null;
 
@@ -1271,34 +1306,53 @@ public class MediaPresentationSystem : MonoBehaviour
                     videoPlayer.Play();
                     ShowDisplay();
 
-                    float videoLength = (float)videoPlayer.length;
-                    float waitTime = marker.displayDuration > 0f
-                        ? (videoLength > 0f ? Mathf.Min(videoLength, marker.displayDuration)
-                                            : marker.displayDuration)
-                        : videoLength;
-
-                    // Neither the container nor the tag gave a usable length.
-                    if (waitTime <= 0f) waitTime = DefaultMediaSeconds;
+                    // The tag's duration is a MINIMUM, not a lifetime. The clip
+                    // runs until the beat it belongs to ends — the presenter
+                    // changes side, a content card appears, or the next
+                    // {Image:}/{Video:} is due — because the script author can't
+                    // know how long the narration underneath it takes. The
+                    // minimum only matters once the narration has stopped, so a
+                    // clip authored on the final words still gets its time.
+                    float minHold = marker.displayDuration > 0f
+                        ? marker.displayDuration : DefaultMediaSeconds;
 
                     Debug.Log($"Playing video: {marker.mediaName} ({vw}x{vh}), " +
-                              $"clip {videoLength:F2}s, holding {waitTime:F2}s");
+                              $"clip {(float)videoPlayer.length:F2}s, looping until superseded " +
+                              $"(min {minHold:F2}s)");
 
-                    // Hold for the full authored time. isPlaying is only consulted
-                    // AFTER playback has actually begun: it reads false for the
-                    // first frames after Play() while waitForFirstFrame loads frame
-                    // zero, so gating the loop on it directly ended the clip before
-                    // it was ever on screen. `started` latches once it goes true, and
-                    // only then does isPlaying going false mean the clip really ended.
+                    int   token        = mediaDismissToken;
                     float videoElapsed = 0f;
-                    bool started = false;
-                    while (videoElapsed < waitTime)
+                    bool  started      = false;
+                    int   stalledFrames = 0;
+
+                    while (true)
                     {
-                        if (videoPlayer.isPlaying) started = true;
-                        else if (started) break;
+                        // isPlaying reads false for the first frames after Play()
+                        // while waitForFirstFrame loads frame zero, so gating the
+                        // loop on it directly ended the clip before it was ever on
+                        // screen. Tolerate a run of false frames instead: a short
+                        // one is a loop seam, a long one means playback is gone.
+                        if (videoPlayer.isPlaying) { started = true; stalledFrames = 0; }
+                        else if (++stalledFrames > (started ? 30 : 120))
+                        {
+                            Debug.LogError($"Video '{marker.mediaName}' " +
+                                (started ? "stopped unexpectedly." : "never started playing."));
+                            break;
+                        }
+
+                        if (mediaDismissToken != token) break;   // position change / card
+                        if (NextMediaMarkerDue())         break;   // next clip is due
+
+                        // Narration over: hold the authored minimum, then stop so
+                        // the recorder isn't kept open by a clip nothing will end.
+                        if ((voiceAudio == null || !voiceAudio.isPlaying) && videoElapsed >= minHold)
+                            break;
 
                         videoElapsed += Time.deltaTime;
                         yield return null;
                     }
+
+                    Debug.Log($"Video finished: {marker.mediaName} after {videoElapsed:F2}s");
                 }
                 else
                 {
