@@ -5,6 +5,8 @@
 
 Paste this whole file to the model before asking it to write a script, or keep it as the system instruction for script generation.
 
+> **Media tags (`Image`, `Video`, `BigImage`, `Logo`, `BigMedia`, `BRoll`) point at real files/assets by name.** The names are project-specific — they are **not** in this guide. They live in a companion file, `MEDIA_LIBRARY.md`, produced by `generate_media_library.py`. Paste that file in **alongside** this one and use only the names it lists. **If you were not given a `MEDIA_LIBRARY.md`, do not guess a media name** — a name that doesn't exist makes the card show nothing (see §4 *"Media & asset cards"*). Use a self-contained text card instead (`Headline`, `Excerpt`, `Quote`, `Stat`, `BigText` — these carry their own content and always work).
+
 ---
 
 ## 1. How the pipeline reads your script (read this first)
@@ -27,9 +29,12 @@ Paste this whole file to the model before asking it to write a script, or keep i
 4. **Never put a `"` *inside* a quoted card field.** The field ends at the first `"`. If you need a quote inside quoted text, rephrase or use single quotes `'`. (Commas, periods, em‑dashes `—`, `%`, `$`, `€` inside quotes are fine.)
 5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline) or `,Left`/`,Right` (side cards) modifiers.
 6. **Unquoted names (`Logo`, `BRoll`, `BigMedia`, `BigText`, `BigImage`) must not contain commas.** The comma is a delimiter. Use `+` to join multiple items (`BigImage` is a single image — no `+`).
-7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback`, `Cut`, `Smooth`, `bigCenter`, `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. (The `Transition` and `Mood` keywords especially — mis-capitalize them and the strip regex misses the tag, so ElevenLabs reads it out loud.)
+7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback`, `Cut`, `Smooth`, `bigCenter`, `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
 8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`, `BigImage`) are exempt** — they render in front of everything and appear in any position, including `Center`. (`BigImage` covers only the left 3/4, so it's meant to *share* the screen — stand the presenter on the **right** with `{Position:Right}`; see §4.)
 9. Keep the narration itself natural — it can contain quotes, commas, anything. The rules above apply to **tags only**.
+10. **Never put a space next to the commas or quotes that separate a tag's fields.** The strip regex is exact: `{Quote:"a","b","c",5}` works, but `{Quote:"a", "b", "c", 5}` (spaces after the commas) does **not** — the tag is left in the narration and read aloud. Spaces are only allowed **inside** a quoted value (`"VP of Comms, MegaCorp"`) or inside an unquoted name/description (`{BRoll:server room,4}`). Never around the `,` between fields, and never between `"` and `"`.
+11. **Every quoted field must be non-empty, and the field count must be exact.** `Headline` = 2 quoted fields; `Excerpt`/`Quote`/`Stat` = 3. An empty field (`""`) or the wrong number of fields makes the card **silently not appear** (it's still stripped, so it's not read aloud — it just does nothing). If you don't have a value for a field, don't use that card; pick one that fits what you have.
+12. **Media names must be real.** `Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll` reference an existing file or asset by name (from `MEDIA_LIBRARY.md`). An unknown name parses fine and is stripped, but the card **shows nothing** (or a bare text fallback). Never invent one. No `MEDIA_LIBRARY.md` in front of you → use a text card instead (§4 *"Media & asset cards"*).
 
 ---
 
@@ -37,26 +42,33 @@ Paste this whole file to the model before asking it to write a script, or keep i
 
 | Tag | Syntax (what you write) | Duration required? |
 |---|---|---|
-| Emotion | `{Neutral}` `{Excited}` `{Serious}` `{Sad}` `{Concerned}` | no |
+| Emotion | any single-word name from the project's emotion list — `{Neutral}` `{Smirk}` `{Sip}` … | no |
 | Character position | `{Position:Left}` (+ optional `,Cut` or `,Smooth`) | no |
 | Camera zoom | `{Zoom:In}` (+ optional `,Cut` and/or `,D=seconds`) | no |
 | Black cut | `{Black:3}` | yes |
 | Scene transition | `{Transition:Wipe}` `{Transition:Iris,1.2}` (Wipe/Shutter/Iris, optional speed) | no |
 | Background mood | `{Mood:Tense}` (Calm/Energetic/Tense/Playful/Minimal) | no |
-| Image | `{Image:name}` or `{Image:name,4}` | optional (default 3s) |
-| Video clip | `{Video:name}` or `{Video:name,6}` | optional (full clip) |
-| Headline card | `{Headline:"headline text","Source",5}` (+ optional `,bigCenter` **or** `,Left`/`,Right`) | yes |
-| Excerpt card | `{Excerpt:"full passage","phrase to highlight","Attribution",6}` (+ optional `,Left`/`,Right`) | yes |
-| Quote card | `{Quote:"the quote","Person Name","Role / Title",5}` (+ optional `,Left`/`,Right`) | yes |
-| Stat card | `{Stat:"2.3 billion","Label","Context line",5}` (+ optional `,Left`/`,Right`) | yes |
-| Logo card | `{Logo:Google,4}` (+ optional `,Left`/`,Right`) | yes |
-| B‑roll card | `{BRoll:description,4}` (+ optional `,Left`/`,Right`) | yes |
-| Big media (fullscreen) | `{BigMedia:Google,4}` or `{BigMedia:Google+Brave+X,4}` (≤4) | yes |
-| Big text (fullscreen) | `{BigText:ONE LINE,3}` or `{BigText:LINE 1+LINE 2,4}` (≤4) | yes |
-| Big image (article, left 3/4) | `{BigImage:name,5}` (pair with `{Position:Right}`) | yes |
-| Stage direction | `[deadpan]` `[slowing down, serious]` | no |
-| Chapter timestamp | `{Timestamp:"Cold Open"}` | no |
-| Section heading | `## COLD OPEN` | n/a |
+| Image 📁 | `{Image:name}` or `{Image:name,4}` | optional (default 3s) |
+| Video clip 📁 | `{Video:name}` or `{Video:name,6}` | optional (full clip) |
+| Headline card ✅ | `{Headline:"headline text","Source",5}` (+ optional `,bigCenter` **or** `,Left`/`,Right`) | yes |
+| Excerpt card ✅ | `{Excerpt:"full passage","phrase to highlight","Attribution",6}` (+ optional `,Left`/`,Right`) | yes |
+| Quote card ✅ | `{Quote:"the quote","Person Name","Role / Title",5}` (+ optional `,Left`/`,Right`) | yes |
+| Stat card ✅ | `{Stat:"2.3 billion","Label","Context line",5}` (+ optional `,Left`/`,Right`) | yes |
+| Logo card 🎬 | `{Logo:Google,4}` (+ optional `,Left`/`,Right`) | yes |
+| B‑roll card 🎬 | `{BRoll:description,4}` (+ optional `,Left`/`,Right`) | yes |
+| Big media (fullscreen) 🎬 | `{BigMedia:Google,4}` or `{BigMedia:Google+Brave+X,4}` (≤4) | yes |
+| Big text (fullscreen) ✅ | `{BigText:ONE LINE,3}` or `{BigText:LINE 1+LINE 2,4}` (≤4) | yes |
+| Big image (article, left 3/4) 📁 | `{BigImage:name,5}` (pair with `{Position:Right}`) | yes |
+| Stage direction ✅ | `[deadpan]` `[slowing down, serious]` | no |
+| Chapter timestamp ✅ | `{Timestamp:"Cold Open"}` | no |
+| Section heading ✅ | `## COLD OPEN` | n/a |
+
+**Legend — does the tag need a real asset to exist?**
+- ✅ **Self-contained — always works.** The tag carries its own text; nothing external to resolve. Safe to use anytime.
+- 📁 **Needs a real file on disk.** The `name` is a filename (no extension) in a media folder — `Image`/`BigImage` → `Images/` or `Logos/`; `Video` → `BRoll/`. Use only names from `MEDIA_LIBRARY.md`.
+- 🎬 **Needs a real entry in the Unity `ContentCardAssets` asset** (a *different* place from the disk folders). `Logo`/`BigMedia` → a configured company logo; `BRoll` → a configured clip description. Use only names confirmed in `MEDIA_LIBRARY.md` / Unity.
+
+If you don't have a confirmed name for a 📁 or 🎬 tag, use a ✅ card instead — see §4 *"Media & asset cards — names must be real"*.
 
 ---
 
@@ -94,7 +106,19 @@ A delivery cue for the narration (pacing, tone). It is **not** spoken and produc
 ```
 
 ### Emotions — `{Neutral}` `{Excited}` `{Serious}` `{Sad}` `{Concerned}`
-Sets the avatar's facial expression. Exactly these five words. Place on its own line just before the line it should color (may also appear inline, but own-line is preferred for clarity).
+Sets the avatar's facial expression. These five are the default set. Place on its own line just before the line it should color (may also appear inline, but own-line is preferred for clarity).
+
+> **The emotion set may be customized.** When the project uses a custom line-up — via the avatar's *Use Emotion Array Override* toggle in the Unity Inspector, or emotions added in the in-app Visuals menu — the five names above no longer apply. In that case use **exactly** the list handed to you by the **"Copy Emotion Names for Claude"** button (on the HybridAvatarSystem component), and use no emotion name outside that list.
+
+**Emotion names are open-ended — there is no list to update anywhere.** Every tool in the chain recognises an emotion by its *shape*: a single bare word in curly braces, no colon. `{Smirk}`, `{Sip}`, `{SmugSip}`, `{BothEyebrowRaised}` all work the moment a sprite of that name exists in the avatar's emotion array. Nothing else has to change — the TTS pre-processor strips the tag automatically (so ElevenLabs never reads it aloud) and stamps it with a `T=` timestamp so the expression lands on the exact word.
+
+Optionally add a per-tag transition style — `Cut`, `Blink`, `BlinkHeavy`, `SquashStretch`, `Crossfade`, `Shake` — to override the global one for that swap:
+```
+{Sip}
+Let me be precise, because the lazy version of this story is wrong.
+{Shocked,Cut}
+It deleted a man's photographs.
+```
 ```
 {Excited}
 This is the part that actually matters.
@@ -165,14 +189,36 @@ Crossfades the animated background to a new mood over ~3 seconds. Variants: `Cal
 ```
 > No-op if the scene has no background mood system wired up — safe to use either way.
 
-### Image — `{Image:name}` or `{Image:name,seconds}`
-Shows an image in the media area. `name` is the file name (extension optional) found in the configured Images/Logos media folders. Duration optional — defaults to **3s**.
+### Media & asset cards — names must be real (read before using any 📁 or 🎬 tag)
+
+Six tags don't carry their own content — they **look up a name** and display whatever file/asset that name points at. If the name doesn't resolve, the tag is still stripped from the narration (so it isn't read aloud) but **the card shows nothing** — a blank slot, or for `BigMedia` a plain-text fallback of the name. This silent failure is the #1 reason "a media card didn't work."
+
+There are **two separate places** a name can resolve against, and they do **not** share names:
+
+| Tag | Resolves against | `name` is… |
+|---|---|---|
+| `{Image:name}` 📁 | disk folders `Images/` then `Logos/` | an image **filename**, no extension (e.g. `privacy_headline`) |
+| `{BigImage:name}` 📁 | disk folders `Images/` then `Logos/` | an image **filename**, no extension |
+| `{Video:name}` 📁 | disk folder `BRoll/` | a video **filename**, no extension |
+| `{Logo:name}` 🎬 | the Unity **`ContentCardAssets`** asset (logo list) | a configured **company name** (case-insensitive) |
+| `{BigMedia:name}` 🎬 | the Unity **`ContentCardAssets`** asset (logo list), then `Resources/Media/` | a configured **company name** |
+| `{BRoll:description}` 🎬 | the Unity **`ContentCardAssets`** asset (clip list) | a configured **clip description** (case-insensitive) |
+
+Rules for every 📁 / 🎬 tag:
+- **Use only names that appear in `MEDIA_LIBRARY.md`.** Type them **exactly**, matching case, **without the file extension**. Don't invent names and don't reuse placeholders like `ArticleTemp` / `VideoTemp`.
+- **Note the two `BRoll`s are different tags.** `{Video:name,6}` plays a **file** from the `BRoll/` disk folder (silently, under the narration). `{BRoll:description,4}` is a **side card** that resolves a *description* through the Unity asset. They are not interchangeable.
+- **No `MEDIA_LIBRARY.md`? Don't use these tags at all.** Reach for a self-contained ✅ card instead: a `Headline`, `Stat`, `Quote`, `Excerpt`, or `BigText` conveys the same beat with text you write inline, and it always renders. A script full of working text cards beats a script with blank media slots.
+
+---
+
+### Image — `{Image:name}` or `{Image:name,seconds}`  📁
+Shows an image in the media area. `name` is the file name (**extension omitted**) found in the configured `Images/` then `Logos/` disk folders — see *"Media & asset cards"* above; use a real name from `MEDIA_LIBRARY.md`. Duration optional — defaults to **3s**.
 ```
 {Image:privacy_headline,4}
 ```
 
-### Video — `{Video:name}` or `{Video:name,seconds}`
-Plays a video clip from the BRoll media folder. **Narration pauses while the video plays.** Omit the duration to play the whole clip; give one to cap it.
+### Video — `{Video:name}` or `{Video:name,seconds}`  📁
+Plays a video clip file from the `BRoll/` disk folder — `name` is the **filename without extension** (a real one from `MEDIA_LIBRARY.md`). **The clip is always silent and the narration keeps playing right over it** — treat it as b-roll under the voice, not as a break in the read. Omit the duration to play the whole clip; give one to cap it. (Not to be confused with the `{BRoll:description}` **side card**, which resolves a description through the Unity asset — see *"Media & asset cards"*.)
 ```
 {Video:datacenter_broll,6}
 ```
@@ -207,13 +253,13 @@ Fields: `"quote","person name","role/title",duration[,Left|,Right]` (note the co
 ```
 Fields: `"value","label","context",duration[,Left|,Right]`
 
-**Logo** — a single company logo. `name` must match a configured logo entry (no commas).
+**Logo** 🎬 — a single company logo. `name` must be a **company name configured in the Unity `ContentCardAssets` asset** (case-insensitive), *not* a filename — see *"Media & asset cards"*. Use a name from `MEDIA_LIBRARY.md`. No commas.
 ```
 {Logo:Google,4}
 {Logo:Brave,4,Right}
 ```
 
-**B‑roll card** — a background video clip mapped by description (no commas in the description).
+**B‑roll card** 🎬 — a background video clip resolved by **description**, matched against the Unity `ContentCardAssets` asset (case-insensitive), *not* the `BRoll/` disk folder. Use a description from `MEDIA_LIBRARY.md`. No commas in the description. (For a clip **file** from the `BRoll/` folder, use `{Video:...}` instead.)
 ```
 {BRoll:server room,4}
 {BRoll:trading floor,4,Left}
@@ -221,7 +267,7 @@ Fields: `"value","label","context",duration[,Left|,Right]`
 
 ### Feature cards (fullscreen, in front of the character)
 
-**BigMedia** — 1 to 4 logos/images shown large and centered. Join multiple with `+`.
+**BigMedia** 🎬 — 1 to 4 logos/images shown large and centered. Each `name` resolves through the Unity `ContentCardAssets` asset (then `Resources/Media/`) — same source as `{Logo:}`, *not* the disk `Images/`/`Logos/` folders — so use configured logo names from `MEDIA_LIBRARY.md`. Join multiple with `+` (≤4). A name that doesn't resolve is shown as plain text (its own letters), not an image.
 ```
 {BigMedia:Google,4}
 {BigMedia:Google+Brave+X,4}
@@ -233,7 +279,7 @@ Fields: `"value","label","context",duration[,Left|,Right]`
 {BigText:YOUR DATA+→+THEIR MODEL,6}
 ```
 
-**BigImage** — a large website-article or headline **screenshot** that covers the **left 3/4** of the screen, leaving the right quarter open for the presenter. It fills that area edge-to-edge (cropped to fit, no distortion) and drops in from the top. `name` is an image file in the same Images/Logos folders `{Image:}` uses — drop your screenshot there. It's a feature card (not suppressed at `Center`), but it's designed to **share** the screen: put the presenter on the **right** so they stand in the open quarter beside the article, not behind it.
+**BigImage** 📁 — a large website-article or headline **screenshot** that covers the **left 3/4** of the screen, leaving the right quarter open for the presenter. It fills that area edge-to-edge (cropped to fit, no distortion) and drops in from the top. `name` is an image **filename (no extension)** in the same disk `Images/`/`Logos/` folders `{Image:}` uses — use a real one from `MEDIA_LIBRARY.md` (drop your screenshot there first). It's a feature card (not suppressed at `Center`), but it's designed to **share** the screen: put the presenter on the **right** so they stand in the open quarter beside the article, not behind it.
 ```
 {Position:Right}
 {BigImage:tesla_q3_article,6}
@@ -306,6 +352,9 @@ Notes on the example:
 
 - [ ] File begins with `## SECTION`.
 - [ ] Every `{...}` card / Logo / BRoll / BigMedia / BigText / BigImage ends in `,number`.
+- [ ] **Every 📁/🎬 media name (`Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll`) is a real name copied from `MEDIA_LIBRARY.md`** — exact spelling and case, no extension. Any beat without a confirmed name uses a ✅ text card (`Headline`/`Stat`/`Quote`/`Excerpt`/`BigText`) instead. No invented or placeholder names.
+- [ ] **No space next to a field-separating comma or between `"` and `"`** — `"a","b","c",5`, never `"a", "b", "c", 5`.
+- [ ] **No empty `""` fields; field counts exact** — `Headline` has 2 quoted fields, `Excerpt`/`Quote`/`Stat` have 3.
 - [ ] No smart quotes anywhere; no `"` inside a quoted field.
 - [ ] No commas inside `Logo` / `BRoll` / `BigMedia` / `BigText` / `BigImage` names (used `+` for multiples, ≤4; `BigImage` is a single image).
 - [ ] Emotion / Position / Zoom keywords spelled exactly and capitalized.

@@ -52,8 +52,22 @@ namespace MugsTech.Tts
 
         // ---- Regex (1:1 with the Python _ALL_MARKERS) ---------------------
 
+        // Transition-style modifier an emotion tag may carry: {Smirk,Blink}.
+        // BlinkHeavy before Blink so the longer keyword wins the alternation.
+        // Kept in lockstep with HybridAvatarSystem.ParseScriptWithTimeMarkers.
+        private const string StyleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake";
+
+        // An emotion tag is ANY bare one-word curly tag — {Neutral}, {Smirk},
+        // {Sip}, {SmugSip}, whatever the avatar's emotion array holds. Matching
+        // the SHAPE rather than a fixed list of names is what makes new emotions
+        // free: drop a sprite into the array, write {NewName} in the script, and
+        // it is stripped here and stamped with a T= with no edit to this file.
+        // (No colon, so it can never collide with {Position:…} / {Mood:…} / card
+        // tags — those are tried as later alternatives.)
+        private const string EmotionTag = @"\{[A-Za-z]\w*(?:,(?:" + StyleAlt + @"))?\}";
+
         private static readonly Regex AllMarkers = new Regex(
-            @"\{(?:Excited|Serious|Concerned|Neutral|Sad)\}" +
+            EmotionTag +                                   // emotion states — ANY bare {Word} / {Word,Style}
             @"|\{Timestamp:""[^""]*""\}" +                  // YouTube chapter markers — never voiced/shown
             @"|\{Position:\w+(?:,\w+)?\}" +
             @"|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}" +
@@ -78,7 +92,14 @@ namespace MugsTech.Tts
             // inflated the audio and pushed every later word (and every T=
             // timestamp derived from it) seconds late. Kept in lockstep with
             // the runtime strip in MediaPresentationSystem (\[[^\]]*\]).
-            @"|\[[^\]]*\]");
+            @"|\[[^\]]*\]" +
+            // SAFETY NET — last alternative, so every pattern above still wins
+            // first. Anything else wrapped in {...} on a single line is a tag we
+            // don't know (new syntax, a typo, a mis-capitalised keyword). Strip
+            // it rather than let it reach ElevenLabs, which would read the tag
+            // out loud in the finished video. Bounded to one line so an unclosed
+            // brace in prose can swallow at most the rest of that line.
+            @"|\{[^{}\n]*\}");
 
         private static readonly Regex SectionHeader = new Regex(
             @"^##\s+(.+)$", RegexOptions.Multiline);
@@ -275,8 +296,10 @@ namespace MugsTech.Tts
             if (innerCurly.StartsWith("Timestamp:", System.StringComparison.Ordinal))
                 return "{" + innerCurly + "," + ts + "}";
 
-            // {Emotion}
-            if (Regex.IsMatch(innerCurly, @"^(Excited|Serious|Concerned|Neutral|Sad)$"))
+            // {Emotion} / {Emotion,Style} — any bare one-word tag, matching
+            // EmotionTag. Unity reads {Smirk,T=12.480} and {Smirk,Blink,T=12.480}
+            // equally well.
+            if (Regex.IsMatch(innerCurly, @"^[A-Za-z]\w*(?:,(?:" + StyleAlt + @"))?$"))
                 return "{" + innerCurly + "," + ts + "}";
 
             // {Zoom:...}

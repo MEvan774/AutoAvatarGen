@@ -17,6 +17,20 @@ public class HybridAvatarSystem : MonoBehaviour
     public Sprite sadSprite;
     public Sprite concernedSprite;
 
+    [Header("Emotion Image Array Override")]
+    [Tooltip("When checked, the avatar's expressions are driven ENTIRELY by the " +
+             "Emotion Images array below — overriding the five sprite fields above " +
+             "AND any per-emotion images set in the in-app Visuals menu / active save. " +
+             "Leave unchecked to use the normal menu/save pipeline.")]
+    public bool useEmotionArrayOverride = false;
+
+    [Tooltip("Name -> sprite pairs used when 'Use Emotion Array Override' is on. The " +
+             "Name is the token your script (and Claude) fire as {Name}, e.g. {Hyped}. " +
+             "Use only letters, digits, and underscores in names. Include a 'Neutral' " +
+             "entry — it's the idle / fallback expression. Use the 'Copy Emotion Names " +
+             "for Claude' button at the bottom of this component to hand the list to Claude.")]
+    public EmotionImageEntry[] emotionImageOverrides;
+
     [Header("Timing Adjustment")]
     [Range(-2f, 2f)]
     [Tooltip("Adjust if emotions trigger too early (negative) or too late (positive)")]
@@ -96,22 +110,35 @@ public class HybridAvatarSystem : MonoBehaviour
 
     void Awake()
     {
-        emotionMap = new Dictionary<string, Sprite>()
+        // Build the emotion lookup. With "Use Emotion Array Override" on, the
+        // emotionImageOverrides array is authoritative: the five sprite fields
+        // above — and any images pushed later by VisualsRuntimeApplier — are
+        // ignored (ApplyEmotionOverrides early-outs while the toggle is on).
+        Sprite initialSprite;
+        if (useEmotionArrayOverride)
         {
-            {"Neutral", neutralSprite},
-            {"Excited", excitedSprite},
-            {"Serious", seriousSprite},
-            {"Sad", sadSprite},
-            {"Concerned", concernedSprite}
-        };
+            emotionMap = BuildEmotionMapFromArray(out initialSprite);
+        }
+        else
+        {
+            emotionMap = new Dictionary<string, Sprite>()
+            {
+                {"Neutral", neutralSprite},
+                {"Excited", excitedSprite},
+                {"Serious", seriousSprite},
+                {"Sad", sadSprite},
+                {"Concerned", concernedSprite}
+            };
+            initialSprite = neutralSprite;
+        }
 
         // Capture baseline BEFORE setting the sprite — this preserves the scale the
         // user configured in the Inspector. The baseline sprite height is whatever
-        // the neutral sprite's world-space height is.
+        // the initial (neutral) sprite's world-space height is.
         initialAvatarScale = avatarRenderer.transform.localScale;
-        baselineSpriteHeight = (neutralSprite != null) ? neutralSprite.bounds.size.y : 1f;
+        baselineSpriteHeight = (initialSprite != null) ? initialSprite.bounds.size.y : 1f;
 
-        avatarRenderer.sprite = neutralSprite;
+        avatarRenderer.sprite = initialSprite;
         NormalizeSpriteSize(avatarRenderer);
 
         // Create a second SpriteRenderer for crossfade transitions.
@@ -188,6 +215,11 @@ public class HybridAvatarSystem : MonoBehaviour
     /// </summary>
     public void ApplyEmotionOverrides(IDictionary<string, Sprite> overrides)
     {
+        // The Inspector emotion-image array is authoritative while the override
+        // toggle is on — ignore menu/save-driven sprite overrides entirely so the
+        // array "fully replaces" them (see useEmotionArrayOverride).
+        if (useEmotionArrayOverride) return;
+
         if (overrides == null || overrides.Count == 0) return;
         if (emotionMap == null) emotionMap = new Dictionary<string, Sprite>();
 
@@ -217,6 +249,67 @@ public class HybridAvatarSystem : MonoBehaviour
             baselineSpriteHeight  = neutralSprite.bounds.size.y;
             NormalizeSpriteSize(avatarRenderer);
         }
+    }
+
+    /// <summary>
+    /// Builds the emotion name→sprite map from the inspector emotionImageOverrides
+    /// array (used when useEmotionArrayOverride is on). Skips blank names / null
+    /// sprites; on a duplicate name the later entry wins. Resolves the idle /
+    /// fallback sprite via the out parameter: the entry literally named "Neutral",
+    /// else the first valid entry, else the inspector neutralSprite. Always
+    /// guarantees a "Neutral" key so idle / fallback lookups resolve.
+    /// </summary>
+    Dictionary<string, Sprite> BuildEmotionMapFromArray(out Sprite neutral)
+    {
+        var map = new Dictionary<string, Sprite>();
+        neutral = null;
+
+        if (emotionImageOverrides != null)
+        {
+            foreach (var entry in emotionImageOverrides)
+            {
+                if (entry == null) continue;
+                string key = (entry.emotionName ?? "").Trim();
+                if (string.IsNullOrEmpty(key) || entry.sprite == null) continue;
+
+                map[key] = entry.sprite; // last wins on a duplicate name
+                if (neutral == null && string.Equals(key, "Neutral", System.StringComparison.Ordinal))
+                    neutral = entry.sprite;
+            }
+        }
+
+        if (neutral == null)
+            foreach (var kv in map) { neutral = kv.Value; break; } // first valid entry
+        if (neutral == null)
+            neutral = neutralSprite; // last resort — the inspector field
+
+        if (neutral != null && !map.ContainsKey("Neutral"))
+            map["Neutral"] = neutral; // idle / fallback must always resolve
+
+        if (map.Count == 0)
+            Debug.LogWarning("[HybridAvatarSystem] 'Use Emotion Array Override' is ON but the " +
+                             "Emotion Images array has no valid Name + Sprite entries.");
+
+        return map;
+    }
+
+    /// <summary>
+    /// The emotion names declared in the inspector emotionImageOverrides array,
+    /// in order, de-duplicated, blanks skipped. Independent of the override
+    /// toggle. Empty when nothing is configured. Consumed by the custom inspector's
+    /// "Copy Emotion Names for Claude" button.
+    /// </summary>
+    public List<string> GetEmotionArrayNames()
+    {
+        var names = new List<string>();
+        if (emotionImageOverrides == null) return names;
+        foreach (var entry in emotionImageOverrides)
+        {
+            if (entry == null) continue;
+            string n = (entry.emotionName ?? "").Trim();
+            if (!string.IsNullOrEmpty(n) && !names.Contains(n)) names.Add(n);
+        }
+        return names;
     }
 
     public void SetSwayBase(Vector3 basePosition, Quaternion baseRotation)
@@ -274,12 +367,25 @@ public class HybridAvatarSystem : MonoBehaviour
         StartCoroutine(TrackEmotionsByTime());
     }
 
+    // Resolved lazily by TrackEmotionsByTime. Anything that stops the narration
+    // AudioSource mid-script (a {Video:} used to Pause() it) makes isPlaying read
+    // FALSE, so the loop consults IsShowingMedia to tell a still-running take
+    // apart from a finished one — and to keep firing while a trailing clip or
+    // image is on screen after the audio ends.
+    private MediaPresentationSystem mediaPresentation;
+
     // SIMPLIFIED: Pure time-based tracking
     IEnumerator TrackEmotionsByTime()
     {
         lastTriggeredMarker = -1;
 
-        while (voiceAudio.isPlaying)
+        if (mediaPresentation == null)
+            mediaPresentation = FindObjectOfType<MediaPresentationSystem>();
+
+        // Without the `|| IsShowingMedia` guard this loop exits the moment the
+        // AudioSource stops and every later emotion is silently dropped.
+        while (voiceAudio.isPlaying ||
+               (mediaPresentation != null && mediaPresentation.IsShowingMedia))
         {
             float currentTime = voiceAudio.time + timingOffset;
 
@@ -642,4 +748,20 @@ public class TimeMarkerData
     // Optional per-tag transition override from {Emotion,Style}. Null = use the
     // global style (or the start-window jump-cut) chosen at trigger time.
     public PresenterTransitionSettings.Style? transitionOverride;
+}
+
+/// <summary>
+/// One Name → Sprite pair for HybridAvatarSystem.emotionImageOverrides, the
+/// inspector-authored emotion set used when "Use Emotion Array Override" is on.
+/// </summary>
+[System.Serializable]
+public class EmotionImageEntry
+{
+    [Tooltip("The {Name} your script / Claude fires for this expression, e.g. " +
+             "Hyped → {Hyped}. Letters, digits, and underscores only (this is what " +
+             "the script tag parser matches).")]
+    public string emotionName;
+
+    [Tooltip("The sprite shown for this emotion.")]
+    public Sprite sprite;
 }

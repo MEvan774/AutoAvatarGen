@@ -267,6 +267,9 @@ namespace MugsTech.Style
         {
             HybridAvatarSystem avatar = UnityEngine.Object.FindObjectOfType<HybridAvatarSystem>();
             if (avatar == null) return;
+            // The avatar's Inspector emotion-image array fully replaces the
+            // save/menu images when its override toggle is on — don't push these.
+            if (avatar.useEmotionArrayOverride) return;
 
             var overrides = new Dictionary<string, Sprite>();
             foreach (EmotionImageData emo in save.emotions)
@@ -289,6 +292,8 @@ namespace MugsTech.Style
         {
             HybridAvatarSystem avatar = UnityEngine.Object.FindObjectOfType<HybridAvatarSystem>();
             if (avatar == null) return;
+            // Inspector emotion-image array is authoritative when its toggle is on.
+            if (avatar.useEmotionArrayOverride) return;
 
             string serializedNames = PlayerPrefs.GetString(VisualsMenuController.EmotionNamesKey, "");
             if (string.IsNullOrWhiteSpace(serializedNames)) return;

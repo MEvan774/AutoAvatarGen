@@ -93,7 +93,13 @@ public class LinuxTransparentRecorder : MonoBehaviour
         // Wait a moment for everything to be ready
         yield return new WaitForEndOfFrame();
 
-        while (voiceAudio.isPlaying)
+        // Anything that stops the narration AudioSource mid-script (a {Video:}
+        // used to Pause() it) makes isPlaying read FALSE — without the
+        // IsShowingMedia guard capture would end mid-take and lose every frame
+        // after that point.
+        MediaPresentationSystem mediaSystem = FindObjectOfType<MediaPresentationSystem>();
+
+        while (voiceAudio.isPlaying || (mediaSystem != null && mediaSystem.IsShowingMedia))
         {
             timer += Time.deltaTime;
             

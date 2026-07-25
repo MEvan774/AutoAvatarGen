@@ -18,7 +18,8 @@ using MugsTech;   // TimestampMarkerLog — the {Timestamp:"..."} chapter-marker
 //
 // WHAT'S UNCHANGED:
 //   - {Image:name,duration} and {Video:name,duration} markers work identically
-//   - MoveAvatar easing, DisplayMedia, audio pause/resume — all the same
+//   - MoveAvatar easing and DisplayMedia — all the same ({Video:} no longer
+//     pauses the narration; the clip is a silent overlay, see ShowMedia)
 //   - HybridAvatarSystem handles emotions/sway — completely untouched
 //
 // SCRIPT FORMAT EXAMPLE:
@@ -141,6 +142,12 @@ public class MediaPresentationSystem : MonoBehaviour
     [Tooltip("Subfolder under the root that holds company logos. Searched after Images by {Image:name,...}.")]
     public string logosSubfolder = "Logos";
 
+    [Tooltip("How long a {Video:} clip may spend preparing before it is given up on. " +
+             "The clip counts as an on-screen visual for the whole prepare, so an " +
+             "unreadable file would otherwise hold the take open until the recorder's " +
+             "safety cap.")]
+    public float videoPrepareTimeout = 10f;
+
     // Kept in sync with MainMenuController.MediaRootFolderPrefKey. If you
     // rename one, rename the other.
     public const string MediaRootFolderPrefKey = "AutoAvatarGen.ExternalMediaRoot";
@@ -203,16 +210,125 @@ public class MediaPresentationSystem : MonoBehaviour
     private List<TimestampMarkerData> timestampMarkers;
     private int lastTriggeredTimestampMarker = -1;
 
+    // Authored size of the mediaDisplay rect, captured before anything resizes
+    // it. A video shrinks the rect to letterbox its own aspect and this puts it
+    // back, so the next {Image:} sees the slot the scene actually authored.
+    private Vector2 mediaDisplayBaseSize;
+
+    /// <summary>
+    /// Picks the VideoPlayer that {Video:} playback drives, and configures it.
+    ///
+    /// The scene wires <c>videoPlayer</c> to a VideoPlayer component that lives
+    /// ON the Main Camera, in CameraFarPlane render mode with Direct audio.
+    /// That single piece of wiring caused three separate faults the moment a
+    /// {Video:} tag fired:
+    ///   * far-plane rendering paints the clip across the whole frame instead
+    ///     of into <c>mediaDisplay</c>;
+    ///   * showing/hiding it meant SetActive() on the Main Camera itself, so
+    ///     the scene's AudioListener disappeared at startup (Evereal spawns a
+    ///     replacement) and then came back mid-take — two live AudioListeners,
+    ///     and the narration drops out of the capture from that point on;
+    ///   * bringing a second camera live mid-take re-ran TransparentCamera and
+    ///     CrossPlatformRecorder.Awake, which is the jitter.
+    ///
+    /// So when the assigned player shares its GameObject with a Camera or an
+    /// AudioListener, that object is parked once and never touched again, and
+    /// playback moves to a dedicated child that owns nothing else.
+    /// </summary>
+    void SetUpVideoPlayer()
+    {
+        if (videoPlayer != null &&
+            (videoPlayer.GetComponent<Camera>() != null ||
+             videoPlayer.GetComponent<AudioListener>() != null))
+        {
+            videoPlayer.playOnAwake     = false;
+            videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
+            videoPlayer.enabled         = false;
+
+            // Deactivating this object is inherited behaviour, not something
+            // the media system needs: the take is rendered by a different
+            // camera and has always run with the Main Camera disabled, so
+            // leaving it on would add an extra camera to the frame. Keep it
+            // off — the difference is that nothing switches it back on now.
+            videoPlayer.gameObject.SetActive(false);
+
+            Debug.LogWarning($"[Media] The assigned VideoPlayer shares '{videoPlayer.gameObject.name}' " +
+                             "with a Camera/AudioListener — parked it and using a dedicated player instead.");
+
+            var host = new GameObject("[MediaVideoPlayer]");
+            host.transform.SetParent(transform, false);
+            videoPlayer = host.AddComponent<VideoPlayer>();
+        }
+
+        if (videoPlayer == null) return;
+
+        videoPlayer.playOnAwake       = false;
+        videoPlayer.renderMode        = VideoRenderMode.RenderTexture;
+        videoPlayer.aspectRatio       = VideoAspectRatio.FitInside;
+        videoPlayer.audioOutputMode   = VideoAudioOutputMode.None;
+        videoPlayer.isLooping         = false;
+        videoPlayer.skipOnDrop        = true;
+        videoPlayer.waitForFirstFrame = true;
+        videoPlayer.gameObject.SetActive(false);
+    }
+
+    // Audio tracks can only be enumerated once the player is prepared, and
+    // EnableAudioTrack takes effect on the next Play() — so this is called
+    // between Prepare and Play. audioOutputMode alone should be enough, but the
+    // scene asset still ships Direct audio on the borrowed player, so both are
+    // asserted rather than trusted.
+    static void MuteAudioTracks(VideoPlayer vp)
+    {
+        vp.audioOutputMode = VideoAudioOutputMode.None;
+        for (ushort i = 0; i < vp.audioTrackCount; i++)
+            vp.EnableAudioTrack(i, false);
+    }
+
+    // Fallback on-screen time when neither the tag nor the container gives a
+    // usable one. Matches the {Image:} default documented in SCRIPT_TAG_GUIDE.
+    const float DefaultMediaSeconds = 3f;
+
+    // Reveal the display now that it holds a real texture. Kept as a single
+    // call site so no future branch can activate an empty (white) RawImage.
+    void ShowDisplay()
+    {
+        if (mediaDisplay != null && mediaDisplay.texture != null)
+            mediaDisplay.gameObject.SetActive(true);
+    }
+
+    // A fresh RenderTexture contains whatever was last in that GPU memory. The
+    // video only fills it on its first presented frame, so clear it to fully
+    // transparent first — worst case the display is invisible for one frame
+    // instead of flashing garbage or white.
+    static void ClearToTransparent(RenderTexture rt)
+    {
+        RenderTexture previous = RenderTexture.active;
+        RenderTexture.active = rt;
+        GL.Clear(true, true, Color.clear);
+        RenderTexture.active = previous;
+    }
+
+    // Letterbox the display rect to the clip's own aspect inside the authored
+    // slot, so a 16:9 clip isn't squashed into a 5:4 box.
+    void FitDisplayToAspect(int videoWidth, int videoHeight)
+    {
+        if (mediaDisplay == null || videoWidth <= 0 || videoHeight <= 0) return;
+        if (mediaDisplayBaseSize.x <= 0f || mediaDisplayBaseSize.y <= 0f) return;
+
+        float scale = Mathf.Min(mediaDisplayBaseSize.x / videoWidth,
+                                mediaDisplayBaseSize.y / videoHeight);
+        mediaDisplay.rectTransform.sizeDelta = new Vector2(videoWidth * scale, videoHeight * scale);
+    }
+
     void Awake()
     {
         if (mediaDisplay != null)
-            mediaDisplay.gameObject.SetActive(false);
-
-        if (videoPlayer != null)
         {
-            videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
-            videoPlayer.gameObject.SetActive(false);
+            mediaDisplayBaseSize = mediaDisplay.rectTransform.sizeDelta;
+            mediaDisplay.gameObject.SetActive(false);
         }
+
+        SetUpVideoPlayer();
 
         // Auto-find ContentZoneController if not assigned
         if (contentZoneController == null)
@@ -407,7 +523,10 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         lastTriggeredPositionMarker = -1;
 
-        while (voiceAudio.isPlaying)
+        // `|| isShowingMedia` keeps tracking alive while a trailing {Image:} /
+        // {Video:} is still on screen after the narration ends, so a position
+        // change authored against the final words still fires.
+        while (voiceAudio.isPlaying || isShowingMedia)
         {
             float currentTime = voiceAudio.time;
 
@@ -523,7 +642,10 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         lastTriggeredZoomMarker = -1;
 
-        while (voiceAudio.isPlaying)
+        // `|| isShowingMedia` keeps tracking alive while a trailing {Image:} /
+        // {Video:} is still on screen after the narration ends, so a zoom
+        // authored against the final words still fires.
+        while (voiceAudio.isPlaying || isShowingMedia)
         {
             float currentTime = voiceAudio.time;
 
@@ -804,9 +926,9 @@ public class MediaPresentationSystem : MonoBehaviour
             yield break;
         }
 
-        // `|| isShowingMedia` keeps tracking alive while a {Video:} marker has
-        // paused the narration, so the end-of-audio flush below only runs when
-        // playback has genuinely finished — not on a mid-clip video pause.
+        // `|| isShowingMedia` keeps tracking alive while a trailing {Image:} /
+        // {Video:} is still on screen, so the end-of-audio flush below runs
+        // only once nothing is left to display.
         while (voiceAudio != null && (voiceAudio.isPlaying || isShowingMedia))
         {
             float currentTime = voiceAudio.time;
@@ -952,14 +1074,13 @@ public class MediaPresentationSystem : MonoBehaviour
             yield return null;
         }
 
-        // Audio finished. Flush a trailing {Image:} clamped to the clip-end time
-        // (same end-of-audio race as cards/black). Videos are skipped — playing
-        // one would resume narration that has already ended.
+        // Audio finished. Flush trailing media clamped to the clip-end time
+        // (same end-of-audio race as cards/black). Videos are included now that
+        // they no longer pause and resume the narration.
         if (!isShowingMedia)
         {
             for (int i = lastTriggeredMediaMarker + 1; i < mediaMarkers.Count; i++)
             {
-                if (mediaMarkers[i].mediaType != MediaType.IMAGE) continue;
                 Debug.Log($"Flushing end-of-audio media: {mediaMarkers[i].mediaName}");
                 if (currentMediaCoroutine != null)
                     StopCoroutine(currentMediaCoroutine);
@@ -978,31 +1099,14 @@ public class MediaPresentationSystem : MonoBehaviour
         isShowingMedia = true;
 
         // Per-tag sound effect ({Image}/{Video}) — fires as the media appears,
-        // on its own AudioSource so a video's narration-pause never gates it.
+        // on its own AudioSource.
         TagSfxPlayer.Instance.Play(marker.mediaType);
 
-        bool shouldPauseAudio = marker.mediaType == MediaType.VIDEO;
-        float pausedTime = 0f;
-
-        if (shouldPauseAudio && voiceAudio.isPlaying)
-        {
-            pausedTime = voiceAudio.time;
-            voiceAudio.Pause();
-            Debug.Log($"Audio paused at {pausedTime:F2}s for video");
-        }
-
-        // Display media
+        // A {Video:} used to Pause() the narration for the length of its clip
+        // and resume afterwards. It no longer does — the clip is a silent
+        // overlay and the narration plays straight through it, so the audio
+        // timeline (and every T= derived from it) is never interrupted.
         yield return StartCoroutine(DisplayMedia(marker));
-
-        if (shouldPauseAudio)
-        {
-            if (voiceAudio.clip != null)
-            {
-                voiceAudio.time = pausedTime;
-                voiceAudio.Play();
-                Debug.Log($"Audio resumed from {pausedTime:F2}s");
-            }
-        }
 
         isShowingMedia = false;
     }
@@ -1056,7 +1160,11 @@ public class MediaPresentationSystem : MonoBehaviour
 
     IEnumerator DisplayMedia(MediaMarkerData marker)
     {
-        mediaDisplay.gameObject.SetActive(true);
+        // NOTE: mediaDisplay is deliberately NOT activated here. A RawImage with
+        // no texture draws as a solid white quad, and everything below it —
+        // resolving the file, spinning up the VideoPlayer, Prepare() — takes
+        // frames. Activating up front is what flashed a white box before each
+        // clip. Each branch calls ShowDisplay() once it has a real texture.
         Texture2D loadedDiskTexture = null;
 
         if (marker.mediaType == MediaType.IMAGE)
@@ -1081,6 +1189,7 @@ public class MediaPresentationSystem : MonoBehaviour
             {
                 mediaDisplay.texture = image;
                 videoPlayer.gameObject.SetActive(false);
+                ShowDisplay();
 
                 Debug.Log($"Displaying image: {marker.mediaName} for {marker.displayDuration}s");
                 yield return new WaitForSeconds(marker.displayDuration);
@@ -1119,30 +1228,86 @@ public class MediaPresentationSystem : MonoBehaviour
                     videoPlayer.clip = clip;
                 }
 
-                RenderTexture rt = new RenderTexture(1920, 1080, 24);
-                videoPlayer.targetTexture = rt;
-                mediaDisplay.texture = rt;
+                // Re-assert the frame-critical settings here rather than
+                // trusting Awake — assigning a new source rebuilds the
+                // player's internal track list.
+                videoPlayer.renderMode      = VideoRenderMode.RenderTexture;
+                videoPlayer.audioOutputMode = VideoAudioOutputMode.None;
+                videoPlayer.isLooping       = false;
+                videoPlayer.targetTexture   = null;
+
+                RenderTexture rt = null;
 
                 videoPlayer.Prepare();
 
-                while (!videoPlayer.isPrepared)
-                    yield return null;
-
-                videoPlayer.Play();
-
-                Debug.Log($"Playing video: {marker.mediaName}");
-
-                float videoLength = (float)videoPlayer.length;
-                float waitTime = marker.displayDuration > 0 ? Mathf.Min(videoLength, marker.displayDuration) : videoLength;
-
-                float videoElapsed = 0f;
-                while (videoElapsed < waitTime && videoPlayer.isPlaying)
+                // Bounded wait. A missing codec or unreadable file leaves
+                // isPrepared false forever, and isShowingMedia stays true until
+                // this coroutine returns — an unbounded loop would hold the
+                // take open and stall the recorder waiting on it.
+                float prepareElapsed = 0f;
+                while (!videoPlayer.isPrepared && prepareElapsed < videoPrepareTimeout)
                 {
-                    videoElapsed += Time.deltaTime;
+                    prepareElapsed += Time.unscaledDeltaTime;
                     yield return null;
                 }
 
+                if (videoPlayer.isPrepared)
+                {
+                    MuteAudioTracks(videoPlayer);
+
+                    // Render target at the clip's native size. The old fixed
+                    // 1920x1080 buffer rescaled every non-1080p clip on every
+                    // frame, which is what showed up as stutter.
+                    int vw = Mathf.Max(1, (int)videoPlayer.width);
+                    int vh = Mathf.Max(1, (int)videoPlayer.height);
+                    rt = new RenderTexture(vw, vh, 0);
+                    rt.Create();
+                    ClearToTransparent(rt);   // never present uninitialised GPU memory
+
+                    videoPlayer.targetTexture = rt;
+                    mediaDisplay.texture      = rt;
+                    FitDisplayToAspect(vw, vh);
+
+                    videoPlayer.Play();
+                    ShowDisplay();
+
+                    float videoLength = (float)videoPlayer.length;
+                    float waitTime = marker.displayDuration > 0f
+                        ? (videoLength > 0f ? Mathf.Min(videoLength, marker.displayDuration)
+                                            : marker.displayDuration)
+                        : videoLength;
+
+                    // Neither the container nor the tag gave a usable length.
+                    if (waitTime <= 0f) waitTime = DefaultMediaSeconds;
+
+                    Debug.Log($"Playing video: {marker.mediaName} ({vw}x{vh}), " +
+                              $"clip {videoLength:F2}s, holding {waitTime:F2}s");
+
+                    // Hold for the full authored time. isPlaying is only consulted
+                    // AFTER playback has actually begun: it reads false for the
+                    // first frames after Play() while waitForFirstFrame loads frame
+                    // zero, so gating the loop on it directly ended the clip before
+                    // it was ever on screen. `started` latches once it goes true, and
+                    // only then does isPlaying going false mean the clip really ended.
+                    float videoElapsed = 0f;
+                    bool started = false;
+                    while (videoElapsed < waitTime)
+                    {
+                        if (videoPlayer.isPlaying) started = true;
+                        else if (started) break;
+
+                        videoElapsed += Time.deltaTime;
+                        yield return null;
+                    }
+                }
+                else
+                {
+                    Debug.LogError($"Video '{marker.mediaName}' failed to prepare within " +
+                                   $"{videoPrepareTimeout:F0}s — skipping it so the take can continue.");
+                }
+
                 videoPlayer.Stop();
+                videoPlayer.targetTexture = null;
                 videoPlayer.gameObject.SetActive(false);
 
                 if (rt != null)
@@ -1153,6 +1318,15 @@ public class MediaPresentationSystem : MonoBehaviour
                 Debug.LogError($"Video not found on disk or in Resources: {marker.mediaName}");
             }
         }
+
+        // Undo any letterboxing so the next {Image:} gets the authored slot.
+        if (mediaDisplay != null && mediaDisplayBaseSize.x > 0f && mediaDisplayBaseSize.y > 0f)
+            mediaDisplay.rectTransform.sizeDelta = mediaDisplayBaseSize;
+
+        // Drop the texture before hiding: whatever it points at is about to be
+        // destroyed, and a RawImage holding a dead texture is the white quad
+        // again the next time something activates it.
+        if (mediaDisplay != null) mediaDisplay.texture = null;
 
         mediaDisplay.gameObject.SetActive(false);
     }
@@ -1543,9 +1717,9 @@ public class MediaPresentationSystem : MonoBehaviour
         lastTriggeredTransitionMarker = -1;
         if (transitionMarkers == null || transitionMarkers.Count == 0) yield break;
 
-        // `|| isShowingMedia` keeps tracking alive while a {Video:} marker has
-        // paused narration, so the end-of-audio flush only runs once playback has
-        // genuinely finished.
+        // `|| isShowingMedia` keeps tracking alive while a trailing {Image:} /
+        // {Video:} is still on screen, so the end-of-audio flush only runs once
+        // nothing is left to display.
         while (voiceAudio != null && (voiceAudio.isPlaying || isShowingMedia))
         {
             float currentTime = voiceAudio.time;
@@ -1655,8 +1829,8 @@ public class MediaPresentationSystem : MonoBehaviour
                 ApplyZoom(m.zoomMarkers[i].zoomType, cut: true, holdDuration: m.zoomMarkers[i].holdDuration);
 
         // Media ({Image:}/{Video:}) — show at full cover so it's only ever visible
-        // once the screen is covered, never mid-sweep. (A {Video:} still pauses
-        // narration while it plays, exactly as it does on its own timeline.)
+        // once the screen is covered, never mid-sweep. (A {Video:} plays silently
+        // over the narration, exactly as it does on its own timeline.)
         if (m.mediaMarkers != null)
             for (int i = 0; i < m.mediaMarkers.Count; i++)
             {
@@ -1818,8 +1992,9 @@ public class MediaPresentationSystem : MonoBehaviour
         if (voiceAudio == null || !voiceAudio.isPlaying)
             yield return null;
 
-        // `|| isShowingMedia` keeps tracking alive while a {Video:} marker has paused
-        // narration, so the end-of-audio flush only runs once playback truly ends.
+        // `|| isShowingMedia` keeps tracking alive while a trailing {Image:} /
+        // {Video:} is still on screen, so the end-of-audio flush only runs once
+        // nothing is left to display.
         while (voiceAudio != null && (voiceAudio.isPlaying || isShowingMedia))
         {
             float currentTime = voiceAudio.time;   // <-- the audio playback position (source of truth)

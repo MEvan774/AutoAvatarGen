@@ -22,7 +22,10 @@ and can trim it to produce seamless inter-segment pacing.
 
 What gets STRIPPED before TTS (never read aloud):
   - ## SECTION HEADERS
-  - {Emotion}        e.g. {Concerned} {Excited} {Neutral} {Serious} {Sad}
+  - {Emotion}        ANY bare one-word tag — {Neutral} {Concerned} {Smirk} {Sip}
+                     {SmugSip} … matched by shape, not by a fixed name list, so
+                     adding a sprite to the avatar's emotion array is all it
+                     takes for a new emotion to work. Also {Emotion,Style}.
   - {Timestamp:...}  e.g. {Timestamp:"Cold Open"}  (YouTube chapter marker — non-spoken, non-visual)
   - {Position:...}   e.g. {Position:Left,Cut}
   - {Zoom:...}       e.g. {Zoom:In}
@@ -42,6 +45,8 @@ What gets STRIPPED before TTS (never read aloud):
   - {BigText:...}   e.g. {BigText:100M Users,4}              (single big centered line)
                        {BigText:100M Users+$50B Revenue,4}   (up to 4 lines, slide up one by one)
   - [stage directions]  e.g. [pause] [deadpan] [sips coffee]
+  - anything else in {...} on a single line — safety net so an unknown or
+    mistyped tag is dropped rather than read out loud in the finished video
 
 Usage:
   python elevenlabs_tts_processor.py
@@ -78,25 +83,46 @@ VOICE_CONFIG = {
 #  MARKER PATTERNS — everything that must be stripped before sending to TTS
 # ==============================================================================
 
+# Transition-style modifier an emotion tag may carry: {Smirk,Blink}.
+# BlinkHeavy comes before Blink so the longer keyword wins the alternation.
+# Kept in lockstep with HybridAvatarSystem.ParseScriptWithTimeMarkers.
+_STYLE_ALT = r'Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake'
+
+# An emotion tag is ANY bare one-word curly tag — {Neutral}, {Smirk}, {Sip},
+# {SmugSip}, whatever the avatar's emotion array happens to hold. Matching the
+# SHAPE rather than a fixed list of names is what makes new emotions free: drop
+# a sprite into the array, write {NewName} in the script, and it is stripped
+# here and stamped with a T= with no edit to this file. (The tag has no colon,
+# so it can never collide with {Position:…} / {Mood:…} / card tags — those are
+# tried as later alternatives.)
+_EMOTION = rf'\{{[A-Za-z]\w*(?:,(?:{_STYLE_ALT}))?\}}'
+
 _ALL_MARKERS = re.compile(
-    r'\{(?:Excited|Serious|Concerned|Neutral|Sad)\}'        # emotion states
-    r'|\{Timestamp:"[^"]*"\}'                               # YouTube chapter markers (never voiced/shown)
-    r'|\{Position:\w+(?:,\w+)?\}'                           # position markers
-    r'|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}'           # zoom markers (+optional Cut / D=)
-    r'|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}'               # whole-screen transitions (+optional scale)
-    r'|\{Mood:\w+\}'                                        # background mood crossfade
-    r'|\{Black:\d+(?:\.\d+)?\}'                             # black panel markers
-    r'|\{(?:Image|Video):[^}]+\}'                           # media markers
-    r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}'  # headline cards (+optional bigCenter / side)
-    r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'   # excerpt cards (+optional side)
-    r'|\{Quote:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'     # quote cards (+optional side)
-    r'|\{Stat:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'      # stat cards (+optional side)
-    r'|\{Logo:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
-    r'|\{BRoll:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
-    r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                   # big-media feature cards
-    r'|\{BigText:[^,}]+,\d+(?:\.\d+)?\}'                    # big-text feature cards
-    r'|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}'                   # big-image article cards
-    r'|\[[^\]]*\]'                                          # [stage directions] (any chars, incl. commas)
+    _EMOTION                                                # emotion states — ANY bare {Word} / {Word,Style}
+    + (r'|\{Timestamp:"[^"]*"\}'                            # YouTube chapter markers (never voiced/shown)
+       r'|\{Position:\w+(?:,\w+)?\}'                        # position markers
+       r'|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}'        # zoom markers (+optional Cut / D=)
+       r'|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}'            # whole-screen transitions (+optional scale)
+       r'|\{Mood:\w+\}'                                     # background mood crossfade
+       r'|\{Black:\d+(?:\.\d+)?\}'                          # black panel markers
+       r'|\{(?:Image|Video):[^}]+\}'                        # media markers
+       r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}'  # headline cards (+optional bigCenter / side)
+       r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'   # excerpt cards (+optional side)
+       r'|\{Quote:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'     # quote cards (+optional side)
+       r'|\{Stat:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'      # stat cards (+optional side)
+       r'|\{Logo:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
+       r'|\{BRoll:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
+       r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                # big-media feature cards
+       r'|\{BigText:[^,}]+,\d+(?:\.\d+)?\}'                 # big-text feature cards
+       r'|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}'                # big-image article cards
+       r'|\[[^\]]*\]'                                       # [stage directions] (any chars, incl. commas)
+       # SAFETY NET — last alternative, so every pattern above still wins first.
+       # Anything else wrapped in {...} on a single line is a tag we don't know
+       # (new syntax, a typo, a mis-capitalised keyword). Strip it rather than
+       # let it reach ElevenLabs, which would read the tag out loud in the
+       # finished video. Bounded to one line so an unclosed brace in prose can
+       # swallow at most the rest of that line.
+       r'|\{[^{}\n]*\}')
 )
 
 # Section header line:  ## COLD OPEN  /  ## SETUP  etc.
@@ -321,8 +347,9 @@ def _stamp_marker(marker: str, t: float) -> str:
     if inner.startswith('Timestamp:'):
         return f"{{{inner},{ts}}}"
 
-    # {Emotion}
-    if re.match(r'^(Excited|Serious|Concerned|Neutral|Sad)$', inner):
+    # {Emotion} / {Emotion,Style} — any bare one-word tag, matching _EMOTION.
+    # Unity reads {Smirk,T=12.480} and {Smirk,Blink,T=12.480} equally well.
+    if re.match(rf'^[A-Za-z]\w*(?:,(?:{_STYLE_ALT}))?$', inner):
         return f"{{{inner},{ts}}}"
 
     # {Zoom:In}

@@ -210,9 +210,9 @@ public class ContentZoneController : MonoBehaviour
     {
         lastTriggeredIndex = -1;
 
-        // `|| IsShowingMedia` keeps tracking alive while a {Video:} marker has
-        // paused the narration, so the end-of-audio flush below only fires once
-        // playback has genuinely finished — not on a mid-clip video pause.
+        // `|| IsShowingMedia` keeps tracking alive while a trailing {Image:} /
+        // {Video:} is still on screen after the narration ends, so the flush
+        // below only fires once nothing is left to display.
         while (voiceAudio != null && (voiceAudio.isPlaying ||
                (mediaPresentationSystem != null && mediaPresentationSystem.IsShowingMedia)))
         {

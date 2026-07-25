@@ -463,7 +463,17 @@ public class CrossPlatformRecorder : MonoBehaviour
     IEnumerator StopWhenAudioEnds()
     {
         yield return new WaitForSeconds(0.1f);
-        while (voiceAudio != null && voiceAudio.isPlaying)
+
+        // Wait for the narration AND for anything still on screen. Anything
+        // that stops the narration AudioSource mid-script (a {Video:} used to
+        // Pause() it) makes isPlaying read FALSE, and waiting on isPlaying alone
+        // would then end the capture mid-take and drop every later line.
+        // IsShowingMedia is the same guard the tracking loops in
+        // MediaPresentationSystem / ContentZoneController use.
+        MediaPresentationSystem mediaSystem = FindObjectOfType<MediaPresentationSystem>();
+
+        while (voiceAudio != null &&
+               (voiceAudio.isPlaying || (mediaSystem != null && mediaSystem.IsShowingMedia)))
             yield return null;
 
         // Narration has ended. Tags placed on the script's final word — a
@@ -474,7 +484,6 @@ public class CrossPlatformRecorder : MonoBehaviour
         yield return null;
         yield return null;
 
-        MediaPresentationSystem mediaSystem = FindObjectOfType<MediaPresentationSystem>();
         if (mediaSystem != null)
         {
             const float maxTrailingHold = 30f; // safety cap — never record forever
