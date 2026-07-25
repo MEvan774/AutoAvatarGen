@@ -71,7 +71,7 @@ import requests
 ELEVENLABS_API_KEY = "sk_d5b1984b2dcfcc8ca651004f5a6d39e471a4db30f552806a"
 
 VOICE_CONFIG = {
-    "voice_id":          "rPMkKgdwgIwqv4fXgR6N",    # from elevenlabs.io/app/voice-lab
+    "voice_id":          "47WhGr48XHh34nZcTNfZ",    # from elevenlabs.io/app/voice-lab
     "model_id":          "eleven_multilingual_v2", # or "eleven_turbo_v2_5" for speed
     "stability":         0.45,   # 0.0-1.0  | lower = more expressive
     "similarity_boost":  0.80,   # 0.0-1.0  | higher = truer to cloned voice
