@@ -173,6 +173,8 @@ public class TagSfxPlayer : MonoBehaviour
             case ZoomType.Out:      Play(TagSfxEvent.ZoomOut);      break;
             case ZoomType.Reset:    Play(TagSfxEvent.ZoomReset);    break;
             case ZoomType.Pullback: Play(TagSfxEvent.ZoomPullback); break;
+            // Only the punch in is scored — the cut back out stays silent.
+            case ZoomType.ExtremeIn: Play(TagSfxEvent.ZoomExtreme);  break;
         }
     }
 
@@ -239,4 +241,8 @@ public enum TagSfxEvent
     BigMedia,
     BigCenter,
     BigText,
+
+    // Appended last, never inserted above: rows are serialized by integer value,
+    // so renumbering an existing event would silently re-assign its wired clip.
+    ZoomExtreme,   // {Zoom:Extreme} — leave empty for a silent punch-in.
 }

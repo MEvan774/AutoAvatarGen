@@ -1,0 +1,53 @@
+## COLD OPEN
+{Timestamp:"Cold Open"}
+{Position:Center,Cut} {Neutral}
+[deadpan] A company shipped a database migration on a Friday afternoon.
+{Zoom:ExtremeIn}
+[flat] On a Friday.
+{Zoom:ExtremeOut}
+[dry] Let's talk about it.
+
+## THE SETUP
+{Timestamp:"The Setup"}
+{Transition:Wipe} {Position:Left} {Serious}
+[slowing down, serious] The plan was four hours of downtime, starting at six in the evening.
+{Headline:"Payments Outage Enters Third Day","TechCrunch",5}
+[dry] It was not four hours.
+{Zoom:ExtremeIn}
+[deadpan] It was three days. Seventy-one hours, if you're counting.
+[flat] And somebody was definitely counting.
+{Zoom:ExtremeOut}
+[dry] The status page said "degraded performance" the entire time.
+
+## THE BREAKDOWN
+{Timestamp:"The Breakdown"}
+{Transition:Iris} {Position:Right} {Concerned}
+[serious] Here's the part that actually matters. There was no rollback.
+{Stat:"0","Tested Rollback Paths","in the migration runbook",5}
+[dry] Zero. The runbook had a section for it. The section said "TODO."
+{Zoom:ExtremeIn}
+[flat] TODO.
+{Zoom:ExtremeOut}
+[tired but amused] Written eighteen months ago, by someone who no longer works there.
+
+## THE TAKE
+{Timestamp:"The Take"}
+{Transition:Shutter} {Position:Center} {Serious}
+{Zoom:In}
+[slowing down, serious] Every company does this. The deploy is never the risky part.
+[deadpan] The risky part is the assumption that you can undo it.
+{Zoom:ExtremeIn}
+[flat] You usually can't.
+{Zoom:ExtremeOut}
+[dry] And that's what the close-up came back to — the push-in, not a wide shot.
+{Zoom:Reset}
+
+## CLOSER
+{Timestamp:"Closer"}
+{Transition:Wipe} {Position:Left} {Neutral}
+{BigText:SHIP IT MONDAY,3}
+[dry] Ship it on a Monday. Not because Monday is safer.
+{Zoom:ExtremeIn}
+[deadpan] But because you'll actually be awake to fix it.
+{Zoom:ExtremeOut}
+[flat] You're welcome.

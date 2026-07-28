@@ -79,6 +79,28 @@ public class MediaPresentationSystem : MonoBehaviour
              "before settling back. {Zoom:Out}, {Zoom:Reset} and the auto-reset stay smooth.")]
     public AnimationCurve zoomInOvershootCurve = CardEntryAnimator.BuildDefaultOvershootCurve();
 
+    [Header("Extreme Zoom ({Zoom:ExtremeIn} / {Zoom:ExtremeOut})")]
+    [Tooltip("How far in the extreme zoom punches (2 = 200%). Much harder than {Zoom:In} — " +
+             "this is a close-up on Mugs's face, not a push for emphasis.")]
+    [Range(1.3f, 4f)]
+    public float extremeZoomMultiplier = 2f;
+
+    [Tooltip("Re-centre the camera on the character while the close-up is held, so the punch " +
+             "lands on Mugs's face wherever he's standing. Off = zoom straight into the middle " +
+             "of the frame, which only frames him at {Position:Center}.")]
+    public bool extremeZoomFollowsCharacter = true;
+
+    [Tooltip("World-space offset from the character's position up towards his head. The position " +
+             "markers sit at floor level (y = -3.14), so a large positive Y is what lifts the " +
+             "close-up off his body.\n\n" +
+             "NOTE this is measured from the floor marker, NOT from the camera's rest position — " +
+             "the camera sits at y = 0, so it ends up at (marker + this). The 3.19 default puts it " +
+             "at world y +0.05. For reference, his head centre is at world y +2.66 (offset 5.8), " +
+             "so this framing sits well below the head and holds his body rather than his face. " +
+             "Every emotion sprite shares the same aspect and is height-matched by Normalize " +
+             "Sprite Size, so one offset frames them all.")]
+    public Vector2 extremeZoomFaceOffset = new Vector2(0f, 3.19f);
+
     [Header("Pullback Effect ({Zoom:Pullback})")]
     [Tooltip("Initial wide framing — orthographicSize is snapped to defaultSize * this on trigger.")]
     [Range(1.1f, 4f)]
@@ -194,6 +216,12 @@ public class MediaPresentationSystem : MonoBehaviour
     private float defaultCameraSize;
     private Coroutine zoomCoroutine;
     private Coroutine pendingResetCoroutine;
+
+    // Framing captured the moment {Zoom:ExtremeIn} fired, restored verbatim by
+    // {Zoom:ExtremeOut}. NaN means "no close-up currently held" — which is also
+    // how an unmatched ExtremeOut is detected.
+    private float extremeRestoreSize = float.NaN;
+    private Vector3 extremeRestoreCameraPos;
 
     // --- Black panel tracking ---
     private List<BlackPanelMarkerData> blackPanelMarkers;
@@ -700,13 +728,20 @@ public class MediaPresentationSystem : MonoBehaviour
 
             yield return null;
         }
+
+        // A {Zoom:ExtremeIn} whose {Zoom:ExtremeOut} was never written holds the
+        // close-up for the rest of the take. That's visually obvious but silent in
+        // the logs, so name it explicitly here.
+        if (!float.IsNaN(extremeRestoreSize))
+            Debug.LogWarning("[Zoom] Playback ended with the extreme close-up still held — " +
+                             "a {Zoom:ExtremeIn} has no matching {Zoom:ExtremeOut}.");
     }
 
     void ApplyZoom(ZoomType type, bool cut = false, float holdDuration = 0f)
     {
         if (mainCamera == null) return;
 
-        // Per-tag sound effect ({Zoom:In/Out/Reset/Pullback}).
+        // Per-tag sound effect ({Zoom:In/Out/Reset/Pullback/Extreme}).
         TagSfxPlayer.Instance.Play(type);
 
         // Stop any in-progress zoom + any pending auto-reset from a previous marker.
@@ -716,11 +751,82 @@ public class MediaPresentationSystem : MonoBehaviour
         if (pendingResetCoroutine != null) StopCoroutine(pendingResetCoroutine);
         SetPullbackMaskActive(false);
 
+        // An ordinary zoom supersedes a held close-up. Those paths only drive
+        // orthographicSize, so without this they'd inherit the close-up's
+        // re-centred camera and frame the face at a moderate zoom. Hand the
+        // camera back first; a later ExtremeOut then warns rather than snapping
+        // to a stale size.
+        if (type != ZoomType.ExtremeIn && type != ZoomType.ExtremeOut && !float.IsNaN(extremeRestoreSize))
+        {
+            mainCamera.transform.position = extremeRestoreCameraPos;
+            extremeRestoreSize = float.NaN;
+        }
+
         // Pullback is a self-contained multi-stage effect — handle it on its own.
         if (type == ZoomType.Pullback)
         {
             float drift = holdDuration > 0f ? holdDuration : pullbackDuration;
             zoomCoroutine = StartCoroutine(AnimatePullback(drift));
+            return;
+        }
+
+        // The extreme close-up is a matched pair, not a timed effect: the author
+        // places the out tag where the beat ends, exactly like a {Video:} is ended
+        // by the next beat rather than by a guessed number of seconds. Both edges
+        // are a single assignment on a single frame — no coroutine, so there is no
+        // ramp to accidentally ease.
+        if (type == ZoomType.ExtremeIn)
+        {
+            // Only capture when nothing is held, so a doubled ExtremeIn can't
+            // overwrite the real framing with the already-zoomed one.
+            if (float.IsNaN(extremeRestoreSize))
+            {
+                extremeRestoreSize      = mainCamera.orthographicSize;
+                extremeRestoreCameraPos = mainCamera.transform.position;
+            }
+
+            mainCamera.orthographicSize = defaultCameraSize / Mathf.Max(1.01f, extremeZoomMultiplier);
+
+            // Put the close framing on the face rather than on whatever happens to
+            // sit at screen centre. Reads the position transform the character was
+            // moved to, so the crop is identical every time he punches from a given
+            // position — it is not measured off his sprite bounds or scale.
+            if (extremeZoomFollowsCharacter && avatarParent != null)
+            {
+                Vector3 focus = avatarParent.position;
+                mainCamera.transform.position = new Vector3(
+                    focus.x + extremeZoomFaceOffset.x,
+                    focus.y + extremeZoomFaceOffset.y,
+                    mainCamera.transform.position.z);
+            }
+
+            // Ground truth for framing the close-up. Everything here is measured
+            // live, so it supersedes any offset derived from the scene asset.
+            {
+                float half = mainCamera.orthographicSize;
+                float camY = mainCamera.transform.position.y;
+                string head = characterRenderer != null
+                    ? $"sprite world Y {characterRenderer.bounds.min.y:F2}..{characterRenderer.bounds.max.y:F2}"
+                    : "characterRenderer not assigned";
+                Debug.Log($"[Zoom] ExtremeIn — avatarParent Y {avatarParent?.position.y ?? 0f:F2}, " +
+                          $"offset Y {extremeZoomFaceOffset.y:F2}, camera Y {camY:F2}, " +
+                          $"orthoSize {half:F2} (frame Y {camY - half:F2}..{camY + half:F2}), {head}");
+            }
+            return;
+        }
+
+        if (type == ZoomType.ExtremeOut)
+        {
+            if (float.IsNaN(extremeRestoreSize))
+            {
+                Debug.LogWarning("[Zoom] {Zoom:ExtremeOut} fired with no close-up held — " +
+                                 "the matching {Zoom:ExtremeIn} is missing or was superseded. Ignored.");
+                return;
+            }
+
+            mainCamera.orthographicSize   = extremeRestoreSize;
+            mainCamera.transform.position = extremeRestoreCameraPos;
+            extremeRestoreSize            = float.NaN;
             return;
         }
 
@@ -831,12 +937,14 @@ public class MediaPresentationSystem : MonoBehaviour
 
     // -----------------------------------------------------------------------
     // Parse Zoom Markers
-    // Format: {Zoom:<In|Out|Reset|Pullback>[,Cut][,D=seconds][,T=seconds]}
+    // Format: {Zoom:<In|Out|Reset|Pullback|ExtremeIn|ExtremeOut>[,Cut][,D=seconds][,T=seconds]}
     //   Cut       — instant snap instead of animating. (Ignored on Reset, which
-    //               is always a snap, and on Pullback, which manages its own cuts.)
+    //               is always a snap, and on Pullback / ExtremeIn / ExtremeOut,
+    //               which manage their own cuts.)
     //   D=seconds — In: auto-reset to default this many seconds after firing.
     //               Pullback: overrides the slow-drift duration.
-    //               Ignored for Out / Reset.
+    //               Ignored for Out / Reset / ExtremeIn / ExtremeOut — the
+    //               close-up's length is set by where ExtremeOut is placed.
     //   T=seconds — exact trigger time (appended by the ElevenLabs pre-processor).
     // Trailing options are order-independent.
     // -----------------------------------------------------------------------
@@ -913,6 +1021,8 @@ public class MediaPresentationSystem : MonoBehaviour
                 case "out": zoomType = ZoomType.Out; break;
                 case "reset": zoomType = ZoomType.Reset; break;
                 case "pullback": zoomType = ZoomType.Pullback; break;
+                case "extremein": zoomType = ZoomType.ExtremeIn; break;
+                case "extremeout": zoomType = ZoomType.ExtremeOut; break;
                 default:
                     Debug.LogWarning($"Unknown zoom type: {zoomStr}, defaulting to Reset");
                     break;
@@ -2149,7 +2259,9 @@ public enum ZoomType
     In,         // Push in: 100% -> 110-115%. Signals focus/intensity.
     Out,        // Pull back: zoomed -> 100%. Signals de-escalation.
     Reset,      // Instant snap back to default. No easing.
-    Pullback    // Snap wide, slowly drift wider, jump-cut back to default.
+    Pullback,   // Snap wide, slowly drift wider, jump-cut back to default.
+    ExtremeIn,  // Jump-cut hard in to a close-up on the face. Held until ExtremeOut.
+    ExtremeOut  // Jump-cut back to the exact framing ExtremeIn interrupted.
 }
 
 [System.Serializable]

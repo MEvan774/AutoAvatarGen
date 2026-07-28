@@ -801,6 +801,9 @@ MonoBehaviour:
     m_PreInfinity: 2
     m_PostInfinity: 2
     m_RotationOrder: 4
+  extremeZoomMultiplier: 2
+  extremeZoomFollowsCharacter: 1
+  extremeZoomFaceOffset: {x: 0, y: 4.65}
   pullbackStartMultiplier: 1.5
   pullbackEndMultiplier: 1.7
   pullbackDuration: 3
@@ -823,6 +826,7 @@ MonoBehaviour:
   bRollSubfolder: BRoll
   imagesSubfolder: Images
   logosSubfolder: Logos
+  videoPrepareTimeout: 10
 --- !u!114 &88322329
 MonoBehaviour:
   m_ObjectHideFlags: 0

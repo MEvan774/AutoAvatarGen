@@ -29,7 +29,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 4. **Never put a `"` *inside* a quoted card field.** The field ends at the first `"`. If you need a quote inside quoted text, rephrase or use single quotes `'`. (Commas, periods, em‑dashes `—`, `%`, `$`, `€` inside quotes are fine.)
 5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline) or `,Left`/`,Right` (side cards) modifiers.
 6. **Unquoted names (`Logo`, `BRoll`, `BigMedia`, `BigText`, `BigImage`) must not contain commas.** The comma is a delimiter. Use `+` to join multiple items (`BigImage` is a single image — no `+`).
-7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback`, `Cut`, `Smooth`, `bigCenter`, `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
+7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback/ExtremeIn/ExtremeOut`, `Cut`, `Smooth`, `bigCenter`, `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
 8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`, `BigImage`) are exempt** — they render in front of everything and appear in any position, including `Center`. (`BigImage` covers only the left 3/4, so it's meant to *share* the screen — stand the presenter on the **right** with `{Position:Right}`; see §4.)
 9. Keep the narration itself natural — it can contain quotes, commas, anything. The rules above apply to **tags only**.
 10. **Never put a space next to the commas or quotes that separate a tag's fields.** The strip regex is exact: `{Quote:"a","b","c",5}` works, but `{Quote:"a", "b", "c", 5}` (spaces after the commas) does **not** — the tag is left in the narration and read aloud. Spaces are only allowed **inside** a quoted value (`"VP of Comms, MegaCorp"`) or inside an unquoted name/description (`{BRoll:server room,4}`). Never around the `,` between fields, and never between `"` and `"`.
@@ -45,6 +45,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 | Emotion | any single-word name from the project's emotion list — `{Neutral}` `{Smirk}` `{Sip}` … | no |
 | Character position | `{Position:Left}` (+ optional `,Cut` or `,Smooth`) | no |
 | Camera zoom | `{Zoom:In}` (+ optional `,Cut` and/or `,D=seconds`) | no |
+| Extreme close-up (punchline) | `{Zoom:ExtremeIn}` … `{Zoom:ExtremeOut}` — **always a pair** | no (you place the out tag) |
 | Black cut | `{Black:3}` | yes |
 | Scene transition | `{Transition:Wipe}` `{Transition:Iris,1.2}` (Wipe/Shutter/Iris, optional speed) | no |
 | Background mood | `{Mood:Tense}` (Calm/Energetic/Tense/Playful/Minimal) | no |
@@ -136,8 +137,8 @@ Moves the character. `Left` / `Right` / `Center`.
 ```
 
 ### Camera zoom — `{Zoom:Type}` `[,Cut]` `[,D=seconds]`
-`In` (push in for focus/intensity), `Out` (pull back), `Reset` (instant snap to default), `Pullback` (snap wide, drift wider, jump back).
-- `,Cut` = snap instead of animating (ignored by `Reset`/`Pullback`).
+`In` (push in for focus/intensity), `Out` (pull back), `Reset` (instant snap to default), `Pullback` (snap wide, drift wider, jump back), `ExtremeIn`/`ExtremeOut` (hard close-up on the punchline — see below).
+- `,Cut` = snap instead of animating (ignored by `Reset`/`Pullback`/`ExtremeIn`/`ExtremeOut`).
 - `,D=seconds` = for `In`, auto-reset after that long; for `Pullback`, the drift length.
 ```
 {Zoom:In}
@@ -145,6 +146,34 @@ Moves the character. `Left` / `Right` / `Center`.
 {Zoom:Pullback,D=3}
 {Zoom:Out}
 ```
+
+### Extreme close-up — `{Zoom:ExtremeIn}` … `{Zoom:ExtremeOut}`
+A hard punch-in to a **close-up on Mugs's face**, used to punctuate a punchline. Both edges are **jump cuts** — no push, no easing, no motion whatsoever. The frame appears, holds dead still, and is gone.
+
+**These two tags are a pair. Every `{Zoom:ExtremeIn}` needs a `{Zoom:ExtremeOut}`.**
+
+- **You control the length by where you put the out tag**, not with a number — exactly like `{Video:}` (§4). Put `ExtremeIn` before the line you want in close-up and `ExtremeOut` after it. Want the close-up over three sentences? Put the out tag after the third.
+- **No duration value.** `,D=` is ignored on both tags; so is `,Cut` (they're always cuts).
+- The camera **finds his face wherever he's standing** — `Left`, `Right` or `Center` all work, no position change needed.
+- `ExtremeOut` restores **the exact framing that was on screen before the punch**, so a close-up inside a `{Zoom:In}` section drops back into that zoom rather than undoing it. You never need a `{Zoom:Reset}` after one.
+- Silent by default — the missing sound is usually the joke.
+- **Forget the out tag and the close-up stays up for the rest of the video.** This is the one way to really break the effect.
+
+```
+[deadpan] They shipped it on a Friday. To production. With no tests.
+{Zoom:ExtremeIn}
+[flat] On a Friday.
+{Zoom:ExtremeOut}
+[dry] Anyway.
+```
+Hold it across a few lines when the whole beat is the joke:
+```
+{Zoom:ExtremeIn}
+[flat] No tests. No staging. No rollback plan.
+[deadpan] Just vibes, and a production database.
+{Zoom:ExtremeOut}
+```
+Place each tag on its own line, like any other tag (§5) — it fires as the narration reaches the next spoken word.
 
 ### Black cut — `{Black:seconds}`
 Hard-cuts a **fullscreen** black plane in (covering the character and all cards), holds for `seconds`, then cuts out. No fade — pure jump cut. Great for dramatic beats / scene breaks. Duration required.
@@ -320,6 +349,7 @@ Fields: `"value","label","context",duration[,Left|,Right]`
 - **`BigImage` is the feature card that wants a side.** It isn't suppressed at `Center`, but it covers only the left 3/4 — set `{Position:Right}` so the presenter stands in the open right quarter beside the article instead of hidden behind it.
 - **Transitions open a new section.** Put `{Transition:…}` on the **first line of a section** and group that section's whole scene change onto the same line (position, emotion, mood, a card, an image, a zoom). They're applied under cover — see §4. This is the one place you deliberately stack several tags on a single line. A side card grouped on a transition line still needs a `Left`/`Right` position on that same line (rule 8).
 - **A `{Video:}` has no duration — you end it by placing the next beat.** The clip loops under the narration until the presenter changes position, a content card appears, or another `{Image:}`/`{Video:}` fires. Want b-roll under three sentences? Put the tag before them and the `{Position:...}` or card after them (§4).
+- **`{Zoom:ExtremeIn}` has no duration either — you end it with `{Zoom:ExtremeOut}`.** Same principle as `{Video:}`: put the in tag before the line you want in close-up and the out tag after the last line it covers. It works from any position (`Left`/`Right`/`Center`), needs no `{Zoom:Reset}` afterwards, and **must always be closed** — an unpaired `ExtremeIn` holds the close-up for the rest of the video (§4).
 - **Don't place a tag on the script's very last word and expect it to fire late** — it's fine, the recording now holds until trailing tags (e.g. an end-card `{Logo:...,8}` or final `{Black:2}`) finish their full duration.
 - Reasonable default durations: cards 5s, excerpts 6s, big text 3–4s, logos 3–4s, black cuts 2–3s.
 
@@ -372,6 +402,7 @@ Notes on the example:
 - [ ] File begins with `## SECTION`.
 - [ ] Every `{...}` card / Logo / BRoll / BigMedia / BigText / BigImage ends in `,number`.
 - [ ] **No `{Video:}` carries a duration** — each one is ended by the next `{Position:...}`, content card, or media tag you placed after it.
+- [ ] **Every `{Zoom:ExtremeIn}` has a matching `{Zoom:ExtremeOut}` later in the script** — count them, the totals must be equal. Neither tag carries a duration.
 - [ ] **Every 📁/🎬 media name (`Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll`) is a real name copied from `MEDIA_LIBRARY.md`** — exact spelling and case, no extension. Any beat without a confirmed name uses a ✅ text card (`Headline`/`Stat`/`Quote`/`Excerpt`/`BigText`) instead. No invented or placeholder names.
 - [ ] **No space next to a field-separating comma or between `"` and `"`** — `"a","b","c",5`, never `"a", "b", "c", 5`.
 - [ ] **No empty `""` fields; field counts exact** — `Headline` has 2 quoted fields, `Excerpt`/`Quote`/`Stat` have 3.
