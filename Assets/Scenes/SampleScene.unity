@@ -480,6 +480,8 @@ MonoBehaviour:
   timingOffset: 0
   useCrossfade: 1
   crossfadeDuration: 0.8
+  growDuration: 0.9
+  growAmount: 1.15
   mugsShake: {fileID: 0}
   instantCutStartWindow: 1
   mugsBlink: {fileID: 0}
@@ -803,7 +805,7 @@ MonoBehaviour:
     m_RotationOrder: 4
   extremeZoomMultiplier: 2
   extremeZoomFollowsCharacter: 1
-  extremeZoomFaceOffset: {x: 0, y: 4.65}
+  extremeZoomFaceOffset: {x: 0, y: 4.5}
   pullbackStartMultiplier: 1.5
   pullbackEndMultiplier: 1.7
   pullbackDuration: 3
@@ -1634,6 +1636,7 @@ MonoBehaviour:
   frameWidth: 1920
   frameHeight: 1080
   frameRate: 30
+  maxCaptureWarmupSeconds: 2
   bitrateKbps: 8000
   gpuEncoding: 1
   nvidiaEncoding: 0

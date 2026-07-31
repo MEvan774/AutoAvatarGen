@@ -14,6 +14,8 @@ using UnityEngine;
 ///   • Blink         — squash the height shut, swap while closed, reopen (see MugsEmotionTransition).
 ///   • BlinkHeavy    — a slower, tired slow-blink that holds the eyes shut a beat.
 ///   • Cut           — instant swap, no animation.
+///   • Grow          — the presenter swells up, swaps at the peak, and settles
+///                     back to the original size (0.9s total).
 ///
 /// A single emotion change can also override the global choice for that one swap
 /// via the {Emotion,Style} tag (e.g. {Serious,Cut}); see HybridAvatarSystem's
@@ -32,6 +34,7 @@ public static class PresenterTransitionSettings
         Blink         = 3,
         BlinkHeavy    = 4,
         Cut           = 5,
+        Grow          = 6,
     }
 
     public const string StylePrefKey = "AutoAvatarGen.PresenterTransitionStyle";
@@ -64,6 +67,7 @@ public static class PresenterTransitionSettings
             case Style.Blink:         return "Blink";
             case Style.BlinkHeavy:    return "Blink (Heavy)";
             case Style.Cut:           return "Cut (instant)";
+            case Style.Grow:          return "Grow";
             default:                  return s.ToString();
         }
     }
@@ -96,6 +100,8 @@ public static class PresenterTransitionSettings
             case "heavy":    style = Style.BlinkHeavy;    return true;
             case "cut":
             case "instant":  style = Style.Cut;           return true;
+            case "grow":
+            case "pop":      style = Style.Grow;          return true;
             default:         return false;
         }
     }

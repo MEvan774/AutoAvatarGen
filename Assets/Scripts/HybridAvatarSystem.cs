@@ -45,6 +45,14 @@ public class HybridAvatarSystem : MonoBehaviour
     [Range(0.1f, 1.5f)]
     [Tooltip("Duration of the crossfade transition in seconds")]
     public float crossfadeDuration = 0.3f;
+    [Range(0.1f, 2f)]
+    [Tooltip("Total duration of the 'Grow' transition: the presenter swells to " +
+             "the peak size, swaps at the peak, and settles back to the original size.")]
+    public float growDuration = 0.9f;
+    [Range(1.01f, 1.6f)]
+    [Tooltip("Peak scale multiplier the presenter reaches at the middle of the " +
+             "'Grow' transition before returning to the original size.")]
+    public float growAmount = 1.15f;
     [Tooltip("Optional MugsShake driven by the 'Shake' transition style. If left " +
              "empty, one is added to the pivot at runtime with default settings. " +
              "Assign your own (on the pivot, or a child that holds only the visual) " +
@@ -73,6 +81,11 @@ public class HybridAvatarSystem : MonoBehaviour
     private float baselineSpriteHeight;
 
     private Coroutine currentAnimation;
+
+    // Rest scale of the pivot while a Grow transition is mid-swell. Restored when
+    // the grow is interrupted so the next animation never inherits the enlarged pose.
+    private Vector3 growRestScale;
+    private bool growRunning;
 
     // Resolved in Awake from PresenterTransitionSettings (the main-menu choice),
     // falling back to the useCrossfade toggle when the user hasn't picked one.
@@ -107,6 +120,11 @@ public class HybridAvatarSystem : MonoBehaviour
     private Vector3 swayBasePosition;
     private Quaternion swayBaseRotation;
     private bool useSwayBase = false;
+
+    // Held true while the extreme close-up owns the frame. Separate from
+    // enableIdleSway so the user's Inspector toggle is never clobbered if an
+    // ExtremeOut goes missing.
+    private bool swayFrozen = false;
 
     void Awake()
     {
@@ -192,7 +210,7 @@ public class HybridAvatarSystem : MonoBehaviour
 
     void Update()
     {
-        if (enableIdleSway && pivot != null && currentAnimation == null)
+        if (enableIdleSway && !swayFrozen && pivot != null && currentAnimation == null)
         {
             ApplyIdleSway();
         }
@@ -319,6 +337,32 @@ public class HybridAvatarSystem : MonoBehaviour
         useSwayBase = true;
 
         Debug.Log($"Sway base set to: {basePosition}");
+    }
+
+    /// <summary>
+    /// Total stillness for the extreme close-up: idle sway stops AND the pivot
+    /// snaps to its rest pose. Snapping (rather than freezing mid-sway) makes the
+    /// held pose deterministic — the same framing every time the tag fires — and
+    /// the jump cut hides the snap completely.
+    /// </summary>
+    public void FreezeIdleSway()
+    {
+        swayFrozen = true;
+        if (pivot != null)
+        {
+            pivot.transform.localPosition = originalPosition;
+            pivot.transform.localRotation = originalRotation;
+        }
+    }
+
+    /// <summary>
+    /// Ends the close-up freeze. Sway resumes from the live Perlin clock, so the
+    /// first resumed frame differs slightly from the frozen pose — invisible
+    /// behind the exit jump cut.
+    /// </summary>
+    public void ResumeIdleSway()
+    {
+        swayFrozen = false;
     }
 
     // NEW: Method to return to local sway mode
@@ -467,12 +511,20 @@ public class HybridAvatarSystem : MonoBehaviour
                 {
                     StopCoroutine(currentAnimation);
                 }
+                if (growRunning)
+                {
+                    pivot.transform.localScale = growRestScale;
+                    growRunning = false;
+                }
 
                 Sprite sprite = emotionMap[emotion];
                 switch (style)
                 {
                     case PresenterTransitionSettings.Style.Crossfade:
                         currentAnimation = StartCoroutine(CrossfadeAnimation(sprite));
+                        break;
+                    case PresenterTransitionSettings.Style.Grow:
+                        currentAnimation = StartCoroutine(GrowAnimation(sprite));
                         break;
                     case PresenterTransitionSettings.Style.Shake:
                         currentAnimation = StartCoroutine(ShakeTransition(sprite));
@@ -608,6 +660,52 @@ public class HybridAvatarSystem : MonoBehaviour
         currentAnimation = null;
     }
 
+    // 'Grow' style: the presenter swells uniformly to growAmount over the first
+    // half of growDuration, the sprite swaps at the peak, then it settles back to
+    // the original size over the second half. Ease-out both ways so the swell
+    // launches quickly and the return lands softly.
+    IEnumerator GrowAnimation(Sprite newSprite)
+    {
+        Transform avatarTransform = pivot.transform;
+        growRestScale = avatarTransform.localScale;
+        growRunning = true;
+
+        float halfDuration = growDuration / 2f;
+        float elapsed = 0f;
+
+        // Phase 1: grow to the peak
+        while (elapsed < halfDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / halfDuration;
+            t = 1f - (1f - t) * (1f - t);
+
+            avatarTransform.localScale = growRestScale * Mathf.Lerp(1f, growAmount, t);
+            yield return null;
+        }
+
+        avatarRenderer.sprite = newSprite;
+        NormalizeSpriteSize(avatarRenderer);
+
+        elapsed = 0f;
+
+        // Phase 2: settle back to the original size
+        while (elapsed < halfDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / halfDuration;
+            t = 1f - (1f - t) * (1f - t);
+
+            avatarTransform.localScale = growRestScale * Mathf.Lerp(growAmount, 1f, t);
+            yield return null;
+        }
+
+        avatarTransform.localScale = growRestScale;
+        growRunning = false;
+
+        currentAnimation = null;
+    }
+
     IEnumerator CrossfadeAnimation(Sprite newSprite)
     {
         // Place the new sprite on the overlay renderer and fade it in
@@ -693,12 +791,12 @@ public class HybridAvatarSystem : MonoBehaviour
 
         // {Emotion}, {Emotion,T=X.XXX}, or with a per-tag transition override:
         // {Emotion,Style} where Style is one of Cut / Blink / BlinkHeavy /
-        // SquashStretch / Crossfade / Shake (BlinkHeavy is listed before Blink so
-        // the longer keyword wins). The Style modifier is accepted either before
+        // SquashStretch / Crossfade / Shake / Grow (BlinkHeavy is listed before
+        // Blink so the longer keyword wins). The Style modifier is accepted either before
         // (group 2) or after (group 4) the pre-processor's appended ,T= so all of
         // {Emotion,Style}, {Emotion,Style,T=X} and {Emotion,T=X,Style} parse.
         // Position/Zoom/Media markers carry a ':' and are stripped before this runs.
-        const string styleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake";
+        const string styleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow";
         Regex regex = new Regex(
             @"\{(\w+)(?:,(" + styleAlt + @"))?(?:,T=(\d+(?:\.\d+)?))?(?:,(" + styleAlt + @"))?\}");
         MatchCollection matches = regex.Matches(script);

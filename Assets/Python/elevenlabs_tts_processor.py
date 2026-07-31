@@ -73,7 +73,7 @@ ELEVENLABS_API_KEY = "sk_d5b1984b2dcfcc8ca651004f5a6d39e471a4db30f552806a"
 VOICE_CONFIG = {
     "voice_id":          "3jR9BuQAOPMWUjWpi0ll",    # from elevenlabs.io/app/voice-lab
     "model_id":          "eleven_multilingual_v2", # or "eleven_turbo_v2_5" for speed
-    "stability":         0.45,   # 0.0-1.0  | lower = more expressive
+    "stability":         0.00,   # 0.0-1.0  | lower = more expressive (v3: 0.0 = Creative)
     "similarity_boost":  0.80,   # 0.0-1.0  | higher = truer to cloned voice
     "style":             0.35,   # 0.0-1.0  | 0 = neutral, 1 = very dramatic
     "use_speaker_boost": True,   # enhances voice clarity
@@ -86,7 +86,7 @@ VOICE_CONFIG = {
 # Transition-style modifier an emotion tag may carry: {Smirk,Blink}.
 # BlinkHeavy comes before Blink so the longer keyword wins the alternation.
 # Kept in lockstep with HybridAvatarSystem.ParseScriptWithTimeMarkers.
-_STYLE_ALT = r'Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake'
+_STYLE_ALT = r'Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow'
 
 # An emotion tag is ANY bare one-word curly tag — {Neutral}, {Smirk}, {Sip},
 # {SmugSip}, whatever the avatar's emotion array happens to hold. Matching the

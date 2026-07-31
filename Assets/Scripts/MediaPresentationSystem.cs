@@ -94,12 +94,12 @@ public class MediaPresentationSystem : MonoBehaviour
              "markers sit at floor level (y = -3.14), so a large positive Y is what lifts the " +
              "close-up off his body.\n\n" +
              "NOTE this is measured from the floor marker, NOT from the camera's rest position — " +
-             "the camera sits at y = 0, so it ends up at (marker + this). The 3.19 default puts it " +
-             "at world y +0.05. For reference, his head centre is at world y +2.66 (offset 5.8), " +
+             "the camera sits at y = 0, so it ends up at (marker + this). The 2.69 default puts it " +
+             "at world y -0.45. For reference, his head centre is at world y +2.66 (offset 5.8), " +
              "so this framing sits well below the head and holds his body rather than his face. " +
              "Every emotion sprite shares the same aspect and is height-matched by Normalize " +
              "Sprite Size, so one offset frames them all.")]
-    public Vector2 extremeZoomFaceOffset = new Vector2(0f, 3.19f);
+    public Vector2 extremeZoomFaceOffset = new Vector2(0f, 2.69f);
 
     [Header("Pullback Effect ({Zoom:Pullback})")]
     [Tooltip("Initial wide framing — orthographicSize is snapped to defaultSize * this on trigger.")]
@@ -782,6 +782,8 @@ public class MediaPresentationSystem : MonoBehaviour
         {
             mainCamera.transform.position = extremeRestoreCameraPos;
             extremeRestoreSize = float.NaN;
+            if (avatarSystem != null)
+                avatarSystem.ResumeIdleSway();
         }
 
         // Pullback is a self-contained multi-stage effect — handle it on its own.
@@ -822,6 +824,11 @@ public class MediaPresentationSystem : MonoBehaviour
                     mainCamera.transform.position.z);
             }
 
+            // Total stillness while the close-up holds — the frozen character is
+            // part of the joke. The snap to rest pose is hidden by the cut.
+            if (avatarSystem != null)
+                avatarSystem.FreezeIdleSway();
+
             // Ground truth for framing the close-up. Everything here is measured
             // live, so it supersedes any offset derived from the scene asset.
             {
@@ -849,6 +856,9 @@ public class MediaPresentationSystem : MonoBehaviour
             mainCamera.orthographicSize   = extremeRestoreSize;
             mainCamera.transform.position = extremeRestoreCameraPos;
             extremeRestoreSize            = float.NaN;
+
+            if (avatarSystem != null)
+                avatarSystem.ResumeIdleSway();
             return;
         }
 

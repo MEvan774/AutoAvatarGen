@@ -27,7 +27,9 @@ namespace MugsTech.Tts
         [Serializable]
         public class VoiceSettings
         {
-            public float stability         = 0.45f;
+            // eleven_v3 takes three discrete stability values:
+            // 0.0 = Creative, 0.5 = Natural, 1.0 = Robust.
+            public float stability         = 0.0f;
             public float similarity_boost  = 0.80f;
             public float style             = 0.35f;
             public bool  use_speaker_boost = true;
