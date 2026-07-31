@@ -76,7 +76,7 @@ If you don't have a confirmed name for a 📁 or 🎬 tag, use a ✅ card instea
 ## 4. Every tag in detail
 
 ### Section headings — `## NAME`
-Splits the script into separately-rendered, stitched segments. Each section gets a short natural pause after it. Use them for major beats (cold open, setup, breakdown, take, closer, etc.). **The file must begin with one.**
+Splits the script into separately-rendered, stitched segments. Each section gets a short natural pause after it — and a longer one, sized to the transition, when the next section opens with a `{Transition:…}` (see below). Use them for major beats (cold open, setup, breakdown, take, closer, etc.). **The file must begin with one.**
 ```
 ## COLD OPEN
 ```
@@ -205,7 +205,8 @@ Okay, here's the part that should actually worry them.
 ```
 - **Position and zoom are snapped** under cover (no visible glide).
 - **No content card on the line → the content zone is cleared** under cover (any headline/card on screen disappears). **A content card on the line → it replaces** whatever was showing.
-- It does **not** pause narration — the audio keeps playing right over it.
+- **A transition on the first line of a section gets its own silence.** The section break plays out as: last word → a short beat → the transition → a shorter beat → the new section's first word. Nothing is ever spoken behind the cover. You don't author this and you don't write a duration for it — the gap is sized automatically from the transition's own length, so `{Transition:Iris,1.2}` gets a proportionally longer one.
+- **A transition placed mid-section still plays over the narration.** Only a section-opening one (nothing spoken before it — see §5) is given silence. That's deliberate: a mid-read transition is a flourish, not a break.
 - A transition fired while another is still playing is ignored, so two can't overlap.
 
 > Place a `{Transition:…}` on the **first line of a new section** (just under the `## HEADING`). Want a *smooth* zoom that glides in over the new section instead of a snap? Put that `{Zoom:In}` on the **next** line, not the transition line — only tags on the transition's own line are applied under cover.
@@ -347,7 +348,7 @@ Fields: `"value","label","context",duration[,Left|,Right]`
 - **Pick the side (optional).** A side card sits on the **left** of the screen by default. Append `,Left` or `,Right` as the card's **last** value to choose which side it rests on and slides in from (e.g. `{Quote:"…","…","…",5,Right}`, `{Logo:Brave,4,Right}`) — `,Right` mirrors it to the right side. It's independent of where the character stands, so with the presenter on the `Left` you can drop a card on the `Right`. For `Headline`, it's an alternative to `,bigCenter`.
 - **Fullscreen feature cards work anywhere.** `BigText`/`BigMedia`/`BigCenter` (and a `Headline` with `,bigCenter`) render in front of everything, so they appear in any position — including `Center`. Use them for the "front and center" moments.
 - **`BigImage` is the feature card that wants a side.** It isn't suppressed at `Center`, but it covers only the left 3/4 — set `{Position:Right}` so the presenter stands in the open right quarter beside the article instead of hidden behind it.
-- **Transitions open a new section.** Put `{Transition:…}` on the **first line of a section** and group that section's whole scene change onto the same line (position, emotion, mood, a card, an image, a zoom). They're applied under cover — see §4. This is the one place you deliberately stack several tags on a single line. A side card grouped on a transition line still needs a `Left`/`Right` position on that same line (rule 8).
+- **Transitions open a new section.** Put `{Transition:…}` on the **first line of a section** and group that section's whole scene change onto the same line (position, emotion, mood, a card, an image, a zoom). They're applied under cover — see §4. This is the one place you deliberately stack several tags on a single line. A side card grouped on a transition line still needs a `Left`/`Right` position on that same line (rule 8). Placing it there is also what earns the transition its silent gap: "first line" means **nothing spoken before it** — other tags (`{Timestamp:"…"}`, and the ones on its own line) are fine, a narration line above it is not.
 - **A `{Video:}` has no duration — you end it by placing the next beat.** The clip loops under the narration until the presenter changes position, a content card appears, or another `{Image:}`/`{Video:}` fires. Want b-roll under three sentences? Put the tag before them and the `{Position:...}` or card after them (§4).
 - **`{Zoom:ExtremeIn}` has no duration either — you end it with `{Zoom:ExtremeOut}`.** Same principle as `{Video:}`: put the in tag before the line you want in close-up and the out tag after the last line it covers. It works from any position (`Left`/`Right`/`Center`), needs no `{Zoom:Reset}` afterwards, and **must always be closed** — an unpaired `ExtremeIn` holds the close-up for the rest of the video (§4).
 - **Don't place a tag on the script's very last word and expect it to fire late** — it's fine, the recording now holds until trailing tags (e.g. an end-card `{Logo:...,8}` or final `{Black:2}`) finish their full duration.

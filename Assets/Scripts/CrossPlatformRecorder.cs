@@ -69,6 +69,13 @@ public class CrossPlatformRecorder : MonoBehaviour
     public int frameHeight = 1080;
     [Range(24, 60)]
     public short frameRate = 30;
+
+    [Tooltip("Upper bound on how long StartRecordingWithAudio waits for the video encoder's " +
+             "frame pacing to settle before starting the narration. The wait normally ends in " +
+             "well under a second (it takes 3 consecutive clean frames after the ffmpeg.exe " +
+             "spawn stall); the cap only exists so a misbehaving encoder can't hold a take " +
+             "hostage. Raising it is harmless — it is a limit, not a delay.")]
+    public float maxCaptureWarmupSeconds = 2f;
     [Tooltip("Kbps. 8000 = broadcast quality, 4000 = YouTube default, 2000 = compact.")]
     public int bitrateKbps = 8000;
 
@@ -277,8 +284,18 @@ public class CrossPlatformRecorder : MonoBehaviour
         // matches its sample rate exactly. Stashed for restore in StopCapture.
         PushFrameRateLock(frameRate);
 
+        // Playback must NOT begin on the same frame as StartCapture. StartCapture
+        // stalls the main thread for however long the ffmpeg.exe encoder takes to
+        // spawn (~0.7s measured on this machine), and the encoder pads the video's
+        // head with catch-up frames for that stall — while the audio track begins
+        // at Play(). The native muxer butts both streams together from zero, so a
+        // take started the old way (StartCapture(); Play();) has every visual
+        // land ~0.7s AFTER its narration in the finished mp4 — "the zoom fires a
+        // word late". Stop any caller-started playback first (HybridAvatarSystem
+        // Play()s before handing us control), warm the encoder up until frame
+        // pacing is stable, and only then start the narration.
+        voiceAudio.Stop();
         videoCaptureComponent.StartCapture();
-        voiceAudio.Play();
 
         // Coroutines must run on an active GameObject. If our own is inactive
         // (e.g. this recorder is parented to Main Camera and Main Camera is
@@ -286,15 +303,47 @@ public class CrossPlatformRecorder : MonoBehaviour
         MonoBehaviour host = GetCoroutineHost();
         if (host != null)
         {
-            host.StartCoroutine(StopWhenAudioEnds());
+            host.StartCoroutine(PlayWhenCaptureWarm());
         }
         else
         {
             Debug.LogError(
-                "[Recorder] Cannot start stop-on-audio-end coroutine — no active GameObject available. " +
+                "[Recorder] Cannot start capture warm-up coroutine — no active GameObject available. " +
                 "Move CrossPlatformRecorder to its own GameObject (not Main Camera if it's disabled), " +
-                "or enable the Main Camera.");
+                "or enable the Main Camera. Starting playback immediately; expect the recording's " +
+                "visuals to lag the narration by the encoder spawn time.");
+            voiceAudio.Play();
         }
+    }
+
+    /// <summary>
+    /// Waits until the video encoder's frame pacing has settled (a few
+    /// consecutive clean frames — the frame that spawned ffmpeg.exe carries the
+    /// whole stall in its deltaTime), then starts the narration and the
+    /// stop-on-audio-end watchdog. Keeping the narration out of the encoder's
+    /// warm-up padding is what keeps audio and video aligned in the muxed file;
+    /// the idle frames recorded before Play() are the same on both tracks, so
+    /// they cost nothing but a moment of stillness at the head of the take.
+    /// </summary>
+    IEnumerator PlayWhenCaptureWarm()
+    {
+        float cleanFrame = 1.5f / Mathf.Max(1, frameRate);
+        int stable = 0;
+        float waited = 0f;
+
+        while (stable < 3 && waited < maxCaptureWarmupSeconds)
+        {
+            yield return null;
+            waited += Time.unscaledDeltaTime;
+            stable = (Time.unscaledDeltaTime <= cleanFrame) ? stable + 1 : 0;
+        }
+
+        Log(waited >= maxCaptureWarmupSeconds
+            ? $"Capture warm-up hit the {maxCaptureWarmupSeconds:F1}s cap — starting playback anyway."
+            : $"Capture warm after {waited:F2}s — starting playback.");
+
+        voiceAudio.Play();
+        yield return StopWhenAudioEnds();
     }
 
     /// <summary>

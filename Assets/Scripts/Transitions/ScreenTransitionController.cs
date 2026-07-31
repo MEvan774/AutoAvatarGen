@@ -10,7 +10,11 @@ using UnityEngine.UI;
 // Play(type, onCovered, onComplete, durationScale) runs cover -> onCovered ->
 // reveal. The live scene is mutated *in place* inside onCovered, at the instant
 // the screen is fully covered, so each transition reads as a fresh section.
-// It does NOT pause audio — narration keeps playing over it.
+//
+// It does NOT pause audio — this controller only animates the overlay. The gap a
+// section-opening transition plays over is *baked into the stitched clip* by
+// SegmentSequencer, which sizes it with TotalSecondsFor() below. A transition
+// placed mid-section has no baked gap and still runs over the narration.
 //
 // PROJECT ADAPTATION (differs from the reference spec):
 //   The reference builds its own Screen Space - Overlay canvas. This project's
@@ -42,10 +46,17 @@ public class ScreenTransitionController : MonoBehaviour
              "is parented under this canvas so it lands in the frame the recorder captures.")]
     public Canvas hostCanvas;
 
+    // Baseline timings live as consts so SegmentSequencer can size a transition's
+    // silence at stitch time even when no controller exists in the scene yet
+    // (TotalSecondsFor). The serialized fields below default to them.
+    public const float DefaultWipeCover = 0.36f, DefaultWipeReveal = 0.36f;
+    public const float DefaultShutterCover = 0.34f, DefaultShutterOpen = 0.34f;
+    public const float DefaultIrisCover = 0.36f, DefaultIrisReveal = 0.36f;
+
     [Header("Timing (1x baseline — leave these to match the approved preview)")]
-    public float wipeCover = 0.36f, wipeReveal = 0.36f;
-    public float shutterCover = 0.34f, shutterOpen = 0.34f;
-    public float irisCover = 0.36f, irisReveal = 0.36f;
+    public float wipeCover = DefaultWipeCover, wipeReveal = DefaultWipeReveal;
+    public float shutterCover = DefaultShutterCover, shutterOpen = DefaultShutterOpen;
+    public float irisCover = DefaultIrisCover, irisReveal = DefaultIrisReveal;
 
     [Header("Colors")]
     public Color wipeColor    = new Color(0.9373f, 0.4157f, 0.3020f, 1f); // #ef6a4d
@@ -86,6 +97,42 @@ public class ScreenTransitionController : MonoBehaviour
             Destroy(canvasRect.gameObject);
             canvasRect = wipe = shTop = shBot = iris = null;
             built = false;
+        }
+    }
+
+    /// <summary>
+    /// Wall-clock length of a transition end to end (cover + reveal) at the given
+    /// duration scale — the same <c>k</c> Play() applies to each half.
+    /// </summary>
+    public float TotalSeconds(ScreenTransition type, float durationScale = 1f)
+    {
+        float k = Mathf.Max(0.01f, durationScale);   // matches Play()'s clamp
+        switch (type)
+        {
+            case ScreenTransition.Shutter: return (shutterCover + shutterOpen) * k;
+            case ScreenTransition.Iris:    return (irisCover + irisReveal)     * k;
+            default:                       return (wipeCover + wipeReveal)     * k;
+        }
+    }
+
+    /// <summary>
+    /// TotalSeconds without needing a controller in hand. Reads the live one when
+    /// there is one, so Inspector-tweaked timings are honoured, and falls back to
+    /// the baseline consts otherwise — SegmentSequencer stitches the clip before
+    /// the scene's TransitionDirector necessarily exists.
+    /// </summary>
+    public static float TotalSecondsFor(ScreenTransition type, float durationScale = 1f)
+    {
+        ScreenTransitionController live = Instance != null
+            ? Instance : FindObjectOfType<ScreenTransitionController>();
+        if (live != null) return live.TotalSeconds(type, durationScale);
+
+        float k = Mathf.Max(0.01f, durationScale);
+        switch (type)
+        {
+            case ScreenTransition.Shutter: return (DefaultShutterCover + DefaultShutterOpen) * k;
+            case ScreenTransition.Iris:    return (DefaultIrisCover + DefaultIrisReveal)     * k;
+            default:                       return (DefaultWipeCover + DefaultWipeReveal)     * k;
         }
     }
 

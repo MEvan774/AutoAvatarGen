@@ -29,6 +29,12 @@ namespace MugsTech.Tts
             public string ModelId = ElevenLabsClient.DefaultModelId;
             public ElevenLabsClient.VoiceSettings VoiceSettings
                 = new ElevenLabsClient.VoiceSettings();
+
+            // How many times to re-render a segment whose alignment came back
+            // stalled (see DescribeAlignmentStall). eleven_v3 is non-deterministic,
+            // so a straight retry of the same text usually comes back clean — but
+            // each one costs characters, hence a small cap.
+            public int MaxStallRetries = 2;
         }
 
         public class Result
@@ -39,6 +45,10 @@ namespace MugsTech.Tts
             public int    SegmentsTotal;
             public string ManifestPath;
             public bool   WasDryRun;
+
+            // Segments still stalled after every retry. Non-empty means the audio
+            // was written but its markers won't line up — the run needs redoing.
+            public List<string> StalledSegments = new List<string>();
         }
 
         readonly Config cfg;
@@ -111,6 +121,7 @@ namespace MugsTech.Tts
 
             // ---- run each segment ---------------------------------------
             var manifestEntries = new List<ManifestEntry>(segments.Count);
+            var stalledSegments = new List<string>();
             int done = 0;
             foreach (var seg in segments)
             {
@@ -134,25 +145,61 @@ namespace MugsTech.Tts
                     continue;
                 }
 
-                // ---- TTS round-trip --------------------------------------
+                // ---- TTS round-trip (re-rendered on a stalled alignment) --
+                //
+                // eleven_v3 occasionally keeps generating audio that its own
+                // alignment doesn't describe — one "word" ends up spanning tens
+                // of seconds and every marker after it lands on the wrong moment.
+                // It's non-deterministic, so the same text usually comes back
+                // clean on a second attempt; retry rather than ship a take whose
+                // cards drift out of sync.
                 ElevenLabsClient.TtsResult tts = null;
-                string ttsError = null;
-                int doneCapture = done;
-                int totalCapture = segments.Count;
+                string ttsError    = null;
+                string stall       = null;
+                int    maxAttempts = Math.Max(1, cfg.MaxStallRetries + 1);
 
-                yield return CoroutineHost.Instance.StartCoroutine(
-                    ElevenLabsClient.GenerateTts(
-                        clean, cfg.VoiceId, cfg.ModelId, cfg.VoiceSettings, cfg.ApiKey,
-                        onProgress: p => Report(
-                            SegmentProgress(doneCapture, 0.10f + 0.80f * p, totalCapture),
-                            $"[{seg.Slug}] uploading / receiving… {(int)(p * 100f)}%"),
-                        onSuccess: r => tts      = r,
-                        onError:   e => ttsError = e));
-
-                if (ttsError != null)
+                for (int attempt = 1; attempt <= maxAttempts; attempt++)
                 {
-                    Finish(false, ttsError);
-                    yield break;
+                    tts      = null;
+                    ttsError = null;
+
+                    int    doneCapture  = done;
+                    int    totalCapture = segments.Count;
+                    string retryNote    = attempt == 1
+                        ? "" : $" (retry {attempt - 1}/{maxAttempts - 1})";
+
+                    yield return CoroutineHost.Instance.StartCoroutine(
+                        ElevenLabsClient.GenerateTts(
+                            clean, cfg.VoiceId, cfg.ModelId, cfg.VoiceSettings, cfg.ApiKey,
+                            onProgress: p => Report(
+                                SegmentProgress(doneCapture, 0.10f + 0.80f * p, totalCapture),
+                                $"[{seg.Slug}] uploading / receiving…{retryNote} {(int)(p * 100f)}%"),
+                            onSuccess: r => tts      = r,
+                            onError:   e => ttsError = e));
+
+                    if (ttsError != null)
+                    {
+                        Finish(false, ttsError);
+                        yield break;
+                    }
+
+                    stall = DescribeAlignmentStall(tts.WordTimestamps);
+                    if (stall == null) break;          // clean render — keep it
+
+                    Debug.LogWarning($"[Tts:{seg.Slug}] {stall}");
+                    if (attempt < maxAttempts)
+                        Report(SegmentProgress(done, 0.92f, segments.Count),
+                            $"[{seg.Slug}] ⚠ stalled — re-rendering " +
+                            $"({attempt}/{maxAttempts - 1})…");
+                }
+
+                // Out of retries and still stalled: write it (so it can be
+                // inspected) but remember it, so the run doesn't end looking green.
+                if (stall != null)
+                {
+                    stalledSegments.Add(seg.Slug);
+                    Report(SegmentProgress(done, 0.92f, segments.Count),
+                        $"[{seg.Slug}] ⚠ {stall}");
                 }
 
                 // ---- map + rebuild + write -------------------------------
@@ -220,7 +267,10 @@ namespace MugsTech.Tts
 
             Report(1f, cfg.DryRun
                 ? $"Dry run complete — {segments.Count} segment(s) parsed, no API calls."
-                : $"Done — {segments.Count} segment(s) saved to {outDir}");
+                : stalledSegments.Count > 0
+                    ? $"Saved to {outDir}, but {string.Join(", ", stalledSegments)} " +
+                      "still stalled after retrying — re-run before recording."
+                    : $"Done — {segments.Count} segment(s) saved to {outDir}");
 
             onComplete?.Invoke(new Result {
                 Success           = true,
@@ -228,10 +278,39 @@ namespace MugsTech.Tts
                 SegmentsTotal     = segments.Count,
                 ManifestPath      = manifestPath,
                 WasDryRun         = cfg.DryRun,
+                StalledSegments   = stalledSegments,
             });
         }
 
         // ---- helpers -----------------------------------------------------
+
+        // A spoken word is never this long. When one is, ElevenLabs stalled
+        // mid-render: the audio keeps going (it is NOT silence — the stretch
+        // measures the same loudness as speech) but the alignment attributes the
+        // whole thing to a single word, so the narration and every T= after it
+        // stop describing the same timeline. It's intermittent — the same
+        // segment re-renders fine — so the only defence is to say so loudly
+        // instead of letting a broken take reach the recorder.
+        const float StallWordSeconds = 3f;
+
+        static string DescribeAlignmentStall(List<TtsScriptProcessor.WordTimestamp> words)
+        {
+            if (words == null) return null;
+
+            TtsScriptProcessor.WordTimestamp worst = null;
+            float worstSpan = 0f;
+            foreach (var w in words)
+            {
+                float span = w.End - w.Start;
+                if (span > worstSpan) { worstSpan = span; worst = w; }
+            }
+
+            if (worst == null || worstSpan < StallWordSeconds) return null;
+
+            return $"ElevenLabs stalled — '{worst.Word}' spans {worstSpan:F1}s "
+                 + $"({worst.Start:F1}s → {worst.End:F1}s). Cards and emotions after "
+                 + "that point will not match the narration. Re-render this script.";
+        }
 
         // Overall progress = completed segments + fraction of in-flight one.
         static float SegmentProgress(int done, float current, int total)

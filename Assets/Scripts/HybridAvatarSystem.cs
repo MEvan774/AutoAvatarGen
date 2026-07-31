@@ -361,7 +361,12 @@ public class HybridAvatarSystem : MonoBehaviour
 
         if (autoRecord && recorder != null)
         {
-            recorder.StartRecordingWithAudio();  // Will re-play audio, that's fine
+            // The recorder STOPS this playback and restarts it once the video
+            // encoder is warm, so the narration is never spoken into the
+            // encoder's spawn-stall padding (which put every visual ~0.7s late
+            // in the muxed file). Trackers wait for the restart — see
+            // WaitForPlaybackStart / PlayWhenCaptureWarm.
+            recorder.StartRecordingWithAudio();
         }
 
         StartCoroutine(TrackEmotionsByTime());
@@ -381,6 +386,18 @@ public class HybridAvatarSystem : MonoBehaviour
 
         if (mediaPresentation == null)
             mediaPresentation = FindObjectOfType<MediaPresentationSystem>();
+
+        // When a recording is being made, playback starts a few frames AFTER
+        // this coroutine: the recorder holds voiceAudio.Play() until the video
+        // encoder's frame pacing settles (CrossPlatformRecorder.PlayWhenCaptureWarm),
+        // so sampling isPlaying on the first frame would exit before the take
+        // began. Wait for playback, bounded so a failed take can't hang us.
+        float waitedForStart = 0f;
+        while ((voiceAudio == null || !voiceAudio.isPlaying) && waitedForStart < 10f)
+        {
+            waitedForStart += Time.unscaledDeltaTime;
+            yield return null;
+        }
 
         // Without the `|| IsShowingMedia` guard this loop exits the moment the
         // AudioSource stops and every later emotion is silently dropped.

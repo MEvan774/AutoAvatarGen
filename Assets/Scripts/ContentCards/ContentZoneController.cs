@@ -210,6 +210,18 @@ public class ContentZoneController : MonoBehaviour
     {
         lastTriggeredIndex = -1;
 
+        // When a recording is being made, playback starts a few frames AFTER
+        // this coroutine: the recorder holds voiceAudio.Play() until the video
+        // encoder's frame pacing settles (CrossPlatformRecorder.PlayWhenCaptureWarm),
+        // so sampling isPlaying on the first frame would exit before the take
+        // began. Wait for playback, bounded so a failed take can't hang us.
+        float waitedForStart = 0f;
+        while ((voiceAudio == null || !voiceAudio.isPlaying) && waitedForStart < 10f)
+        {
+            waitedForStart += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
         // `|| IsShowingMedia` keeps tracking alive while a trailing {Image:} /
         // {Video:} is still on screen after the narration ends, so the flush
         // below only fires once nothing is left to display.

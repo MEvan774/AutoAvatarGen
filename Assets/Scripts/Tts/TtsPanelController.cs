@@ -243,10 +243,21 @@ namespace MugsTech.Tts
                     if (r.Success)
                     {
                         SetProgress(1f);   // target → 100%, Update() animates the rest of the way
-                        SetStatus(r.WasDryRun
-                            ? $"Dry run OK — {r.SegmentsProcessed}/{r.SegmentsTotal} segment(s) parsed."
-                            : $"Done — {r.SegmentsProcessed}/{r.SegmentsTotal} segment(s) saved.",
-                            success: true);
+
+                        // A segment that stalled through every retry produced audio
+                        // whose markers don't match it. The files are written, but
+                        // this must not read as a clean run — recording it would
+                        // waste a take.
+                        bool stalled = r.StalledSegments != null && r.StalledSegments.Count > 0;
+                        if (stalled)
+                            SetStatus($"Saved, but {string.Join(", ", r.StalledSegments)} " +
+                                      "stalled — cards will drift. Run again before recording.",
+                                      error: true);
+                        else
+                            SetStatus(r.WasDryRun
+                                ? $"Dry run OK — {r.SegmentsProcessed}/{r.SegmentsTotal} segment(s) parsed."
+                                : $"Done — {r.SegmentsProcessed}/{r.SegmentsTotal} segment(s) saved.",
+                                success: true);
                         if (!string.IsNullOrEmpty(r.ManifestPath))
                             Debug.Log($"[Tts] Manifest written to: {r.ManifestPath}");
 

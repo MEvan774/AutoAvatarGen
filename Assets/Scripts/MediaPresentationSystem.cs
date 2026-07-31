@@ -572,9 +572,30 @@ public class MediaPresentationSystem : MonoBehaviour
     // Position Tracking (NEW — follows same pattern as emotion tracking)
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // Every tracker below waits for this before its main loop. When a recording
+    // is being made, voiceAudio.Play() happens a few frames AFTER the trackers
+    // are started: CrossPlatformRecorder holds playback until the video
+    // encoder's frame pacing has settled (see PlayWhenCaptureWarm), so the
+    // narration never lands inside the encoder's spawn-stall padding — which is
+    // what kept shifting every visual ~0.7s late in the muxed file. Trackers
+    // that sampled isPlaying on their first frame would see FALSE during that
+    // warm-up and exit before the take began.
+    // -----------------------------------------------------------------------
+    IEnumerator WaitForPlaybackStart()
+    {
+        float waited = 0f;
+        while ((voiceAudio == null || !voiceAudio.isPlaying) && waited < 10f)
+        {
+            waited += Time.unscaledDeltaTime;
+            yield return null;
+        }
+    }
+
     IEnumerator TrackPositionsByTime()
     {
         lastTriggeredPositionMarker = -1;
+        yield return WaitForPlaybackStart();
 
         // `|| isShowingMedia` keeps tracking alive while a trailing {Image:} /
         // {Video:} is still on screen after the narration ends, so a position
@@ -700,6 +721,7 @@ public class MediaPresentationSystem : MonoBehaviour
     IEnumerator TrackZoomByTime()
     {
         lastTriggeredZoomMarker = -1;
+        yield return WaitForPlaybackStart();
 
         // `|| isShowingMedia` keeps tracking alive while a trailing {Image:} /
         // {Video:} is still on screen after the narration ends, so a zoom
@@ -1056,10 +1078,9 @@ public class MediaPresentationSystem : MonoBehaviour
 
         Debug.Log($"[Black] TrackBlackPanelByTime started. markers={blackPanelMarkers?.Count ?? 0}, audio playing={voiceAudio != null && voiceAudio.isPlaying}");
 
-        // Wait one frame so voiceAudio.isPlaying can latch to true if Play()
-        // was called in the same frame as this coroutine was started.
-        if (voiceAudio == null || !voiceAudio.isPlaying)
-            yield return null;
+        // Playback may start several frames late (recorder warm-up) — the old
+        // one-frame latch isn't enough.
+        yield return WaitForPlaybackStart();
 
         if (blackPanelMarkers == null || blackPanelMarkers.Count == 0)
         {
@@ -1179,6 +1200,7 @@ public class MediaPresentationSystem : MonoBehaviour
     IEnumerator TrackMediaByTime()
     {
         lastTriggeredMediaMarker = -1;
+        yield return WaitForPlaybackStart();
 
         while (voiceAudio.isPlaying || isShowingMedia)
         {
@@ -1707,6 +1729,11 @@ public class MediaPresentationSystem : MonoBehaviour
     // card) at parse time and applies them at the cover midpoint, in snap form —
     // so Mugs never slides and the old card never pops out in view. A {Mood:...}
     // NOT on a transition line crossfades on its own timeline.
+    //
+    // Nothing here pauses the narration. A section-opening transition instead
+    // gets its T= re-pointed into a gap of real silence that SegmentSequencer
+    // bakes into the stitched clip ahead of that segment, so the cover+reveal
+    // lands between the two sections' words rather than over them.
     // -----------------------------------------------------------------------
 
     // {Transition:Wipe} / {Transition:Iris,1.2} / {Transition:Wipe,T=5.0} / {Transition:Iris,1.2,T=5.0}
@@ -1880,6 +1907,7 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         lastTriggeredTransitionMarker = -1;
         if (transitionMarkers == null || transitionMarkers.Count == 0) yield break;
+        yield return WaitForPlaybackStart();
 
         // `|| isShowingMedia` keeps tracking alive while a trailing {Image:} /
         // {Video:} is still on screen, so the end-of-audio flush only runs once
@@ -2008,6 +2036,7 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         lastTriggeredMoodMarker = -1;
         if (moodMarkers == null || moodMarkers.Count == 0) yield break;
+        yield return WaitForPlaybackStart();
 
         while (voiceAudio != null && (voiceAudio.isPlaying || isShowingMedia))
         {
@@ -2151,10 +2180,9 @@ public class MediaPresentationSystem : MonoBehaviour
         lastTriggeredTimestampMarker = -1;
         if (timestampMarkers == null || timestampMarkers.Count == 0) yield break;
 
-        // Wait one frame so voiceAudio.isPlaying can latch true if Play() ran on the
-        // same frame this coroutine started (same guard the black-panel tracker uses).
-        if (voiceAudio == null || !voiceAudio.isPlaying)
-            yield return null;
+        // Playback may start several frames late (recorder warm-up) — the old
+        // one-frame latch isn't enough.
+        yield return WaitForPlaybackStart();
 
         // `|| isShowingMedia` keeps tracking alive while a trailing {Image:} /
         // {Video:} is still on screen, so the end-of-audio flush only runs once

@@ -23,6 +23,13 @@ using UnityEngine.Networking;
 //      is kept on the first segment and trailing silence on the last so
 //      openings/endings feel natural; inter-segment silences are replaced
 //      by the controlled pause so no double-gap builds up.
+//      When a segment OPENS with a {Transition:...} the pause in front of it is
+//      widened to fit the whole section break and the transition is re-pointed to
+//      fire inside that silence, so the wipe runs over a real gap and the
+//      section's first word lands on the revealed scene instead of being spoken
+//      behind the cover (see FindOpeningTransition):
+//
+//        …last word | transitionLeadIn | cover -> reveal | transitionTail | first word…
 //   4. Combines all the _timed.txt scripts with every T=X.XXX marker shifted
 //      onto the new global timeline. A marker originally at T=X in segment
 //      i becomes T = globalOffset[i] + (X - trimStart[i]), clamped to at
@@ -71,6 +78,25 @@ public class SegmentSequencer : MonoBehaviour
              "cut abruptly.")]
     [Range(0f, 0.5f)]
     public float trailingPadding = 0.08f;
+
+    [Tooltip("Hold the narration while a section-opening {Transition:...} plays. The pause in " +
+             "front of that segment is widened to fit the transition's own cover+reveal length " +
+             "plus the lead-in and tail below, and the transition is re-pointed into that " +
+             "silence. Off = the old behaviour, narration playing straight through the " +
+             "transition. Transitions placed mid-section are never re-timed.")]
+    public bool pauseNarrationForTransitions = true;
+
+    [Tooltip("Silence between the previous section's audio ending (its last word plus " +
+             "trailingPadding) and the moment a section-opening transition STARTS. Without it " +
+             "the wipe begins the instant the audio cuts, which reads as 'transition, then " +
+             "pause' rather than a beat between sections.")]
+    [Range(0f, 1.5f)]
+    public float transitionLeadIn = 0.4f;
+
+    [Tooltip("Silence between a section-opening transition finishing its reveal and the new " +
+             "section's first word — a short settle on the revealed scene before he speaks.")]
+    [Range(0f, 1f)]
+    public float transitionTail = 0.15f;
 
     // Outputs — populated by LoadAndBuild.
     [HideInInspector] public AudioClip combinedClip;
@@ -168,11 +194,40 @@ public class SegmentSequencer : MonoBehaviour
         StringBuilder scriptSb = new StringBuilder();
         float globalOffset = 0f;
 
+        // Silence to insert BEFORE each segment. Index 0 is always 0 — the first
+        // segment opens the video. Every other boundary gets interSegmentPause,
+        // widened when that segment opens with a transition to fit the whole
+        // beat: leadIn -> cover -> reveal -> tail -> first word.
+        float[] pauseBefore = new float[clips.Count];
+        OpeningTransition[] openers = new OpeningTransition[clips.Count];
+        for (int i = 1; i < clips.Count; i++)
+        {
+            pauseBefore[i] = Mathf.Max(0f, interSegmentPause);
+            if (!pauseNarrationForTransitions) continue;
+
+            openers[i] = FindOpeningTransition(scripts[i]);
+            if (openers[i] == null) continue;
+
+            pauseBefore[i] = Mathf.Max(pauseBefore[i], openers[i].TotalGap(this));
+            Debug.Log($"[SegmentSequencer] {segs[i].slug} opens with a {openers[i].type} " +
+                      $"x{openers[i].scale:F2} ({openers[i].seconds:F2}s) — holding the " +
+                      $"narration {pauseBefore[i]:F2}s ({transitionLeadIn:F2}s lead-in + " +
+                      $"{openers[i].seconds:F2}s transition + {transitionTail:F2}s tail).");
+        }
+
         int last = clips.Count - 1;
         for (int i = 0; i < clips.Count; i++)
         {
             AudioClip clip = clips[i];
             SegmentManifestEntry seg = segs[i];
+
+            if (pauseBefore[i] > 0f)
+            {
+                int silenceFrames = Mathf.RoundToInt(pauseBefore[i] * sampleRate);
+                if (silenceFrames > 0)
+                    samples.AddRange(new float[silenceFrames * channels]);
+                globalOffset += pauseBefore[i];
+            }
 
             float trimStart = (i == 0) ? 0f : Mathf.Max(0f, seg.speech_start);
             float trimEnd   = (i == last)
@@ -202,18 +257,25 @@ public class SegmentSequencer : MonoBehaviour
             float minAllowedT  = globalOffset;
             string shifted     = ShiftTimestamps(scripts[i], delta, minAllowedT);
 
+            // The opening transition is the one marker that must fire BEFORE its
+            // own segment's audio. Position it from the END of the gap — back off
+            // the first word by the tail, then by the transition's own length — so
+            // the reveal always settles the same beat ahead of the read no matter
+            // how wide the gap ended up. Whatever silence is left over lands in
+            // front of the transition as the lead-in (never less than
+            // transitionLeadIn; more when interSegmentPause is the wider of the
+            // two). The clamp keeps it inside the silence we actually baked.
+            if (openers[i] != null && pauseBefore[i] > 0f)
+            {
+                float triggerAt = Mathf.Max(
+                    globalOffset - pauseBefore[i],
+                    globalOffset - Mathf.Max(0f, transitionTail) - openers[i].seconds);
+                shifted = RetimeOpeningTransition(shifted, triggerAt);
+            }
+
             scriptSb.AppendLine(shifted);
 
             globalOffset += segDuration;
-
-            // Inter-segment silence (not after the last segment).
-            if (i < last && interSegmentPause > 0f)
-            {
-                int silenceFrames = Mathf.RoundToInt(interSegmentPause * sampleRate);
-                if (silenceFrames > 0)
-                    samples.AddRange(new float[silenceFrames * channels]);
-                globalOffset += interSegmentPause;
-            }
         }
 
         int totalFrames = samples.Count / Mathf.Max(1, channels);
@@ -228,6 +290,102 @@ public class SegmentSequencer : MonoBehaviour
         combinedClip = AudioClip.Create("StitchedSegments", totalFrames, channels, sampleRate, false);
         combinedClip.SetData(samples.ToArray(), 0);
         combinedScript = scriptSb.ToString();
+    }
+
+    // -----------------------------------------------------------------------
+    // Section-opening transitions
+    //
+    // A {Transition:...} on the first line of a section (the authored pattern —
+    // SCRIPT_TAG_GUIDE §4) used to fire on the section's first spoken word, so
+    // cover+reveal ran over the opening of the read. We give it silence to play
+    // over instead: widen the pause in front of the segment and re-point the tag
+    // into it. Everything else in the segment keeps its normal shifted timeline,
+    // so the section's first word is the first thing heard on the new scene.
+    // -----------------------------------------------------------------------
+
+    class OpeningTransition
+    {
+        public ScreenTransition type;
+        public float scale;      // {Transition:Iris,1.2} -> 1.2
+        public float seconds;    // cover + reveal, already scaled
+
+        // The whole beat this transition needs to itself:
+        //   last word | leadIn | cover -> reveal | tail | first word
+        public float TotalGap(SegmentSequencer owner)
+            => Mathf.Max(0f, owner.transitionLeadIn)
+             + seconds
+             + Mathf.Max(0f, owner.transitionTail);
+    }
+
+    // {Transition:Wipe} / {Transition:Iris,1.2} / {Transition:Wipe,T=5.0} /
+    // {Transition:Iris,1.2,T=5.0} — in lockstep with MediaPresentationSystem's
+    // TransitionRegex, which is what actually parses these at playback.
+    static readonly Regex _TransitionTag = new Regex(
+        @"\{Transition:(\w+)(?:,(\d+(?:\.\d+)?))?(?:,T=(\d+(?:\.\d+)?))?\}",
+        RegexOptions.IgnoreCase);
+
+    // Any tag or stage direction — used to prove nothing is SPOKEN ahead of the
+    // transition. Bounded to one line like the TTS processor's own safety net.
+    static readonly Regex _AnyTag = new Regex(@"\{[^{}\n]*\}|\[[^\]]*\]");
+
+    // The segment's first {Transition:...}, if nothing but other tags and
+    // whitespace precedes it — i.e. it opens the section rather than sitting in
+    // the middle of one. Testing the TEXT rather than the tag's T= means a
+    // mid-section transition is left alone (it should still play over the read),
+    // and it doesn't matter which word the timestamp happened to land on.
+    // Returns null when the segment doesn't open with a transition.
+    static OpeningTransition FindOpeningTransition(string script)
+    {
+        if (string.IsNullOrEmpty(script)) return null;
+
+        Match tr = _TransitionTag.Match(script);
+        if (!tr.Success) return null;
+
+        string spokenBefore = _AnyTag.Replace(script.Substring(0, tr.Index), "");
+        if (spokenBefore.Trim().Length > 0) return null;
+
+        float scale = 1f;
+        if (tr.Groups[2].Success)
+            float.TryParse(tr.Groups[2].Value,
+                           NumberStyles.Float, CultureInfo.InvariantCulture, out scale);
+        if (scale <= 0f) scale = 1f;
+
+        ScreenTransition type = ParseTransitionType(tr.Groups[1].Value);
+        return new OpeningTransition {
+            type    = type,
+            scale   = scale,
+            seconds = ScreenTransitionController.TotalSecondsFor(type, scale),
+        };
+    }
+
+    // Same fallback as MediaPresentationSystem.ParseTransitionType — an unknown
+    // name plays a Wipe there, so size the silence for a Wipe here too.
+    static ScreenTransition ParseTransitionType(string s)
+    {
+        switch ((s ?? "").Trim().ToLowerInvariant())
+        {
+            case "shutter": return ScreenTransition.Shutter;
+            case "iris":    return ScreenTransition.Iris;
+            default:        return ScreenTransition.Wipe;
+        }
+    }
+
+    // Rewrite the FIRST {Transition:...} in the segment to fire at `time`. Any
+    // later transition in the same segment keeps the timeline ShiftTimestamps
+    // gave it. A tag that arrived without a T= gets one, so playback never falls
+    // back to MediaPresentationSystem's char-proportional estimate.
+    static string RetimeOpeningTransition(string script, float time)
+    {
+        bool rewritten = false;
+        return _TransitionTag.Replace(script, match =>
+        {
+            if (rewritten) return match.Value;
+            rewritten = true;
+
+            string scale = match.Groups[2].Success ? "," + match.Groups[2].Value : "";
+            return "{Transition:" + match.Groups[1].Value + scale
+                 + ",T=" + time.ToString("F3", CultureInfo.InvariantCulture) + "}";
+        });
     }
 
     static readonly Regex _TPattern = new Regex(@"T=(\d+(?:\.\d+)?)");

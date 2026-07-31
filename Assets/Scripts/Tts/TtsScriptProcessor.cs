@@ -104,7 +104,9 @@ namespace MugsTech.Tts
         private static readonly Regex SectionHeader = new Regex(
             @"^##\s+(.+)$", RegexOptions.Multiline);
 
-        private static readonly Regex MultiSpace = new Regex(@"  +");
+        // Runs of 2+ spaces collapse to one in the clean text. Applied by
+        // NormaliseCleanText rather than a Regex.Replace, because the marker
+        // indices have to be carried through the same edit.
 
         // ---- Public API ----------------------------------------------------
 
@@ -115,6 +117,19 @@ namespace MugsTech.Tts
         /// </summary>
         public static List<Segment> SplitIntoSegments(string rawScript)
         {
+            // Normalise line endings BEFORE anything else. Script.txt is written
+            // on Windows, so it is CRLF throughout — and nothing downstream ever
+            // removed the \r. It survived the tag strip (only ' ' and the ends
+            // were normalised) and went to ElevenLabs inside the clean text as a
+            // literal control character. The API echoes every character back in
+            // its alignment, so each \r came back as its own timing entry, which
+            // GroupCharsIntoWords then turned into a bogus "\r" word — and a
+            // line-final word like "YouTube.\r" swallowed whatever duration the
+            // API gave that \r, which is how a 19-second stall ended up recorded
+            // as part of one word. Doing this first keeps CharIndex, CleanIndex
+            // and the rebuilt _timed.txt all in one coordinate space.
+            rawScript = NormaliseLineEndings(rawScript);
+
             var segments = new List<Segment>();
             var headers  = SectionHeader.Matches(rawScript);
 
@@ -145,6 +160,13 @@ namespace MugsTech.Tts
             return segments;
         }
 
+        /// <summary>
+        /// CRLF / lone-CR -> LF. The TTS text must never carry a \r (see
+        /// SplitIntoSegments), and LF-only keeps every index consistent.
+        /// </summary>
+        public static string NormaliseLineEndings(string s)
+            => string.IsNullOrEmpty(s) ? "" : s.Replace("\r\n", "\n").Replace("\r", "\n");
+
         /// <summary>"COLD OPEN" -> "COLD_OPEN", "Story 1 - Lead" -> "STORY_1_LEAD"</summary>
         public static string MakeSlug(string name)
         {
@@ -158,24 +180,86 @@ namespace MugsTech.Tts
         /// Strip every marker from the raw segment and record each marker's
         /// original char_index plus its clean_index (position in the stripped
         /// text where it sat). The clean text is what we send to ElevenLabs.
+        ///
+        /// CleanIndex indexes the FINAL clean text — the exact string sent to
+        /// the API and later fed to BuildCharTimeMap. Collapsing double spaces
+        /// and trimming happen after the markers come out, so every index is
+        /// carried through that normalisation rather than measured before it
+        /// (see NormaliseCleanText). Measuring before it left every marker a
+        /// couple of characters high: char_times is only populated at word
+        /// STARTS, so a marker that should have landed exactly on a word
+        /// instead probed forward and fired a whole word late — most visibly on
+        /// a section-opening {Transition:...}, which covered the screen after
+        /// the first word had already been spoken.
         /// </summary>
         public static (List<Marker> markers, string cleanText) ExtractMarkers(string rawSegment)
         {
-            var markers = new List<Marker>();
+            rawSegment = rawSegment ?? "";
+
+            var markers  = new List<Marker>();
+            var rawClean = new System.Text.StringBuilder(rawSegment.Length);
+            int cursor   = 0;
+
             foreach (Match m in AllMarkers.Matches(rawSegment))
             {
-                string textBefore  = rawSegment.Substring(0, m.Index);
-                string cleanBefore = AllMarkers.Replace(textBefore, "");
+                rawClean.Append(rawSegment, cursor, m.Index - cursor);
                 markers.Add(new Marker {
                     Text       = m.Value,
                     CharIndex  = m.Index,
-                    CleanIndex = cleanBefore.Length,
+                    CleanIndex = rawClean.Length,   // remapped by NormaliseCleanText
                 });
+                cursor = m.Index + m.Length;
             }
+            rawClean.Append(rawSegment, cursor, rawSegment.Length - cursor);
 
-            string clean = AllMarkers.Replace(rawSegment, "");
-            clean = MultiSpace.Replace(clean, " ").Trim();
-            return (markers, clean);
+            return (markers, NormaliseCleanText(rawClean.ToString(), markers));
+        }
+
+        /// <summary>
+        /// Collapses runs of 2+ spaces to one and trims the ends — the exact
+        /// normalisation the TTS text gets — while rewriting every marker's
+        /// CleanIndex onto the result, so marker
+        /// positions and the text we send to ElevenLabs stay in one coordinate
+        /// space.
+        /// </summary>
+        private static string NormaliseCleanText(string rawClean, List<Marker> markers)
+        {
+            var sb  = new System.Text.StringBuilder(rawClean.Length);
+            var map = new int[rawClean.Length + 1];   // raw-clean index -> collapsed index
+
+            int i = 0;
+            while (i < rawClean.Length)
+            {
+                if (rawClean[i] == ' ')
+                {
+                    // A run of spaces collapses to one (a run of 1 is a no-op,
+                    // matching the `  +` pattern). Every index inside the run
+                    // points at that single surviving space.
+                    int run = i;
+                    while (run < rawClean.Length && rawClean[run] == ' ') run++;
+                    for (int k = i; k < run; k++) map[k] = sb.Length;
+                    sb.Append(' ');
+                    i = run;
+                    continue;
+                }
+
+                map[i] = sb.Length;
+                sb.Append(rawClean[i]);
+                i++;
+            }
+            map[rawClean.Length] = sb.Length;
+
+            // Trim, and slide the indices along with it.
+            string collapsed = sb.ToString();
+            int start = 0, end = collapsed.Length;
+            while (start < end && char.IsWhiteSpace(collapsed[start])) start++;
+            while (end > start && char.IsWhiteSpace(collapsed[end - 1])) end--;
+
+            string clean = collapsed.Substring(start, end - start);
+            foreach (var m in markers)
+                m.CleanIndex = System.Math.Min(System.Math.Max(0, map[m.CleanIndex] - start),
+                                               clean.Length);
+            return clean;
         }
 
         /// <summary>
@@ -381,7 +465,12 @@ namespace MugsTech.Tts
             for (int i = 0; i < chars.Length; i++)
             {
                 string ch = chars[i] ?? "";
-                bool isSep = ch == " " || ch == "\n" || ch == "\t";
+                // \r is a separator too. We no longer send one (SplitIntoSegments
+                // normalises line endings), but treating it as part of a word is
+                // what let a stray carriage return attach a multi-second stall to
+                // the end of the word in front of it — so keep the guard for any
+                // \r the API returns on its own.
+                bool isSep = ch == " " || ch == "\n" || ch == "\t" || ch == "\r";
                 if (isSep)
                 {
                     if (currentChars.Length > 0)

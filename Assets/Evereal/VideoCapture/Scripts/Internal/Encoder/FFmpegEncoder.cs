@@ -115,6 +115,12 @@ namespace Evereal.VideoCapture
     private bool captureCanceling;
     // The time spent during capturing.
     private float capturingTime;
+    // PROJECT FIX (AutoAvatarGen): dsp-clock origin for realtime capture pacing.
+    // Taken at the END of StartCapture — after the native encoder spawn — so it
+    // coincides with the moment AudioRecorder.StartRecord opens the wav (the
+    // very next call in VideoCapture.StartCapture). Starting the video timeline
+    // before the spawn would pad its head with frames the wav never heard.
+    private double captureStartDspTime;
     // Frame statistics info.
     private int capturedFrameCount;
     private int encodedFrameCount;
@@ -356,6 +362,11 @@ namespace Evereal.VideoCapture
       // Update current status.
       captureStarted = true;
 
+      // PROJECT FIX (AutoAvatarGen): video timeline origin = now, on the audio
+      // clock — AFTER the native spawn above, aligned with the AudioRecorder's
+      // StartRecord that follows in VideoCapture.StartCapture. See Update().
+      captureStartDspTime = AudioSettings.dspTime;
+
       // Sync with ffmpeg encode thread.
       StartCoroutine(SyncFrameQueue());
 
@@ -562,7 +573,23 @@ namespace Evereal.VideoCapture
         ProcessGPUReadbackRequestQueue();
       }
 
-      capturingTime += Time.deltaTime;
+      // PROJECT FIX (AutoAvatarGen): pace realtime video capture on the AUDIO
+      // clock, not on summed Time.deltaTime. The AudioRecorder's wav lives on
+      // the audio hardware clock (OnAudioFilterRead), while Σ deltaTime drifts
+      // off it under render load (measured ~0.4% long on a 3-minute take, i.e.
+      // the muxed video ran ~0.7s behind its own narration by the end). Deriving
+      // capturingTime from AudioSettings.dspTime puts frame pacing and the wav
+      // on the SAME clock, so the muxed streams cannot drift apart. Offline
+      // rendering and screenshots keep the original game-time accrual —
+      // offline mode deliberately runs decoupled from real time.
+      if (offlineRender || screenshotStarted)
+      {
+        capturingTime += Time.deltaTime;
+      }
+      else
+      {
+        capturingTime = (float)(AudioSettings.dspTime - captureStartDspTime);
+      }
       int totalRequiredFrameCount = (int)(capturingTime / deltaFrameTime);
       // Skip frames if we already got enough
       if (offlineRender || screenshotStarted || capturedFrameCount < totalRequiredFrameCount)

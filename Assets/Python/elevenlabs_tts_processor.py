@@ -71,7 +71,7 @@ import requests
 ELEVENLABS_API_KEY = "sk_d5b1984b2dcfcc8ca651004f5a6d39e471a4db30f552806a"
 
 VOICE_CONFIG = {
-    "voice_id":          "nLRXSGTV6sJeTuzIoTU7",    # from elevenlabs.io/app/voice-lab
+    "voice_id":          "3jR9BuQAOPMWUjWpi0ll",    # from elevenlabs.io/app/voice-lab
     "model_id":          "eleven_multilingual_v2", # or "eleven_turbo_v2_5" for speed
     "stability":         0.45,   # 0.0-1.0  | lower = more expressive
     "similarity_boost":  0.80,   # 0.0-1.0  | higher = truer to cloned voice
@@ -139,6 +139,18 @@ def split_into_segments(raw_script: str) -> list:
     Returns list of dicts: { 'name', 'slug', 'raw' }
     Text before the first heading is discarded (usually empty).
     """
+    # Normalise line endings BEFORE anything else. Script.txt is written on
+    # Windows, so it is CRLF throughout — and nothing downstream ever removed the
+    # '\r'. It survived the tag strip (only ' ' and the ends were normalised) and
+    # went to ElevenLabs inside the clean text as a literal control character.
+    # The API echoes every character back in its alignment, so each '\r' came
+    # back as its own timing entry, which _group_chars_into_words then turned
+    # into a bogus '\r' word — and a line-final word like 'YouTube.\r' swallowed
+    # whatever duration the API gave that '\r', which is how a 19-second stall
+    # ended up recorded as part of one word. Doing this first keeps char_index,
+    # clean_index and the rebuilt _timed.txt all in one coordinate space.
+    raw_script = _normalise_line_endings(raw_script)
+
     segments = []
     headers  = list(_SECTION_HEADER.finditer(raw_script))
 
@@ -158,6 +170,12 @@ def split_into_segments(raw_script: str) -> list:
     return segments
 
 
+def _normalise_line_endings(s: str) -> str:
+    """CRLF / lone-CR -> LF. The TTS text must never carry a '\\r' (see
+    split_into_segments), and LF-only keeps every index consistent."""
+    return (s or '').replace('\r\n', '\n').replace('\r', '\n')
+
+
 def _make_slug(name: str) -> str:
     """'COLD OPEN' -> 'COLD_OPEN',  'Story 1 - Lead' -> 'STORY_1_LEAD'"""
     slug = name.upper()
@@ -175,22 +193,89 @@ def extract_markers(raw_segment: str) -> tuple:
     Finds every Unity marker in the raw segment and records:
       'marker'      : original marker text  e.g. {Position:Left,Cut}
       'char_index'  : index in RAW segment string
-      'clean_index' : index in CLEAN (no-marker) string
+      'clean_index' : index in the FINAL clean string
+
     Returns (markers_list, clean_text_for_tts)
+
+    'clean_index' indexes the exact string sent to ElevenLabs and later fed to
+    _build_char_time_map. Collapsing double spaces and stripping the ends happen
+    after the markers come out, so every index is carried through that
+    normalisation (_normalise_clean) rather than measured before it. Measuring
+    before it left every marker a couple of characters high: char_times is only
+    populated at word STARTS, so a marker that should have landed exactly on a
+    word instead probed forward and fired a whole word late — most visibly on a
+    section-opening {Transition:...}, which covered the screen after the first
+    word had already been spoken.
+
+    Mirror of TtsScriptProcessor.ExtractMarkers / NormaliseCleanText.
     """
     markers = []
+    parts   = []
+    length  = 0          # running length of the marker-stripped text
+    cursor  = 0
+
     for match in _ALL_MARKERS.finditer(raw_segment):
-        text_before  = raw_segment[:match.start()]
-        clean_before = _ALL_MARKERS.sub('', text_before)
+        chunk = raw_segment[cursor:match.start()]
+        parts.append(chunk)
+        length += len(chunk)
         markers.append({
             'marker':      match.group(),
             'char_index':  match.start(),
-            'clean_index': len(clean_before),
+            'clean_index': length,        # remapped by _normalise_clean
         })
+        cursor = match.end()
 
-    clean = _ALL_MARKERS.sub('', raw_segment)
-    clean = re.sub(r'  +', ' ', clean).strip()
-    return markers, clean
+    parts.append(raw_segment[cursor:])
+    return markers, _normalise_clean(''.join(parts), markers)
+
+
+def _normalise_clean(raw_clean: str, markers: list) -> str:
+    """
+    Applies `re.sub(r'  +', ' ', s).strip()` to the marker-stripped text while
+    rewriting every marker's 'clean_index' onto the result, so marker positions
+    and the text we send to ElevenLabs stay in one coordinate space.
+    """
+    out   = []
+    # raw-clean index -> collapsed index (one extra slot for end-of-string).
+    index_map = [0] * (len(raw_clean) + 1)
+    out_len   = 0
+
+    i = 0
+    while i < len(raw_clean):
+        if raw_clean[i] == ' ':
+            # A run of spaces collapses to one (a run of 1 is a no-op, matching
+            # the `  +` pattern). Every index inside the run points at that
+            # single surviving space.
+            run = i
+            while run < len(raw_clean) and raw_clean[run] == ' ':
+                run += 1
+            for k in range(i, run):
+                index_map[k] = out_len
+            out.append(' ')
+            out_len += 1
+            i = run
+            continue
+
+        index_map[i] = out_len
+        out.append(raw_clean[i])
+        out_len += 1
+        i += 1
+
+    index_map[len(raw_clean)] = out_len
+
+    # Strip, and slide the indices along with it.
+    collapsed = ''.join(out)
+    start, end = 0, len(collapsed)
+    while start < end and collapsed[start].isspace():
+        start += 1
+    while end > start and collapsed[end - 1].isspace():
+        end -= 1
+
+    clean = collapsed[start:end]
+    for marker in markers:
+        marker['clean_index'] = min(max(0, index_map[marker['clean_index']] - start),
+                                    len(clean))
+    return clean
 
 
 # ==============================================================================
@@ -245,14 +330,51 @@ def call_elevenlabs(clean_text: str, config: dict, api_key: str) -> tuple:
 
     word_timestamps = _group_chars_into_words(chars, char_start, char_end)
     print(f"    OK {len(audio_bytes)//1024} KB audio  |  {len(word_timestamps)} words timestamped")
+
+    stall = _describe_alignment_stall(word_timestamps)
+    if stall:
+        print(f"    [WARNING] {stall}")
+
     return audio_bytes, word_timestamps
+
+
+# A spoken word is never this long. When one is, ElevenLabs stalled mid-render:
+# the audio keeps going (it is NOT silence — the stretch measures the same
+# loudness as speech) but the alignment attributes the whole thing to a single
+# word, so the narration and every T= after it stop describing the same
+# timeline. It's intermittent — the same segment re-renders fine — so the only
+# defence is to say so loudly. Mirror of TtsGenerationJob.DescribeAlignmentStall.
+_STALL_WORD_SECONDS = 3.0
+
+# How many times to re-render a stalled segment. Each retry costs characters,
+# hence the small cap. Mirror of TtsGenerationJob.Config.MaxStallRetries.
+MAX_STALL_RETRIES = 2
+
+
+def _describe_alignment_stall(words: list):
+    if not words:
+        return None
+
+    worst = max(words, key=lambda w: w['end'] - w['start'])
+    span  = worst['end'] - worst['start']
+    if span < _STALL_WORD_SECONDS:
+        return None
+
+    # Plain ASCII dash: this goes to a Windows console that mangles em dashes.
+    return (f"ElevenLabs stalled - {worst['word']!r} spans {span:.1f}s "
+            f"({worst['start']:.1f}s -> {worst['end']:.1f}s). Cards and emotions "
+            f"after that point will not match the narration. Re-render this script.")
 
 
 def _group_chars_into_words(chars, starts, ends) -> list:
     words, current_word, current_start = [], [], None
 
     for i, ch in enumerate(chars):
-        if ch in (' ', '\n', '\t'):
+        # '\r' is a separator too. We no longer send one (split_into_segments
+        # normalises line endings), but treating it as part of a word is what let
+        # a stray carriage return attach a multi-second stall to the end of the
+        # word in front of it — so keep the guard for any '\r' the API returns.
+        if ch in (' ', '\n', '\t', '\r'):
             if current_word:
                 words.append({
                     'word':  ''.join(current_word),
@@ -424,8 +546,20 @@ def process_segment(segment: dict, out_dir: str, api_key: str,
             print(f"    {i:<4} {m['clean_index']:>9}  {m['marker'][:60]}")
         return {'slug': slug, 'name': name, 'dry_run': True}
 
-    # Step 2
-    audio_bytes, word_ts = call_elevenlabs(clean, config, api_key)
+    # Step 2 — re-render while the alignment comes back stalled. eleven_v3
+    # occasionally keeps generating audio its own alignment doesn't describe, and
+    # it's non-deterministic, so the same text usually comes back clean on a
+    # second attempt. Mirror of the retry loop in TtsGenerationJob.Run.
+    for attempt in range(1, MAX_STALL_RETRIES + 2):
+        audio_bytes, word_ts = call_elevenlabs(clean, config, api_key)
+        if not _describe_alignment_stall(word_ts):
+            break
+        if attempt <= MAX_STALL_RETRIES:
+            print(f"    [WARNING] stalled - re-rendering "
+                  f"({attempt}/{MAX_STALL_RETRIES})...")
+        else:
+            print(f"    [WARNING] {slug} still stalled after "
+                  f"{MAX_STALL_RETRIES} retries - re-run before recording.")
 
     # Step 3
     timed_markers = map_markers_to_timestamps(markers, word_ts, clean)
