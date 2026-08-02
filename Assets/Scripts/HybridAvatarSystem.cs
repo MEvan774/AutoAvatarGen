@@ -121,11 +121,6 @@ public class HybridAvatarSystem : MonoBehaviour
     private Quaternion swayBaseRotation;
     private bool useSwayBase = false;
 
-    // Held true while the extreme close-up owns the frame. Separate from
-    // enableIdleSway so the user's Inspector toggle is never clobbered if an
-    // ExtremeOut goes missing.
-    private bool swayFrozen = false;
-
     void Awake()
     {
         // Build the emotion lookup. With "Use Emotion Array Override" on, the
@@ -210,7 +205,7 @@ public class HybridAvatarSystem : MonoBehaviour
 
     void Update()
     {
-        if (enableIdleSway && !swayFrozen && pivot != null && currentAnimation == null)
+        if (enableIdleSway && pivot != null && currentAnimation == null)
         {
             ApplyIdleSway();
         }
@@ -337,32 +332,6 @@ public class HybridAvatarSystem : MonoBehaviour
         useSwayBase = true;
 
         Debug.Log($"Sway base set to: {basePosition}");
-    }
-
-    /// <summary>
-    /// Total stillness for the extreme close-up: idle sway stops AND the pivot
-    /// snaps to its rest pose. Snapping (rather than freezing mid-sway) makes the
-    /// held pose deterministic — the same framing every time the tag fires — and
-    /// the jump cut hides the snap completely.
-    /// </summary>
-    public void FreezeIdleSway()
-    {
-        swayFrozen = true;
-        if (pivot != null)
-        {
-            pivot.transform.localPosition = originalPosition;
-            pivot.transform.localRotation = originalRotation;
-        }
-    }
-
-    /// <summary>
-    /// Ends the close-up freeze. Sway resumes from the live Perlin clock, so the
-    /// first resumed frame differs slightly from the frozen pose — invisible
-    /// behind the exit jump cut.
-    /// </summary>
-    public void ResumeIdleSway()
-    {
-        swayFrozen = false;
     }
 
     // NEW: Method to return to local sway mode

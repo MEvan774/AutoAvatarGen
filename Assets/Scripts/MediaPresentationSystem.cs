@@ -782,8 +782,6 @@ public class MediaPresentationSystem : MonoBehaviour
         {
             mainCamera.transform.position = extremeRestoreCameraPos;
             extremeRestoreSize = float.NaN;
-            if (avatarSystem != null)
-                avatarSystem.ResumeIdleSway();
         }
 
         // Pullback is a self-contained multi-stage effect — handle it on its own.
@@ -824,11 +822,6 @@ public class MediaPresentationSystem : MonoBehaviour
                     mainCamera.transform.position.z);
             }
 
-            // Total stillness while the close-up holds — the frozen character is
-            // part of the joke. The snap to rest pose is hidden by the cut.
-            if (avatarSystem != null)
-                avatarSystem.FreezeIdleSway();
-
             // Ground truth for framing the close-up. Everything here is measured
             // live, so it supersedes any offset derived from the scene asset.
             {
@@ -856,9 +849,6 @@ public class MediaPresentationSystem : MonoBehaviour
             mainCamera.orthographicSize   = extremeRestoreSize;
             mainCamera.transform.position = extremeRestoreCameraPos;
             extremeRestoreSize            = float.NaN;
-
-            if (avatarSystem != null)
-                avatarSystem.ResumeIdleSway();
             return;
         }
 

@@ -473,8 +473,6 @@ MonoBehaviour:
     sprite: {fileID: -115610766228609354, guid: 3d25ef34b1ec92840a8bd4e69562edfe, type: 3}
   - emotionName: Smirk
     sprite: {fileID: 890482241241327942, guid: 44677baf4d96ca44f8eced87bceb5e33, type: 3}
-  - emotionName: Smug
-    sprite: {fileID: -7579211451091291324, guid: 70cbe7b704c3fde489e1a3eb871783e5, type: 3}
   - emotionName: SmugSip
     sprite: {fileID: -5571912170658656440, guid: 85a25094e05a8d24fa42bcc97a115fb7, type: 3}
   timingOffset: 0

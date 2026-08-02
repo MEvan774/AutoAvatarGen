@@ -156,7 +156,6 @@ A hard punch-in to a **close-up on Mugs's face**, used to punctuate a punchline.
 - **No duration value.** `,D=` is ignored on both tags; so is `,Cut` (they're always cuts).
 - The camera **finds his face wherever he's standing** — `Left`, `Right` or `Center` all work, no position change needed.
 - `ExtremeOut` restores **the exact framing that was on screen before the punch**, so a close-up inside a `{Zoom:In}` section drops back into that zoom rather than undoing it. You never need a `{Zoom:Reset}` after one.
-- **Mugs freezes for the whole hold** — his idle sway pauses automatically, so the close-up is dead still. Nothing to author; it's part of the effect.
 - Silent by default — the missing sound is usually the joke.
 - **Forget the out tag and the close-up stays up for the rest of the video.** This is the one way to really break the effect.
 
