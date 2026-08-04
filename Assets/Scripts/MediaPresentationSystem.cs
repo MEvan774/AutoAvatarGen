@@ -361,8 +361,9 @@ public class MediaPresentationSystem : MonoBehaviour
         RenderTexture.active = previous;
     }
 
-    // Letterbox the display rect to the clip's own aspect inside the authored
-    // slot, so a 16:9 clip isn't squashed into a 5:4 box.
+    // Letterbox the display rect to the media's own aspect inside the authored
+    // slot, so a 16:9 clip isn't squashed into a 5:4 box and a wide logo shown
+    // via {Image:} isn't stretched to fill the slot. Fit-inside, never crop.
     void FitDisplayToAspect(int videoWidth, int videoHeight)
     {
         if (mediaDisplay == null || videoWidth <= 0 || videoHeight <= 0) return;
@@ -1351,6 +1352,7 @@ public class MediaPresentationSystem : MonoBehaviour
             if (image != null)
             {
                 mediaDisplay.texture = image;
+                FitDisplayToAspect(image.width, image.height);
                 videoPlayer.gameObject.SetActive(false);
                 ShowDisplay();
 
