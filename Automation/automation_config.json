@@ -1,0 +1,4 @@
+{
+  "exePath": "",
+  "_help": "Set exePath to the absolute path of the built player, e.g. C:/Builds/AutoAvatarGen/AutoAvatarGen.exe. Forward slashes are fine. Alternatively set the AUTOAVATARGEN_EXE environment variable or pass --exe to generate_video.py."
+}
