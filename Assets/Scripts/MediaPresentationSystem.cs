@@ -1222,6 +1222,16 @@ public class MediaPresentationSystem : MonoBehaviour
                 {
                     if (currentTime >= mediaMarkers[i].triggerTime)
                     {
+                        // {Video:End} — the clip it closes already broke out of
+                        // its play loop the frame this marker came due
+                        // (NextMediaMarkerDue); there is nothing to show here.
+                        if (mediaMarkers[i].endsMedia)
+                        {
+                            Debug.Log($"{{Video:End}} consumed at {currentTime:F2}s");
+                            lastTriggeredMediaMarker = i;
+                            continue;
+                        }
+
                         Debug.Log($"Triggering media: {mediaMarkers[i].mediaName} at {currentTime:F2}s");
 
                         if (currentMediaCoroutine != null)
@@ -1247,6 +1257,12 @@ public class MediaPresentationSystem : MonoBehaviour
         {
             for (int i = lastTriggeredMediaMarker + 1; i < mediaMarkers.Count; i++)
             {
+                // A trailing {Video:End} has nothing left to close — skip it.
+                if (mediaMarkers[i].endsMedia)
+                {
+                    lastTriggeredMediaMarker = i;
+                    continue;
+                }
                 Debug.Log($"Flushing end-of-audio media: {mediaMarkers[i].mediaName}");
                 if (currentMediaCoroutine != null)
                     StopCoroutine(currentMediaCoroutine);
@@ -1715,6 +1731,14 @@ public class MediaPresentationSystem : MonoBehaviour
             MediaType type = match.Groups[1].Value == "Image" ? MediaType.IMAGE : MediaType.VIDEO;
             string mediaName = match.Groups[2].Value.Trim();
 
+            // {Video:End} closes the running b-roll clip, paired like
+            // {Zoom:ExtremeIn}/{Zoom:ExtremeOut}. "End" is canonical (the guide
+            // documents only it); Stop/Out are accepted as typo-tolerance. The
+            // name is reserved — a real clip file named End.mp4 can't be played.
+            string lowerName = mediaName.ToLowerInvariant();
+            bool endsMedia = type == MediaType.VIDEO &&
+                             (lowerName == "end" || lowerName == "stop" || lowerName == "out");
+
             float duration;
             if (match.Groups[4].Success)
                 duration = float.Parse(match.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture);
@@ -1728,10 +1752,14 @@ public class MediaPresentationSystem : MonoBehaviour
                 triggerTime = markerTime,
                 mediaType = type,
                 mediaName = mediaName,
-                displayDuration = duration
+                displayDuration = duration,
+                endsMedia = endsMedia
             });
 
-            Debug.Log($"Media marker '{mediaName}' ({type}) will trigger at {markerTime:F2}s for {duration}s");
+            if (endsMedia)
+                Debug.Log($"Media marker {{Video:End}} will end the active b-roll at {markerTime:F2}s");
+            else
+                Debug.Log($"Media marker '{mediaName}' ({type}) will trigger at {markerTime:F2}s for {duration}s");
 
             clean = clean.Replace(match.Value, "");
         }
@@ -2042,10 +2070,17 @@ public class MediaPresentationSystem : MonoBehaviour
 
         // Media ({Image:}/{Video:}) — show at full cover so it's only ever visible
         // once the screen is covered, never mid-sweep. (A {Video:} plays silently
-        // over the narration, exactly as it does on its own timeline.)
+        // over the narration, exactly as it does on its own timeline.) A
+        // {Video:End} on the transition line instead dismisses the running
+        // clip under cover.
         if (m.mediaMarkers != null)
             for (int i = 0; i < m.mediaMarkers.Count; i++)
             {
+                if (m.mediaMarkers[i].endsMedia)
+                {
+                    DismissActiveMedia();
+                    continue;
+                }
                 if (currentMediaCoroutine != null)
                     StopCoroutine(currentMediaCoroutine);
                 currentMediaCoroutine = StartCoroutine(ShowMedia(m.mediaMarkers[i]));
@@ -2297,6 +2332,13 @@ public class MediaMarkerData
     public MediaType mediaType;
     public string mediaName;
     public float displayDuration;
+    // {Video:End} — dismisses the active b-roll clip at triggerTime instead of
+    // starting one. The pair {Video:name}…{Video:End} mirrors
+    // {Zoom:ExtremeIn}…{Zoom:ExtremeOut}. The cut itself needs no extra code
+    // path: the clip's play loop already breaks the frame the NEXT media
+    // marker comes due (NextMediaMarkerDue), this marker included — the
+    // trackers just must never try to play it as a clip named "End".
+    public bool endsMedia;
 }
 
 /// <summary>
