@@ -38,6 +38,10 @@ public class BigTextCard : ContentCard
     private const float LINE_GAP                = 24f;
     private const float LINE_HORIZONTAL_PADDING = 80f;
 
+    // How long already-visible lines take to glide to their re-centered slots
+    // when AppendLines grows the stack (the persistent {BigText:LINE} flow).
+    private const float LINE_SHIFT_DURATION     = 0.35f;
+
     // =====================================================================
     // ALL TIMING / DISTANCE KNOBS LIVE IN THE INSPECTOR
     //
@@ -180,7 +184,7 @@ public class BigTextCard : ContentCard
         // trailing line (a 4-line stack put the first two lines in full view).
         // Instead every line departs from one shared start on the travel axis:
         // `offset` beyond the stack's trailing slot, and never nearer than
-        // fully outside the view.
+        // fully outside the view (see EntryStartFor).
         float minRestY = float.MaxValue, maxRestY = float.MinValue;
         for (int i = 0; i < activeLineCount; i++)
         {
@@ -188,14 +192,6 @@ public class BigTextCard : ContentCard
             if (y < minRestY) minRestY = y;
             if (y > maxRestY) maxRestY = y;
         }
-
-        // Half the card's view size; the rect isn't resolved on the first
-        // frame, so fall back to the 1920x1080 reference the layout constants
-        // are authored in.
-        float halfH = rectTransform.rect.height > 1f ? rectTransform.rect.height * 0.5f : 540f;
-        float halfW = rectTransform.rect.width  > 1f ? rectTransform.rect.width  * 0.5f : 960f;
-        float outY = halfH + LINE_HEIGHT * 0.5f;   // |y| beyond this = fully hidden
-        float outX = halfW + 800f;                 // line containers are 1600 wide
 
         Sequence seq = DOTween.Sequence();
 
@@ -205,12 +201,7 @@ public class BigTextCard : ContentCard
             rt.localEulerAngles = Vector3.zero;
 
             Vector2 endPos = rt.anchoredPosition;
-            Vector2 startPos = endPos + offset;
-            if      (offset.y < 0f) startPos.y = Mathf.Min(minRestY + offset.y, -outY);
-            else if (offset.y > 0f) startPos.y = Mathf.Max(maxRestY + offset.y,  outY);
-            else if (offset.x < 0f) startPos.x = Mathf.Min(startPos.x, -outX);
-            else if (offset.x > 0f) startPos.x = Mathf.Max(startPos.x,  outX);
-            rt.anchoredPosition = startPos;
+            rt.anchoredPosition = EntryStartFor(endPos, offset, minRestY, maxRestY);
 
             // Build the per-line tween fully — ease + delay — BEFORE handing it
             // to the sequence. Sequence.Insert with an AnimationCurve ease has
@@ -225,6 +216,96 @@ public class BigTextCard : ContentCard
         }
 
         currentSequence = seq;
+    }
+
+    /// <summary>
+    /// Adds one or more '+'-joined lines to the stack already on screen — the
+    /// persistent {BigText:LINE} flow, where each tag lands its line on the
+    /// narration beat it sits on. Lines already visible glide to their
+    /// re-centered slots while the new lines slide in from off-screen with the
+    /// same overshoot entrance as Show(). Returns false when nothing fit
+    /// (the stack is already at MAX_LINES).
+    /// </summary>
+    public bool AppendLines(string raw)
+    {
+        string[] parts = (raw ?? string.Empty).Split('+');
+        int room = MAX_LINES - activeLineCount;
+        if (room <= 0)
+        {
+            Debug.LogWarning($"BigText: stack already has {MAX_LINES} lines — '{raw}' dropped.");
+            return false;
+        }
+        int adding = Mathf.Min(parts.Length, room);
+        if (adding < parts.Length)
+            Debug.LogWarning($"BigText: only {adding} of {parts.Length} appended lines fit — the rest are dropped.");
+
+        int firstNew = activeLineCount;
+        for (int i = 0; i < adding; i++)
+        {
+            lineTexts[firstNew + i].text = parts[i].Trim();
+            lineContainers[firstNew + i].gameObject.SetActive(true);
+        }
+        activeLineCount += adding;
+
+        // Slot Ys of the grown, re-centered stack (same math as LayoutLines).
+        float totalHeight = activeLineCount * LINE_HEIGHT + (activeLineCount - 1) * LINE_GAP;
+        float topCenter = totalHeight * 0.5f - LINE_HEIGHT * 0.5f;
+
+        var cfg = BigTextCfg;
+        Vector2 offset = LineEntryOffset(ResolvedEntryDirection, cfg.lineTravelBase, SlideDistanceFactor);
+        float minRestY = topCenter - (activeLineCount - 1) * (LINE_HEIGHT + LINE_GAP);
+        float maxRestY = topCenter;
+        float dur = SlideDuration;
+        AnimationCurve curve = OvershootCurve;
+
+        // Killing a still-running entrance leaves lines mid-flight; the shift
+        // tween below picks each one up from wherever it is.
+        KillCurrentSequence();
+        Sequence seq = DOTween.Sequence();
+
+        for (int i = 0; i < activeLineCount; i++)
+        {
+            RectTransform rt = lineContainers[i];
+            rt.localEulerAngles = Vector3.zero;
+            Vector2 endPos = new Vector2(0f, topCenter - i * (LINE_HEIGHT + LINE_GAP));
+
+            if (i < firstNew)
+            {
+                // Already on screen — glide to the re-centered slot.
+                seq.Join(rt.DOAnchorPos(endPos, LINE_SHIFT_DURATION).SetEase(Ease.OutQuad));
+            }
+            else
+            {
+                rt.anchoredPosition = EntryStartFor(endPos, offset, minRestY, maxRestY);
+                seq.Join(rt
+                    .DOAnchorPos(endPos, dur)
+                    .SetEase(curve)
+                    .SetDelay(cfg.staggerDelay * (i - firstNew)));
+            }
+        }
+
+        currentSequence = seq;
+        return true;
+    }
+
+    // Start point for a line entering toward endPos: `offset` beyond the
+    // stack's trailing slot on the travel axis (minRestY/maxRestY are the
+    // stack's resting extremes), clamped to fully outside the view. The card
+    // rect isn't resolved on the first frame, so the view half-size falls back
+    // to the 1920x1080 reference the layout constants are authored in.
+    private Vector2 EntryStartFor(Vector2 endPos, Vector2 offset, float minRestY, float maxRestY)
+    {
+        float halfH = rectTransform.rect.height > 1f ? rectTransform.rect.height * 0.5f : 540f;
+        float halfW = rectTransform.rect.width  > 1f ? rectTransform.rect.width  * 0.5f : 960f;
+        float outY = halfH + LINE_HEIGHT * 0.5f;   // |y| beyond this = fully hidden
+        float outX = halfW + 800f;                 // line containers are 1600 wide
+
+        Vector2 startPos = endPos + offset;
+        if      (offset.y < 0f) startPos.y = Mathf.Min(minRestY + offset.y, -outY);
+        else if (offset.y > 0f) startPos.y = Mathf.Max(maxRestY + offset.y,  outY);
+        else if (offset.x < 0f) startPos.x = Mathf.Min(startPos.x, -outX);
+        else if (offset.x > 0f) startPos.x = Mathf.Max(startPos.x,  outX);
+        return startPos;
     }
 
     // Each line's off-screen start offset = travelBase × per-card factor,

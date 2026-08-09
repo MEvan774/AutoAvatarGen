@@ -24,10 +24,10 @@ Paste this whole file to the model before asking it to write a script, or keep i
 ## 2. HARD RULES (break these and the video breaks)
 
 1. **Start the file with a `## SECTION` heading.** Any text before the first heading is silently discarded.
-2. **One tag per line, on its own line.** Don't put two tags on one line and don't bury a tag mid-sentence (emotion tags are one exception; the **transition line** is the other — a `{Transition:…}` deliberately gathers all of a section's tags onto one line, see §4).
+2. **One tag per line, on its own line.** Don't put two tags on one line and don't bury a tag mid-sentence (emotion tags are one exception; the **transition line** is another — a `{Transition:…}` deliberately gathers all of a section's tags onto one line; and **duration-less `{BigText:LINE}`/`{BigText:End}` tags** sit mid-sentence on purpose, on the exact word their line belongs to — see §4).
 3. **Use straight ASCII double quotes `"` only.** Never curly/smart quotes (`“ ”`). Smart quotes break card tags.
 4. **Never put a `"` *inside* a quoted card field.** The field ends at the first `"`. If you need a quote inside quoted text, rephrase or use single quotes `'`. (Commas, periods, em‑dashes `—`, `%`, `$`, `€` inside quotes are fine.)
-5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline) or `,Left`/`,Right` (side cards) modifiers.
+5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline) or `,Left`/`,Right` (side cards) modifiers. **One exception:** `BigText` may drop the duration to enter its line-by-line mode (`{BigText:LINE}` … `{BigText:End}`, see §4) — then the closing `{BigText:End}` is mandatory instead.
 6. **Unquoted names (`Logo`, `BRoll`, `BigMedia`, `BigText`, `BigImage`) must not contain commas.** The comma is a delimiter. Use `+` to join multiple items (`BigImage` is a single image — no `+`).
 7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback/ExtremeIn/ExtremeOut`, `Cut`, `Smooth`, `bigCenter`, `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
 8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`, `BigImage`) are exempt** — they render in front of everything and appear in any position, including `Center`. (`BigImage` covers only the left 3/4, so it's meant to *share* the screen — stand the presenter on the **right** with `{Position:Right}`; see §4.)
@@ -58,7 +58,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 | Logo card 🎬 | `{Logo:Google,4}` (+ optional `,Left`/`,Right`) | yes |
 | B‑roll card 🎬 | `{BRoll:description,4}` (+ optional `,Left`/`,Right`) | yes |
 | Big media (fullscreen) 🎬 | `{BigMedia:Google,4}` or `{BigMedia:Google+Brave+X,4}` (≤4) | yes |
-| Big text (fullscreen) ✅ | `{BigText:ONE LINE,3}` or `{BigText:LINE 1+LINE 2,4}` (≤4) | yes |
+| Big text (fullscreen) ✅ | timed: `{BigText:ONE LINE,3}` / `{BigText:LINE 1+LINE 2,4}` (≤4) — or line-by-line: `{BigText:LINE}` … `{BigText:End}` (no durations) | timed: yes / line-by-line: no (you place the End tag) |
 | Big image (article, left 3/4) 📁 | `{BigImage:name,5}` (pair with `{Position:Right}`) | yes |
 | Stage direction ✅ | `[deadpan]` `[slowing down, serious]` | no |
 | Chapter timestamp ✅ | `{Timestamp:"Cold Open"}` | no |
@@ -325,11 +325,20 @@ Fields: `"value","label","context",duration[,Left|,Right]`
 {BigMedia:Google+Brave+X,4}
 ```
 
-**BigText** — 1 to 4 big centered text lines. Join lines with `+`. No commas (use `+`); each `+` starts a new stacked line.
+**BigText** — 1 to 4 big centered text lines. No commas in the text (use `+`; each `+` starts a new stacked line). It has **two modes**:
+
+**Line-by-line (preferred for multi-line)** — `{BigText:LINE}` … `{BigText:End}`, **no duration numbers**. Each duration-less tag lands ONE line at its exact spot in the narration: the first opens the stack, each following tag slides its line in beneath the ones on screen (the stack re-centers), and **`{BigText:End}` closes the whole stack** — the same in-tag/out-tag principle as `{Zoom:ExtremeIn}`…`{Zoom:ExtremeOut}` and `{Video:}`…`{Video:End}`. This is how you sync each line to the words being spoken. These tags may sit **mid-sentence, right on the word they belong to** (an exception to the own-line rule, like emotion tags). Up to 4 lines; `End` is a **reserved word** (never a displayable line). Always close the stack — an unclosed one is force-closed when the narration ends, with a warning.
+```
+Your data {BigText:YOUR DATA} goes straight into {BigText:→} their model. {BigText:THEIR MODEL}
+And that should worry you. {BigText:End}
+```
+
+**Timed (one tag, fixed lifetime)** — text plus a duration; `+`-joined lines appear together on a quick internal stagger and the card hides itself after the number:
 ```
 {BigText:ANOTHER ONE,3}
 {BigText:YOUR DATA+→+THEIR MODEL,6}
 ```
+Don't mix the modes in one beat — a duration-less line landing while a timed BigText is up joins it but keeps the timed lifetime.
 
 **BigImage** 📁 — a large website-article or headline **screenshot** that covers the **left 3/4** of the screen, leaving the right quarter open for the presenter. It fills that area edge-to-edge (cropped to fit, no distortion) and drops in from the top. `name` is an image **filename (no extension)** in the same disk `Images/`/`Logos/` folders `{Image:}` uses — use a real one from `MEDIA_LIBRARY.md` (drop your screenshot there first). It's a feature card (not suppressed at `Center`), but it's designed to **share** the screen: put the presenter on the **right** so they stand in the open quarter beside the article, not behind it.
 ```
@@ -405,7 +414,7 @@ Notes on the example:
 ## 7. Final self-check before returning a script
 
 - [ ] File begins with `## SECTION`.
-- [ ] Every `{...}` card / Logo / BRoll / BigMedia / BigText / BigImage ends in `,number`.
+- [ ] Every `{...}` card / Logo / BRoll / BigMedia / BigImage ends in `,number`. `BigText` too, **unless** it's the line-by-line mode — then **no** tag in the run carries a number and the run **ends with `{BigText:End}`** (count opens and Ends; a stack left open is force-closed at narration end).
 - [ ] **No `{Video:}` carries a duration** — each one is closed by a `{Video:End}` after the last line it covers (preferred), or ended by the next `{Position:...}`, content card, or media tag you placed after it.
 - [ ] **Every `{Zoom:ExtremeIn}` has a matching `{Zoom:ExtremeOut}` later in the script** — count them, the totals must be equal. Neither tag carries a duration.
 - [ ] **Every 📁/🎬 media name (`Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll`) is a real name copied from `MEDIA_LIBRARY.md`** — exact spelling and case, no extension. Any beat without a confirmed name uses a ✅ text card (`Headline`/`Stat`/`Quote`/`Excerpt`/`BigText`) instead. No invented or placeholder names.

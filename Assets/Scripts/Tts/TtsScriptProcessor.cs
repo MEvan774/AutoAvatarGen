@@ -82,7 +82,10 @@ namespace MugsTech.Tts
             @"|\{Logo:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
             @"|\{BRoll:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
             @"|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}" +
-            @"|\{BigText:[^,}]+,\d+(?:\.\d+)?\}" +
+            // BigText duration is OPTIONAL — duration-less is the persistent
+            // line-by-line flow ({BigText:LINE}…{BigText:End}); kept in
+            // lockstep with elevenlabs_tts_processor.py.
+            @"|\{BigText:[^,}]+(?:,\d+(?:\.\d+)?)?\}" +
             @"|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}" +
             // [stage directions] — match anything up to the closing bracket so
             // directions containing commas/punctuation (e.g. "[slowing down,
@@ -428,6 +431,12 @@ namespace MugsTech.Tts
                 return "{" + mLb.Groups[1].Value + ":" + mLb.Groups[2].Value
                      + "," + ts + ",D=" + mLb.Groups[3].Value + side + "}";
             }
+
+            // {BigText:LINE} — duration-less persistent line (or {BigText:End}).
+            // D=0 marks the persistent flow for the runtime parser.
+            Match mBigText = Regex.Match(innerCurly, @"^BigText:([^,}]+)$");
+            if (mBigText.Success)
+                return "{BigText:" + mBigText.Groups[1].Value + "," + ts + ",D=0}";
 
             // Content cards: Headline / Excerpt / Quote / Stat
             // (DOTALL so embedded newlines in quoted text are tolerated). Preserve

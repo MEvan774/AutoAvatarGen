@@ -42,4 +42,11 @@ public class ContentCardEvent
     // null = no per-tag choice; fall back to the CardEntryAnimator's per-card
     // default (Left) / runtime direction. See ContentCard.SetDirectionOverride.
     public EntryDirection? entryDirectionOverride;
+
+    // {BigText:End} — closes the persistent BigText stack instead of showing
+    // anything. Only set for duration-less BigText tags whose text is the
+    // reserved End keyword; see ContentZoneTagParser.ExtractBigTexts.
+    // A duration-less BigText event WITHOUT this flag opens the persistent
+    // stack (duration <= 0) or appends a line to the one already on screen.
+    public bool dismissesCard;
 }

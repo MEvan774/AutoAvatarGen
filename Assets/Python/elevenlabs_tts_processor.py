@@ -113,7 +113,7 @@ _ALL_MARKERS = re.compile(
        r'|\{Logo:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
        r'|\{BRoll:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
        r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                # big-media feature cards
-       r'|\{BigText:[^,}]+,\d+(?:\.\d+)?\}'                 # big-text feature cards
+       r'|\{BigText:[^,}]+(?:,\d+(?:\.\d+)?)?\}'            # big-text cards — duration OPTIONAL (persistent {BigText:LINE}…{BigText:End} flow); lockstep with TtsScriptProcessor.cs
        r'|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}'                # big-image article cards
        r'|\[[^\]]*\]'                                       # [stage directions] (any chars, incl. commas)
        # SAFETY NET — last alternative, so every pattern above still wins first.
@@ -508,6 +508,12 @@ def _stamp_marker(marker: str, t: float) -> str:
     if m_lb:
         side = f",{m_lb.group(4)}" if m_lb.group(4) else ''
         return f"{{{m_lb.group(1)}:{m_lb.group(2)},{ts},D={m_lb.group(3)}{side}}}"
+
+    # {BigText:LINE} — duration-less persistent line (or {BigText:End}).
+    # D=0 marks the persistent flow for the runtime parser.
+    m_bt = re.match(r'^BigText:([^,}]+)$', inner)
+    if m_bt:
+        return f"{{BigText:{m_bt.group(1)},{ts},D=0}}"
 
     # Content cards: Headline / Excerpt / Quote / Stat
     # Preserve an optional trailing modifier after D= — ",bigCenter" (Headline →

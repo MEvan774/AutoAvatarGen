@@ -23,7 +23,10 @@ public static class ContentZoneTagParser
     private static readonly Regex StripAllRegex = new Regex(
         @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}" +
         @"|\{(?:Logo|BRoll):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
-        @"|\{(?:BigMedia|BigText|BigImage):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}");
+        @"|\{(?:BigMedia|BigImage):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}" +
+        // BigText's duration is OPTIONAL — the duration-less form is the
+        // persistent line-by-line flow ({BigText:LINE}…{BigText:End}).
+        @"|\{BigText:[^,}]+(?:,T=\d+(?:\.\d+)?)?(?:,(?:D=)?\d+(?:\.\d+)?)?\}");
 
     // Individual extraction patterns. Each accepts an optional ",T=X.XXX"
     // between the content fields and the duration, and an optional "D=" prefix
@@ -52,8 +55,11 @@ public static class ContentZoneTagParser
     private static readonly Regex BigMediaRegex = new Regex(
         @"\{BigMedia:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
 
+    // Duration optional (unlike every other card): {BigText:LINE} with no
+    // duration is a persistent line — it opens/joins an on-screen stack that
+    // stays up until {BigText:End}. With a duration it's the classic timed card.
     private static readonly Regex BigTextRegex = new Regex(
-        @"\{BigText:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+        @"\{BigText:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,(?:D=)?(\d+(?:\.\d+)?))?\}");
 
     private static readonly Regex BigImageRegex = new Regex(
         @"\{BigImage:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
@@ -252,14 +258,25 @@ public static class ContentZoneTagParser
         foreach (Match match in BigTextRegex.Matches(script))
         {
             float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            string text = match.Groups[1].Value.Trim();
+            float duration = match.Groups[3].Success ? ParseFloat(match.Groups[3].Value) : 0f;
+
+            // Duration-less "End" (canonical; Stop/Out as typo-tolerance) closes
+            // the persistent stack — it is a reserved word, not displayable text.
+            string lower = text.ToLowerInvariant();
+            bool dismiss = duration <= 0f && (lower == "end" || lower == "stop" || lower == "out");
+
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
                 cardType = ContentCardType.BigText,
-                primaryText = match.Groups[1].Value.Trim(),
-                duration = ParseFloat(match.Groups[3].Value)
+                primaryText = text,
+                duration = duration,
+                dismissesCard = dismiss
             });
-            Debug.Log($"  BigText at {time:F2}s: {match.Groups[1].Value.Trim()}");
+            Debug.Log(dismiss
+                ? $"  BigText End at {time:F2}s"
+                : $"  BigText at {time:F2}s: {text}" + (duration <= 0f ? " (persistent)" : ""));
         }
     }
 
