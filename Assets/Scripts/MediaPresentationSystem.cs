@@ -660,17 +660,19 @@ public class MediaPresentationSystem : MonoBehaviour
                 if (avatarSystem != null)
                     avatarSystem.SetSwayBase(target.position, target.rotation);
             }
+            UpdateFacing(targetPosition);
         }
         else
         {
-            // Smooth eased movement
+            // Smooth eased movement; facing flips midway through the glide
+            // (inside MoveAvatar), not here, so the presenter visibly turns
+            // around mid-travel instead of popping at departure.
             Transform current = GetTransformForPosition(currentPosition);
             if (current == null) current = centerLocation;
-            movementCoroutine = StartCoroutine(MoveAvatar(current, target));
+            movementCoroutine = StartCoroutine(MoveAvatar(current, target, targetPosition));
         }
 
         currentPosition = targetPosition;
-        UpdateFacing(targetPosition);
 
         // Pause/resume content cards based on character position
         if (contentZoneController != null)
@@ -1279,16 +1281,20 @@ public class MediaPresentationSystem : MonoBehaviour
     // Move Avatar (same easing as your original)
     // -----------------------------------------------------------------------
 
-    IEnumerator MoveAvatar(Transform currentLocation, Transform targetLocation)
+    IEnumerator MoveAvatar(Transform currentLocation, Transform targetLocation, CharacterPosition targetPosition)
     {
         if (avatarParent == null || currentLocation == null || targetLocation == null)
+        {
+            UpdateFacing(targetPosition);
             yield break;
+        }
 
         float time = 0f;
         Vector3 startPos = currentLocation.position;
         Vector3 targetPos = targetLocation.position;
         Quaternion startRot = currentLocation.rotation;
         Quaternion targetRot = targetLocation.rotation;
+        bool turnedAround = false;
 
         Debug.Log($"Moving from {currentLocation.name} to {targetLocation.name}");
 
@@ -1296,12 +1302,24 @@ public class MediaPresentationSystem : MonoBehaviour
         {
             float t = EaseInOutQuart(time / transitionDuration);
 
+            // Keep the departure facing for the first half of the glide, then
+            // turn around toward the new side. If the move is interrupted by a
+            // new {Position:} before the midpoint, that move sets its own facing.
+            if (!turnedAround && t >= 0.5f)
+            {
+                UpdateFacing(targetPosition);
+                turnedAround = true;
+            }
+
             avatarParent.position = Vector3.Lerp(startPos, targetPos, t);
             avatarParent.rotation = Quaternion.Slerp(startRot, targetRot, t);
 
             time += Time.deltaTime;
             yield return null;
         }
+
+        if (!turnedAround)
+            UpdateFacing(targetPosition);
 
         avatarParent.position = targetPos;
         avatarParent.rotation = targetRot;

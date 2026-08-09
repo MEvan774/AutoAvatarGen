@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: SynthwaveGrid
+  m_Shader: {fileID: 4800000, guid: eba1d82b796741858f8405c8429b98e0, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties:
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats:
+    - _Brightness: 1
+    - _CellSize: 2
+    - _FadeEnd: 220
+    - _FadeStart: 70
+    - _GlowWidth: 0.35
+    - _LineWidth: 0.06
+    - _ScrollSpeed: 4
+    m_Colors:
+    - _BaseColor: {r: 0.05, g: 0.012, b: 0.08, a: 1}
+    - _GlowColor: {r: 0.85, g: 0.38, b: 0.93, a: 1}
+    - _HorizonColor: {r: 1, g: 0.93, b: 1, a: 1}
+    - _LineColor: {r: 0.98, g: 0.88, b: 1, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1
