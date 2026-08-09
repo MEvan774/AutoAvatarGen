@@ -174,6 +174,29 @@ public class BigTextCard : ContentCard
         float stagger = cfg.staggerDelay;
         AnimationCurve curve = OvershootCurve;
 
+        // The offset alone measures the start from each line's RESTING slot,
+        // but the slots form a stack — on a vertical entry the stack's leading
+        // lines would start a whole stack-height closer to the screen than its
+        // trailing line (a 4-line stack put the first two lines in full view).
+        // Instead every line departs from one shared start on the travel axis:
+        // `offset` beyond the stack's trailing slot, and never nearer than
+        // fully outside the view.
+        float minRestY = float.MaxValue, maxRestY = float.MinValue;
+        for (int i = 0; i < activeLineCount; i++)
+        {
+            float y = lineContainers[i].anchoredPosition.y;
+            if (y < minRestY) minRestY = y;
+            if (y > maxRestY) maxRestY = y;
+        }
+
+        // Half the card's view size; the rect isn't resolved on the first
+        // frame, so fall back to the 1920x1080 reference the layout constants
+        // are authored in.
+        float halfH = rectTransform.rect.height > 1f ? rectTransform.rect.height * 0.5f : 540f;
+        float halfW = rectTransform.rect.width  > 1f ? rectTransform.rect.width  * 0.5f : 960f;
+        float outY = halfH + LINE_HEIGHT * 0.5f;   // |y| beyond this = fully hidden
+        float outX = halfW + 800f;                 // line containers are 1600 wide
+
         Sequence seq = DOTween.Sequence();
 
         for (int i = 0; i < activeLineCount; i++)
@@ -182,7 +205,12 @@ public class BigTextCard : ContentCard
             rt.localEulerAngles = Vector3.zero;
 
             Vector2 endPos = rt.anchoredPosition;
-            rt.anchoredPosition = endPos + offset;
+            Vector2 startPos = endPos + offset;
+            if      (offset.y < 0f) startPos.y = Mathf.Min(minRestY + offset.y, -outY);
+            else if (offset.y > 0f) startPos.y = Mathf.Max(maxRestY + offset.y,  outY);
+            else if (offset.x < 0f) startPos.x = Mathf.Min(startPos.x, -outX);
+            else if (offset.x > 0f) startPos.x = Mathf.Max(startPos.x,  outX);
+            rt.anchoredPosition = startPos;
 
             // Build the per-line tween fully — ease + delay — BEFORE handing it
             // to the sequence. Sequence.Insert with an AnimationCurve ease has
