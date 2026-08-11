@@ -9,12 +9,8 @@ namespace MugsTech.Background
     /// Central toggle for what shows behind the avatar during recording.
     /// Drives three mutually-exclusive modes:
     ///
-    ///   • Normal      — the SynthwaveBackground prefab instance (scrolling
-    ///                   neon grid + animated sky) shows behind the avatar.
-    ///                   The retired BackgroundPanel mp4 backdrop (plus its
-    ///                   ambient shader, scrolling shapes and mood
-    ///                   transitions) is force-disabled so it can't play
-    ///                   behind the synthwave quads.
+    ///   • Video       — the normal scene: BackgroundPanel mp4 + ambient shader
+    ///                   + scrolling shapes + mood transitions all run.
     ///   • GreenScreen — flat #00FF00 behind the character so it can be
     ///                   chroma-keyed in post. Disables every background
     ///                   GameObject / system to reclaim GPU for the recorder.
@@ -29,16 +25,12 @@ namespace MugsTech.Background
     ///   LoadMethod. <see cref="CrossPlatformRecorder"/> reads the same key
     ///   in its Awake so the Evereal `transparent` flag and camera clear
     ///   stay in sync with the user's choice.
-    ///
-    ///   Mode value 0 used to be "Video" (mp4 backdrop). It was replaced by
-    ///   Normal at the same enum value on purpose: existing PlayerPrefs keep
-    ///   working, and the mp4 backdrop path is retired everywhere.
     /// </summary>
     public static class BackgroundModeManager
     {
         public enum Mode
         {
-            Normal      = 0,
+            Video       = 0,
             GreenScreen = 1,
             Transparent = 2,
         }
@@ -53,18 +45,8 @@ namespace MugsTech.Background
         /// </summary>
         public const string GreenScreenObjectName = "GreenScreenBackground";
 
-        /// <summary>
-        /// Name of the scene GameObject holding the synthwave background
-        /// prefab instance (Assets/Prefabs/SynthwaveBackground.prefab).
-        /// Activated in Normal mode, deactivated in GreenScreen and
-        /// Transparent modes — its quads are opaque 3D geometry, so leaving
-        /// it on would ruin the chroma plate / alpha capture. If no
-        /// GameObject with this name exists, the toggle is a silent no-op.
-        /// </summary>
-        public const string SynthwaveObjectName = "SynthwaveBackground";
-
         public static Mode LoadMode()
-            => (Mode)PlayerPrefs.GetInt(ModePrefKey, (int)Mode.Normal);
+            => (Mode)PlayerPrefs.GetInt(ModePrefKey, (int)Mode.Video);
 
         public static void SaveMode(Mode mode)
         {
@@ -76,7 +58,7 @@ namespace MugsTech.Background
         {
             switch (m)
             {
-                case Mode.Normal:      return "Normal";
+                case Mode.Video:       return "Video";
                 case Mode.GreenScreen: return "Green Screen";
                 case Mode.Transparent: return "Transparent";
                 default:               return m.ToString();
@@ -118,42 +100,23 @@ namespace MugsTech.Background
             // The GreenScreenBackground plane is the chroma-key backdrop (the
             // camera clear colour doesn't survive this scene's post-camera, so a
             // real Image is what actually shows green). It runs in ALL modes so
-            // Green → Normal still hides it, and ToggleGreenScreenBackground forces
+            // Green → Video still hides it, and ToggleGreenScreenBackground forces
             // it BEHIND every foreground layer so it no longer occludes cards.
             bool gsToggled = ToggleGreenScreenBackground(mode == Mode.GreenScreen);
 
-            // Same deal for the synthwave backdrop, mirrored: ON in Normal,
-            // OFF in GreenScreen/Transparent where its opaque quads would
-            // pollute the chroma plate / alpha channel.
-            bool swPresent = ToggleSynthwaveBackground(mode == Mode.Normal);
-
-            // Scenes without a SynthwaveBackground object (the main menu) keep
-            // their own decorations in Normal mode — only the recording scene
-            // swaps backdrops. Chroma/alpha modes still strip every scene.
-            if (mode == Mode.Normal && !swPresent)
+            if (mode == Mode.Video)
             {
                 if (gsToggled)
-                    Debug.Log($"[BackgroundModeManager] Mode=Normal: deactivated '{GreenScreenObjectName}'.");
+                    Debug.Log($"[BackgroundModeManager] Mode=Video: deactivated '{GreenScreenObjectName}'.");
                 return;
             }
 
-            // The retired mp4 backdrop and its satellites are disabled in every
-            // remaining case: Normal replaces it with the synthwave prefab,
-            // GreenScreen/Transparent need a clean plate.
             int panels    = DisableBackgroundPanels();
             int ambient   = DisableBackgroundAmbientRenderers();
             int shapes    = DisableScrollingShapes();
             int moods     = DisableMoodControllers();
-
-            // Content-side sparkle (floating shapes, UI bloom) stays on in
-            // Normal mode — it belongs to the foreground look. Chroma/alpha
-            // modes still disable it to reclaim GPU for the encoder.
-            int floating = 0, blooms = 0;
-            if (mode != Mode.Normal)
-            {
-                floating = DisableComponentsOfType<FloatingShape>();
-                blooms   = DisableComponentsOfType<UIBloom>();
-            }
+            int floating  = DisableComponentsOfType<FloatingShape>();
+            int blooms    = DisableComponentsOfType<UIBloom>();
 
             Debug.Log($"[BackgroundModeManager] Mode={mode} on scene '{SceneManager.GetActiveScene().name}': " +
                       $"disabled {panels} background panel(s), " +
@@ -162,8 +125,7 @@ namespace MugsTech.Background
                       $"{moods} mood controller(s), " +
                       $"{floating} floating-shape(s), " +
                       $"{blooms} UI bloom(s), " +
-                      $"greenscreen-bg={(mode == Mode.GreenScreen ? "ON" : "OFF")}, " +
-                      $"synthwave-bg={(mode == Mode.Normal ? "ON" : "OFF")}.");
+                      $"greenscreen-bg={(mode == Mode.GreenScreen ? "ON" : "OFF")}.");
 
             // Second pass on the next frame — VisualsRuntimeApplier and
             // BackgroundVideoOverride also subscribe to sceneLoaded; if one of
@@ -176,7 +138,7 @@ namespace MugsTech.Background
 
         // Re-runs the disable pass once after a few frames of settling time,
         // long enough for other sceneLoaded subscribers (in undefined order)
-        // to have finished their own work.
+        // to have finished their own work. Cheap — only fires when mode != Video.
         static IEnumerator DeferredRedisable()
         {
             // Wait a few frames so any post-sceneLoaded Prepare() calls from
@@ -186,15 +148,11 @@ namespace MugsTech.Background
 
             Mode mode = LoadMode();
 
-            // Re-assert both backdrop states in case anything toggled them
-            // between our first pass and now.
+            // Re-assert the GreenScreenBackground state in case anything
+            // toggled it between our first pass and now.
             ToggleGreenScreenBackground(mode == Mode.GreenScreen);
-            bool swPresent = ToggleSynthwaveBackground(mode == Mode.Normal);
 
-            // Mirror ApplyToActiveScene: in Normal mode only scenes hosting
-            // the synthwave object retire the mp4 backdrop.
-            if (mode == Mode.Normal && !swPresent) yield break;
-
+            if (mode == Mode.Video) yield break;
             int panels = DisableBackgroundPanels();
             if (panels > 0)
             {
@@ -235,20 +193,6 @@ namespace MugsTech.Background
             if (canvas == null) canvas = green.AddComponent<Canvas>();
             canvas.overrideSorting = true;
             canvas.sortingOrder = short.MinValue; // -32768: as far back as sorting goes
-        }
-
-        // Same find-including-inactive pattern as the green screen toggle, but
-        // no sorting-canvas forcing: the synthwave quads are opaque 3D world
-        // geometry far behind the content, depth handles the ordering.
-        // Returns true if the GameObject exists in the active scene.
-        static bool ToggleSynthwaveBackground(bool shouldBeActive)
-        {
-            GameObject target = FindInActiveScene(SynthwaveObjectName);
-            if (target == null) return false;
-
-            if (target.activeSelf != shouldBeActive)
-                target.SetActive(shouldBeActive);
-            return true;
         }
 
         static GameObject FindInActiveScene(string name)

@@ -157,17 +157,16 @@ public class MainMenuController : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
-    // Background recording mode (Normal / Green Screen / Transparent)
+    // Background recording mode (Video / Green Screen / Transparent)
     //
     // The cycle row's three GameObjects (< button, value label, > button)
     // are now AUTHORED in the scene (use Tools > AutoAvatarGen > Add
     // Background Mode Row to create them, then style freely). We just wire
     // the listeners + initial label state here in Awake. Mode lives in
     // PlayerPrefs and is applied at scene load by BackgroundModeManager —
-    // "Normal" shows the SynthwaveBackground prefab in the recording scene
-    // (and retires the old mp4 backdrop); the other two strip every
-    // background system for a clean chroma/alpha plate, freeing GPU for the
-    // encoder.
+    // picking anything other than "Video" disables the BackgroundPanel,
+    // ambient shader, scrolling shapes, and mood controller in the recording
+    // scene, freeing GPU for the encoder.
     // -----------------------------------------------------------------------
 
     [Header("Background Mode Cycle Row")]
@@ -213,7 +212,7 @@ public class MainMenuController : MonoBehaviour
 
         // Tint matches the mode for quick visual recognition: green for
         // GreenScreen, faded blue for Transparent (since "alpha" is harder
-        // to color-code), synthwave purple for Normal.
+        // to color-code), the default slate for Video.
         switch (mode)
         {
             case MugsTech.Background.BackgroundModeManager.Mode.GreenScreen:
@@ -221,7 +220,7 @@ public class MainMenuController : MonoBehaviour
             case MugsTech.Background.BackgroundModeManager.Mode.Transparent:
                 backgroundModeLabel.color = new Color(0.55f, 0.65f, 0.85f); break;
             default:
-                backgroundModeLabel.color = new Color(0.85f, 0.60f, 0.95f); break;
+                backgroundModeLabel.color = Color.white; break;
         }
     }
 

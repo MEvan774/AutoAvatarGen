@@ -209,7 +209,7 @@ public class CrossPlatformRecorder : MonoBehaviour
 
     // Reads MugsTech.Background.BackgroundModeManager's PlayerPref and, if
     // the user picked Green Screen / Transparent, overrides the inspector
-    // backgroundMode. Normal mode leaves the inspector value alone — same
+    // backgroundMode. Video mode leaves the inspector value alone — same
     // inspector setup as before for users who never open the menu option.
     void ApplyBackgroundModeOverrideFromPrefs()
     {
