@@ -366,6 +366,74 @@ def _describe_alignment_stall(words: list):
             f"after that point will not match the narration. Re-render this script.")
 
 
+# The synthesis alignment is unreliable even when it doesn't stall (measured
+# +/-1.3s mid-segment and ~2s short at the tail on a real generation), so word
+# times are re-measured on the ACTUAL audio via /v1/forced-alignment when the
+# API key allows it. Mirror of ElevenLabsClient.GetForcedAlignment /
+# TtsGenerationJob's forced-alignment pass.
+_FORCED_ALIGNMENT_UNAVAILABLE = False
+
+
+def _forced_alignment(audio_bytes: bytes, clean_text: str, api_key: str):
+    """Word times measured on the rendered audio, or None when unavailable."""
+    global _FORCED_ALIGNMENT_UNAVAILABLE
+    if _FORCED_ALIGNMENT_UNAVAILABLE:
+        return None
+
+    try:
+        response = requests.post(
+            "https://api.elevenlabs.io/v1/forced-alignment",
+            headers={"xi-api-key": api_key},
+            files={"file": ("segment.mp3", audio_bytes, "audio/mpeg")},
+            data={"text": clean_text},
+            timeout=120)
+    except Exception as e:
+        print(f"    [WARNING] forced alignment request failed ({e}) - "
+              f"using synthesis alignment.")
+        return None
+
+    if response.status_code != 200:
+        if "missing_permissions" in response.text:
+            _FORCED_ALIGNMENT_UNAVAILABLE = True
+            print("    [WARNING] forced alignment unavailable: the API key lacks the "
+                  "'forced_alignment' permission (ElevenLabs dashboard -> API Keys). "
+                  "Using the less accurate synthesis alignment.")
+        else:
+            print(f"    [WARNING] forced alignment returned {response.status_code} - "
+                  f"using synthesis alignment.")
+        return None
+
+    words = [
+        {"word": w["text"].strip(), "start": w["start"], "end": w["end"]}
+        for w in response.json().get("words", [])
+        if w.get("text", "").strip()
+    ]
+    return words or None
+
+
+# How much longer the audio may run past the alignment's last word before the
+# alignment is declared wrong (the tail truncation that made the stitcher cut a
+# section's last words ahead of a transition). Only meaningful for the synthesis
+# alignment - forced alignment measures the audio itself. The TTS endpoint's
+# default output is mp3_44100_128 (constant 128kbps), so byte length is a +/-1%
+# duration estimate. Mirror of TtsGenerationJob.DescribeTailMismatch.
+_TAIL_MISMATCH_SECONDS = 1.5
+
+
+def _describe_tail_mismatch(audio_bytes: bytes, words: list):
+    if not audio_bytes or not words:
+        return None
+    estimated = len(audio_bytes) * 8.0 / 128000.0
+    if estimated < 5.0:
+        return None
+    overrun = estimated - words[-1]['end']
+    if overrun <= _TAIL_MISMATCH_SECONDS:
+        return None
+    return (f"alignment ends {overrun:.1f}s before the audio does (last word at "
+            f"{words[-1]['end']:.1f}s, audio ~{estimated:.1f}s). Markers after the "
+            f"drift point will not match the narration.")
+
+
 def _group_chars_into_words(chars, starts, ends) -> list:
     words, current_word, current_start = [], [], None
 
@@ -555,17 +623,31 @@ def process_segment(segment: dict, out_dir: str, api_key: str,
     # Step 2 — re-render while the alignment comes back stalled. eleven_v3
     # occasionally keeps generating audio its own alignment doesn't describe, and
     # it's non-deterministic, so the same text usually comes back clean on a
-    # second attempt. Mirror of the retry loop in TtsGenerationJob.Run.
+    # second attempt. Each render is followed by a forced-alignment pass that
+    # measures word times on the ACTUAL audio; without it (key permission) the
+    # synthesis alignment is kept and cross-checked against the audio length.
+    # Mirror of the retry loop in TtsGenerationJob.Run.
     for attempt in range(1, MAX_STALL_RETRIES + 2):
         audio_bytes, word_ts = call_elevenlabs(clean, config, api_key)
-        if not _describe_alignment_stall(word_ts):
+
+        fa_words = _forced_alignment(audio_bytes, clean, api_key)
+        if fa_words:
+            word_ts = fa_words
+            print(f"    Timings from forced alignment ({len(word_ts)} words, "
+                  f"measured on the audio).")
+
+        problem = _describe_alignment_stall(word_ts)
+        if not problem and not fa_words:
+            problem = _describe_tail_mismatch(audio_bytes, word_ts)
+        if not problem:
             break
         if attempt <= MAX_STALL_RETRIES:
-            print(f"    [WARNING] stalled - re-rendering "
-                  f"({attempt}/{MAX_STALL_RETRIES})...")
+            print(f"    [WARNING] {problem}")
+            print(f"    [WARNING] re-rendering ({attempt}/{MAX_STALL_RETRIES})...")
         else:
-            print(f"    [WARNING] {slug} still stalled after "
-                  f"{MAX_STALL_RETRIES} retries - re-run before recording.")
+            print(f"    [WARNING] {slug}: {problem}")
+            print(f"    [WARNING] still bad after {MAX_STALL_RETRIES} retries - "
+                  f"re-run before recording.")
 
     # Step 3
     timed_markers = map_markers_to_timestamps(markers, word_ts, clean)

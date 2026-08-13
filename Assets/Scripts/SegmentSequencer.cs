@@ -36,6 +36,22 @@ using UnityEngine.Networking;
 //      least globalOffset[i] so markers that sat inside the (now-removed)
 //      leading silence fire at the segment's audible start instead of
 //      leaking into the previous segment.
+//   5. TIMING CORRECTION (correctTimingFromAudio): the manifest's
+//      speech_start/speech_end and every baked T= come from the ElevenLabs
+//      *synthesis* alignment, and eleven_v3's alignment does not reliably
+//      describe its own audio — measured on real generations it drifted up to
+//      ±1.3s mid-segment and once claimed speech ended 2.0s before it actually
+//      did, which made this stitcher CUT THE LAST WORDS of a section and then
+//      play the transition gap over them. So each segment's decoded samples
+//      are analyzed directly: the real speech span replaces the manifest span
+//      for trimming (a transition's silence can never amputate real speech,
+//      and the gap in front of a section-opening transition is exactly the
+//      authored leadIn+cover+reveal+tail regardless of how many transitions
+//      the script has), markers are linearly rescaled onto the measured span
+//      when the two disagree, and any marker that lands inside a measured
+//      pause snaps forward to the pause's end — the onset of the word it was
+//      authored against. Generations whose alignment is accurate (e.g. from
+//      the forced-alignment pass in TtsGenerationJob) pass through unchanged.
 //
 // WHY THIS WORKS WITH THE EXISTING REACTION SYSTEM
 //   MediaPresentationSystem / HybridAvatarSystem / ContentZoneController all
@@ -97,6 +113,14 @@ public class SegmentSequencer : MonoBehaviour
              "section's first word — a short settle on the revealed scene before he speaks.")]
     [Range(0f, 1f)]
     public float transitionTail = 0.15f;
+
+    [Header("Timing Correction")]
+    [Tooltip("Measure each segment's REAL speech span and pauses from the decoded audio and " +
+             "correct the manifest/marker times against them. eleven_v3's synthesis alignment " +
+             "can be seconds off (it once ended 2s before the actual last word, so the stitch " +
+             "cut real speech ahead of a transition). Costs a few ms per segment. Turn off only " +
+             "to A/B against the raw alignment.")]
+    public bool correctTimingFromAudio = true;
 
     // Outputs — populated by LoadAndBuild.
     [HideInInspector] public AudioClip combinedClip;
@@ -221,6 +245,17 @@ public class SegmentSequencer : MonoBehaviour
             AudioClip clip = clips[i];
             SegmentManifestEntry seg = segs[i];
 
+            // Ground the manifest's alignment-derived speech span (and later every
+            // marker) against the audio that was actually rendered.
+            SegmentAudioTiming timing = correctTimingFromAudio
+                ? AnalyzeSegmentAudio(clip, seg)
+                : null;
+            if (timing != null && timing.rescale)
+                Debug.Log($"[SegmentSequencer] {seg.slug}: alignment says speech is " +
+                          $"{timing.alignStart:F2}..{timing.alignEnd:F2}s but the audio measures " +
+                          $"{timing.realStart:F2}..{timing.realEnd:F2}s — retiming this segment's " +
+                          $"markers (end off by {timing.realEnd - timing.alignEnd:+0.00;-0.00}s).");
+
             if (pauseBefore[i] > 0f)
             {
                 int silenceFrames = Mathf.RoundToInt(pauseBefore[i] * sampleRate);
@@ -229,10 +264,15 @@ public class SegmentSequencer : MonoBehaviour
                 globalOffset += pauseBefore[i];
             }
 
-            float trimStart = (i == 0) ? 0f : Mathf.Max(0f, seg.speech_start);
+            // Trim on the MEASURED span when available, so a transition's baked
+            // silence starts after the audible last word — never over it.
+            float speechStart = timing != null ? timing.realStart : Mathf.Max(0f, seg.speech_start);
+            float speechEnd   = timing != null ? timing.realEnd   : seg.speech_end;
+
+            float trimStart = (i == 0) ? 0f : Mathf.Max(0f, speechStart - TrimPreRollSeconds);
             float trimEnd   = (i == last)
                 ? clip.length
-                : Mathf.Min(clip.length, Mathf.Max(seg.speech_end + trailingPadding, trimStart));
+                : Mathf.Min(clip.length, Mathf.Max(speechEnd + trailingPadding, trimStart));
 
             float segDuration = Mathf.Max(0f, trimEnd - trimStart);
 
@@ -255,7 +295,7 @@ public class SegmentSequencer : MonoBehaviour
             // into the previous segment after we trim leading silence.
             float delta        = globalOffset - trimStart;
             float minAllowedT  = globalOffset;
-            string shifted     = ShiftTimestamps(scripts[i], delta, minAllowedT);
+            string shifted     = ShiftTimestamps(scripts[i], delta, minAllowedT, timing);
 
             // The opening transition is the one marker that must fire BEFORE its
             // own segment's audio. Position it from the END of the gap — back off
@@ -390,7 +430,8 @@ public class SegmentSequencer : MonoBehaviour
 
     static readonly Regex _TPattern = new Regex(@"T=(\d+(?:\.\d+)?)");
 
-    static string ShiftTimestamps(string script, float deltaSeconds, float minAllowedT)
+    static string ShiftTimestamps(string script, float deltaSeconds, float minAllowedT,
+                                  SegmentAudioTiming timing = null)
     {
         return _TPattern.Replace(script, match =>
         {
@@ -398,9 +439,161 @@ public class SegmentSequencer : MonoBehaviour
                                 NumberStyles.Float, CultureInfo.InvariantCulture, out float t))
                 return match.Value;
 
+            // Alignment timeline -> measured-audio timeline first, then onto the
+            // combined clip. deltaSeconds is (globalOffset - trimStart), and both
+            // sides of that subtraction live on the measured timeline.
+            if (timing != null) t = timing.MapToReal(t);
+
             float shifted = Mathf.Max(minAllowedT, t + deltaSeconds);
             return "T=" + shifted.ToString("F3", CultureInfo.InvariantCulture);
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // Audio-measured segment timing (see step 5 of the class header).
+    //
+    // The ElevenLabs synthesis alignment is treated as a *claim* about the
+    // audio, not the truth: the decoded samples are measured directly, and the
+    // claim is corrected where it disagrees. Everything here is intentionally
+    // simple — an RMS envelope, a noise-floor-relative speech span, and a list
+    // of intra-speech pauses:
+    //   * span:   first/last 20ms window above (noise floor + 14dB), clamped
+    //             to [-48, -30] dBFS. Replaces manifest speech_start/end for
+    //             trimming, so baked transition gaps can't cut real words.
+    //   * rescale: when the spans disagree by > 0.25s at either end, marker
+    //             times are linearly rescaled from the alignment span onto the
+    //             measured span (distributes the observed end-drift).
+    //   * snap:  a marker landing inside a measured pause fires before its
+    //             word has begun — it snaps forward to the pause end (<= 0.9s),
+    //             the measured onset of the word it was authored against.
+    //             Pauses are "below -35 dBFS for >= 0.25s", which counts the
+    //             breaths eleven_v3 renders between sentences as pause.
+    // -----------------------------------------------------------------------
+
+    const float EnvelopeWindowSeconds = 0.02f;
+    const float SpanMarginDb          = 14f;
+    const float SpanThresholdMinDb    = -48f;
+    const float SpanThresholdMaxDb    = -30f;
+    const float PauseThresholdDb      = -35f;
+    const float MinRealPauseSeconds   = 0.25f;
+    const float SpanAgreementSeconds  = 0.25f;
+    const float PauseSnapMaxSeconds   = 0.9f;
+    const float TrimPreRollSeconds    = 0.05f;
+    const float RescaledSnapEndZone   = 8f;
+
+    class SegmentAudioTiming
+    {
+        public float realStart, realEnd;    // measured speech span in the clip
+        public float alignStart, alignEnd;  // manifest (synthesis-alignment) span
+        public bool  rescale;               // spans disagree -> warp marker times
+        public List<Vector2> pauses;        // measured pauses (x=start, y=end)
+
+        public float MapToReal(float t)
+        {
+            float u = t;
+            if (rescale)
+                u = realStart + (t - alignStart)
+                    * (realEnd - realStart) / Mathf.Max(0.01f, alignEnd - alignStart);
+
+            // Inside a measured pause = the authored word hasn't started yet, so
+            // snap forward to the measured word onset. When the alignment is
+            // provably wrong (rescale), the rescaled estimate is only trustworthy
+            // near the span ends it is anchored to — mid-segment the residual can
+            // exceed the snap radius and a snap would lock in an overshoot (v3's
+            // error curve swings sign), so snapping is confined to the end zones.
+            bool allowSnap = !rescale
+                || (t - alignStart) <= RescaledSnapEndZone
+                || (alignEnd - t)   <= RescaledSnapEndZone;
+            if (allowSnap && pauses != null)
+                for (int i = 0; i < pauses.Count; i++)
+                {
+                    Vector2 p = pauses[i];
+                    if (u >= p.x && u < p.y)
+                    {
+                        if (p.y - u <= PauseSnapMaxSeconds) u = p.y;
+                        break;
+                    }
+                }
+            return u;
+        }
+    }
+
+    static SegmentAudioTiming AnalyzeSegmentAudio(AudioClip clip, SegmentManifestEntry seg)
+    {
+        var timing = new SegmentAudioTiming {
+            alignStart = Mathf.Max(0f, seg.speech_start),
+            alignEnd   = Mathf.Max(Mathf.Max(0f, seg.speech_start) + 0.01f, seg.speech_end),
+            realStart  = Mathf.Max(0f, seg.speech_start),
+            realEnd    = seg.speech_end,
+            pauses     = new List<Vector2>(),
+        };
+
+        int channels = clip.channels;
+        int frames   = clip.samples;
+        if (frames <= 0 || channels <= 0) return timing;
+
+        float[] data = new float[frames * channels];
+        if (!clip.GetData(data, 0)) return timing;
+
+        int windowFrames = Mathf.Max(1, Mathf.RoundToInt(EnvelopeWindowSeconds * clip.frequency));
+        int windowCount  = frames / windowFrames;
+        if (windowCount < 8) return timing;
+
+        // Per-window RMS in dBFS across all channels.
+        float[] windowDb = new float[windowCount];
+        for (int w = 0; w < windowCount; w++)
+        {
+            int begin = w * windowFrames * channels;
+            int end   = begin + windowFrames * channels;
+            double acc = 0;
+            for (int s = begin; s < end; s++) acc += data[s] * (double)data[s];
+            double rms = System.Math.Sqrt(acc / (windowFrames * channels));
+            windowDb[w] = rms <= 1e-9 ? -120f : 20f * (float)System.Math.Log10(rms);
+        }
+
+        // Noise floor = 5th percentile; span threshold rides above it.
+        float[] sorted = (float[])windowDb.Clone();
+        System.Array.Sort(sorted);
+        float floor = sorted[Mathf.Clamp(Mathf.RoundToInt(sorted.Length * 0.05f), 0, sorted.Length - 1)];
+        float spanThreshold = Mathf.Min(SpanThresholdMaxDb, Mathf.Max(floor + SpanMarginDb, SpanThresholdMinDb));
+
+        int firstLoud = -1, lastLoud = -1;
+        for (int w = 0; w < windowCount; w++)
+        {
+            if (windowDb[w] < spanThreshold) continue;
+            if (firstLoud < 0) firstLoud = w;
+            lastLoud = w;
+        }
+        if (firstLoud < 0) return timing; // silent clip — keep manifest values
+
+        float measuredStart = firstLoud * EnvelopeWindowSeconds;
+        float measuredEnd   = (lastLoud + 1) * EnvelopeWindowSeconds;
+        if (measuredEnd - measuredStart < 1f) return timing; // degenerate — keep manifest
+
+        timing.realStart = measuredStart;
+        timing.realEnd   = measuredEnd;
+        timing.rescale   = Mathf.Abs(timing.realStart - timing.alignStart) > SpanAgreementSeconds
+                        || Mathf.Abs(timing.realEnd   - timing.alignEnd)   > SpanAgreementSeconds;
+
+        // Pauses inside the speech span (quiet run >= MinRealPauseSeconds).
+        int minPauseWindows = Mathf.Max(1, Mathf.RoundToInt(MinRealPauseSeconds / EnvelopeWindowSeconds));
+        int runStart = -1;
+        for (int w = firstLoud; w <= lastLoud + 1; w++)
+        {
+            bool quiet = w <= lastLoud && windowDb[w] < PauseThresholdDb;
+            if (quiet)
+            {
+                if (runStart < 0) runStart = w;
+            }
+            else if (runStart >= 0)
+            {
+                if (w - runStart >= minPauseWindows)
+                    timing.pauses.Add(new Vector2(runStart * EnvelopeWindowSeconds,
+                                                  w * EnvelopeWindowSeconds));
+                runStart = -1;
+            }
+        }
+        return timing;
     }
 
     IEnumerator LoadAudioClip(string path, Action<AudioClip> onLoaded)

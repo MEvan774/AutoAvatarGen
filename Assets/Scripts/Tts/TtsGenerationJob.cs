@@ -153,6 +153,15 @@ namespace MugsTech.Tts
                 // It's non-deterministic, so the same text usually comes back
                 // clean on a second attempt; retry rather than ship a take whose
                 // cards drift out of sync.
+                //
+                // The synthesis alignment is unreliable even when it doesn't
+                // stall (measured ±1.3s mid-segment, ~2s at the tail), so each
+                // render is followed by a forced-alignment pass that measures
+                // word times on the ACTUAL audio. When the API key lacks the
+                // forced_alignment permission the synthesis alignment is kept,
+                // cross-checked against the audio length (a cheap way to catch
+                // the tail truncation that made the stitcher cut real speech
+                // ahead of section transitions).
                 ElevenLabsClient.TtsResult tts = null;
                 string ttsError    = null;
                 string stall       = null;
@@ -183,13 +192,51 @@ namespace MugsTech.Tts
                         yield break;
                     }
 
+                    // Replace the synthesis word times with ones measured on the
+                    // rendered audio, when the account allows it.
+                    bool usedForcedAlignment = false;
+                    if (!_forcedAlignmentUnavailable)
+                    {
+                        List<TtsScriptProcessor.WordTimestamp> fa = null;
+                        string faError = null;
+
+                        Report(SegmentProgress(done, 0.91f, segments.Count),
+                            $"[{seg.Slug}] aligning against the rendered audio…");
+                        yield return CoroutineHost.Instance.StartCoroutine(
+                            ElevenLabsClient.GetForcedAlignment(
+                                tts.AudioBytes, clean, cfg.ApiKey,
+                                ok => fa = ok, e => faError = e));
+
+                        if (fa != null && fa.Count > 0)
+                        {
+                            tts.WordTimestamps = fa;
+                            usedForcedAlignment = true;
+                        }
+                        else if (faError != null && faError.Contains("missing_permissions"))
+                        {
+                            _forcedAlignmentUnavailable = true;
+                            Debug.LogWarning(
+                                "[Tts] Forced alignment is unavailable: the ElevenLabs API key " +
+                                "lacks the 'forced_alignment' permission. Marker timings will use " +
+                                "the less accurate synthesis alignment. To fix: ElevenLabs " +
+                                "dashboard → API Keys → enable Forced Alignment for this key.");
+                        }
+                        else if (faError != null)
+                        {
+                            Debug.LogWarning($"[Tts:{seg.Slug}] Forced alignment failed " +
+                                             $"({Trunc(faError, 200)}) — using synthesis alignment.");
+                        }
+                    }
+
                     stall = DescribeAlignmentStall(tts.WordTimestamps);
+                    if (stall == null && !usedForcedAlignment)
+                        stall = DescribeTailMismatch(tts.AudioBytes, tts.WordTimestamps);
                     if (stall == null) break;          // clean render — keep it
 
                     Debug.LogWarning($"[Tts:{seg.Slug}] {stall}");
                     if (attempt < maxAttempts)
                         Report(SegmentProgress(done, 0.92f, segments.Count),
-                            $"[{seg.Slug}] ⚠ stalled — re-rendering " +
+                            $"[{seg.Slug}] ⚠ bad alignment — re-rendering " +
                             $"({attempt}/{maxAttempts - 1})…");
                 }
 
@@ -292,6 +339,36 @@ namespace MugsTech.Tts
         // segment re-renders fine — so the only defence is to say so loudly
         // instead of letting a broken take reach the recorder.
         const float StallWordSeconds = 3f;
+
+        // Once the API answers 401 missing_permissions for forced alignment, the
+        // rest of the run (and session) skips the call instead of paying a
+        // round-trip per segment to be told no again.
+        static bool _forcedAlignmentUnavailable;
+
+        // How much longer the audio may run past the alignment's last word
+        // before the alignment is declared wrong. On a real generation the
+        // synthesis alignment once ended 1.98s before the audio did — the
+        // stitcher then trimmed at "speech_end" and cut the section's last
+        // words right where a transition's silence begins.
+        const float TailMismatchSeconds = 1.5f;
+
+        // The TTS endpoint's default output is mp3_44100_128 — constant 128kbps,
+        // so byte length is a ±1% duration estimate with no decode needed.
+        static string DescribeTailMismatch(byte[] audioBytes, List<TtsScriptProcessor.WordTimestamp> words)
+        {
+            if (audioBytes == null || words == null || words.Count == 0) return null;
+
+            float estimatedSeconds = audioBytes.Length * 8f / 128000f;
+            if (estimatedSeconds < 5f) return null; // too short for the estimate to mean much
+
+            float alignEnd = words[words.Count - 1].End;
+            float overrun  = estimatedSeconds - alignEnd;
+            if (overrun <= TailMismatchSeconds) return null;
+
+            return $"Alignment ends {overrun:F1}s before the audio does " +
+                   $"(last word at {alignEnd:F1}s, audio ≈{estimatedSeconds:F1}s). " +
+                   "Markers after the drift point will not match the narration. Re-rendering.";
+        }
 
         static string DescribeAlignmentStall(List<TtsScriptProcessor.WordTimestamp> words)
         {

@@ -50,3 +50,10 @@ parser AND both TTS marker processors AND the guide, or it breaks silently.
   bypass the guard.
 - Recorder configuration happens in `StartRecordingWithAudio`, not `Awake`
   (the component's Awake never fires in the recording flow).
+- **eleven_v3's synthesis alignment lies** — measured ±1.3s mid-segment and 2s
+  short at a tail, which cut real speech ahead of transitions. Timing is
+  defended in three layers: a forced-alignment pass in `TtsGenerationJob`
+  (needs the API key's `forced_alignment` permission or it falls back), a
+  tail-mismatch re-render check, and `SegmentSequencer.correctTimingFromAudio`
+  (measures real speech spans/pauses from the decoded clips). Don't remove any
+  of them.

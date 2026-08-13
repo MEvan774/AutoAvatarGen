@@ -117,6 +117,72 @@ namespace MugsTech.Tts
             }
         }
 
+        /// <summary>
+        /// Coroutine: POST the rendered audio + its transcript to
+        /// <c>/v1/forced-alignment</c> and return word timings measured on the
+        /// ACTUAL audio. eleven_v3's synthesis alignment routinely drifts off
+        /// its own render (±1s mid-segment, up to ~2s at the tail on real
+        /// generations), while forced alignment listens to the file it is
+        /// given — so these timings are the ones markers should be mapped with.
+        /// Requires the API key to carry the <c>forced_alignment</c> permission;
+        /// without it the API answers 401 missing_permissions and the caller
+        /// falls back to the synthesis alignment.
+        /// </summary>
+        public static IEnumerator GetForcedAlignment(
+            byte[] audioBytes,
+            string text,
+            string apiKey,
+            Action<List<TtsScriptProcessor.WordTimestamp>> onSuccess,
+            Action<string> onError)
+        {
+            if (audioBytes == null || audioBytes.Length == 0 || string.IsNullOrEmpty(text))
+            {
+                onError?.Invoke("Nothing to align (no audio or empty text).");
+                yield break;
+            }
+
+            var form = new List<IMultipartFormSection> {
+                new MultipartFormFileSection("file", audioBytes, "segment.mp3", "audio/mpeg"),
+                new MultipartFormDataSection("text", text),
+            };
+
+            using (var request = UnityWebRequest.Post(
+                "https://api.elevenlabs.io/v1/forced-alignment", form))
+            {
+                request.SetRequestHeader("xi-api-key", apiKey);
+                request.timeout = 120;
+
+                yield return request.SendWebRequest();
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    string detail = request.downloadHandler != null
+                        ? request.downloadHandler.text : "";
+                    onError?.Invoke($"Forced alignment error {request.responseCode}: " +
+                                    $"{request.error}\n{Truncate(detail, 400)}");
+                    yield break;
+                }
+
+                List<TtsScriptProcessor.WordTimestamp> words;
+                try
+                {
+                    words = ParseForcedAlignment(request.downloadHandler.text);
+                }
+                catch (Exception e)
+                {
+                    onError?.Invoke($"Failed to parse forced-alignment response: {e.Message}");
+                    yield break;
+                }
+
+                if (words.Count == 0)
+                {
+                    onError?.Invoke("Forced alignment returned no words.");
+                    yield break;
+                }
+                onSuccess?.Invoke(words);
+            }
+        }
+
         // ---- request / response shapes -----------------------------------
 
         [Serializable]
@@ -125,6 +191,41 @@ namespace MugsTech.Tts
             public string text;
             public string model_id;
             public VoiceSettings voice_settings;
+        }
+
+        // /v1/forced-alignment response: { characters:[...], words:[{text,start,
+        // end,loss}], loss } — only the words are consumed; JsonUtility skips
+        // the unknown fields.
+        [Serializable]
+        private class ForcedAlignmentWord
+        {
+            public string text;
+            public float  start;
+            public float  end;
+        }
+
+        [Serializable]
+        private class ForcedAlignmentResponse
+        {
+            public ForcedAlignmentWord[] words;
+        }
+
+        private static List<TtsScriptProcessor.WordTimestamp> ParseForcedAlignment(string json)
+        {
+            var resp = JsonUtility.FromJson<ForcedAlignmentResponse>(json);
+            var words = new List<TtsScriptProcessor.WordTimestamp>();
+            if (resp?.words == null) return words;
+
+            foreach (var w in resp.words)
+            {
+                if (w == null || string.IsNullOrWhiteSpace(w.text)) continue;
+                words.Add(new TtsScriptProcessor.WordTimestamp {
+                    Word  = w.text.Trim(),
+                    Start = w.start,
+                    End   = w.end,
+                });
+            }
+            return words;
         }
 
         // JsonUtility doesn't like top-level arrays-of-floats, but it's fine
