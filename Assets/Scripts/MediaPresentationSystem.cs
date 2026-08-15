@@ -5,7 +5,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.RegularExpressions;
-using MugsTech;   // TimestampMarkerLog — the {Timestamp:"..."} chapter-marker capture buffer
+using DG.Tweening;    // media entry slide/fade — same tween library the content cards use
+using MugsTech;       // TimestampMarkerLog — the {Timestamp:"..."} chapter-marker capture buffer
+using MugsTech.Style; // EntryDirection — shared with the content-card side modifiers
 
 // ============================================================================
 // MediaPresentationSystem — expanded with character position markers.
@@ -17,7 +19,11 @@ using MugsTech;   // TimestampMarkerLog — the {Timestamp:"..."} chapter-marker
 //   - Position changes are tracked against audio time, same as emotions/media
 //
 // WHAT'S UNCHANGED:
-//   - {Image:name,duration} and {Video:name,duration} markers work identically
+//   - {Image:name,duration} and {Video:name,duration} markers work as before.
+//     Both also accept an optional trailing ",Left"/",Right" (like the side
+//     content cards) picking the screen side the media rests on — default is
+//     the authored (left) slot — and enter with the cards' slide+fade
+//     overshoot animation (see ShowDisplay/PlayMediaEntry).
 //   - MoveAvatar easing and DisplayMedia — all the same ({Video:} no longer
 //     pauses the narration; the clip is a silent overlay, see ShowMedia)
 //   - HybridAvatarSystem handles emotions/sway — completely untouched
@@ -243,6 +249,23 @@ public class MediaPresentationSystem : MonoBehaviour
     // back, so the next {Image:} sees the slot the scene actually authored.
     private Vector2 mediaDisplayBaseSize;
 
+    // Authored side-slot layout of the mediaDisplay rect, captured in Awake
+    // alongside mediaDisplayBaseSize. A media tag's ",Right" modifier mirrors
+    // these about the parent's center for that one marker (see ApplyMediaSide);
+    // the end-of-media cleanup puts the authored (left) values back.
+    private Vector2 mediaDisplayBaseAnchorMin;
+    private Vector2 mediaDisplayBaseAnchorMax;
+    private Vector2 mediaDisplayBasePivot;
+    private Vector2 mediaDisplayBaseAnchoredPos;
+
+    // Fade handle for the media entry animation, added to mediaDisplay's own
+    // GameObject in Awake (the RawImage has no CanvasGroup in the scene).
+    private CanvasGroup mediaDisplayGroup;
+
+    // Entry tween of the media on screen — killed by the end-of-media cleanup
+    // so a dismissed media can't keep animating the rect the next marker uses.
+    private Sequence mediaEntrySequence;
+
     /// <summary>
     /// Picks the VideoPlayer that {Video:} playback drives, and configures it.
     ///
@@ -312,7 +335,8 @@ public class MediaPresentationSystem : MonoBehaviour
             vp.EnableAudioTrack(i, false);
     }
 
-    // Minimum on-screen time for a {Video:} that carries no duration.
+    // Minimum on-screen time for a {Video:} that carries no duration, and the
+    // display time for a duration-less {Image:} (the guide's documented 3s).
     const float DefaultMediaSeconds = 3f;
 
     // Bumped by anything that supersedes on-screen media: the presenter actually
@@ -343,10 +367,85 @@ public class MediaPresentationSystem : MonoBehaviour
 
     // Reveal the display now that it holds a real texture. Kept as a single
     // call site so no future branch can activate an empty (white) RawImage.
-    void ShowDisplay()
+    // Rests the slot on the marker's side — ",Right" mirrors the authored
+    // left-side rect about the parent's center, exactly like a ",Right" content
+    // card — then plays the cards' slide+fade entry from that side.
+    void ShowDisplay(MediaMarkerData marker)
     {
-        if (mediaDisplay != null && mediaDisplay.texture != null)
-            mediaDisplay.gameObject.SetActive(true);
+        if (mediaDisplay == null || mediaDisplay.texture == null) return;
+
+        bool onRight = marker.side == EntryDirection.FromRight;
+        ApplyMediaSide(onRight);
+        mediaDisplay.gameObject.SetActive(true);
+        PlayMediaEntry(onRight ? EntryDirection.FromRight : EntryDirection.FromLeft);
+    }
+
+    // Rests the media slot on the requested side. Right reflects the authored
+    // rect about the parent's center — the same reflection
+    // ContentZoneController.EnsureRightContentZone applies to the card zone, so
+    // a ",Right" media lands exactly where a ",Right" card does. The pivot
+    // mirrors too, so letterboxing (FitDisplayToAspect) keeps hugging the outer
+    // screen edge instead of drifting toward the center.
+    void ApplyMediaSide(bool right)
+    {
+        if (mediaDisplay == null) return;
+        RectTransform rt = mediaDisplay.rectTransform;
+
+        if (right)
+        {
+            rt.anchorMin        = new Vector2(1f - mediaDisplayBaseAnchorMax.x, mediaDisplayBaseAnchorMin.y);
+            rt.anchorMax        = new Vector2(1f - mediaDisplayBaseAnchorMin.x, mediaDisplayBaseAnchorMax.y);
+            rt.pivot            = new Vector2(1f - mediaDisplayBasePivot.x,     mediaDisplayBasePivot.y);
+            rt.anchoredPosition = new Vector2(-mediaDisplayBaseAnchoredPos.x,   mediaDisplayBaseAnchoredPos.y);
+        }
+        else
+        {
+            rt.anchorMin        = mediaDisplayBaseAnchorMin;
+            rt.anchorMax        = mediaDisplayBaseAnchorMax;
+            rt.pivot            = mediaDisplayBasePivot;
+            rt.anchoredPosition = mediaDisplayBaseAnchoredPos;
+        }
+    }
+
+    // Slide + fade the media in, matching the content-card entry: the central
+    // overshoot curve and default timings from CardEntryAnimator, and the same
+    // parent-mirror correction the cards need — the recorded canvas renders
+    // horizontally mirrored, so a horizontal slide's offset must be flipped or
+    // the media eases in from the wrong side (see ContentCard.Show and
+    // ContentCard.SetParentMirrorSign for the card-side twin of this).
+    void PlayMediaEntry(EntryDirection dir)
+    {
+        if (mediaEntrySequence != null && mediaEntrySequence.IsActive())
+            mediaEntrySequence.Kill();
+
+        CardEntryAnimator anim = CardEntryAnimator.Instance;
+        RectTransform rt = mediaDisplay.rectTransform;
+
+        float width = rt.rect.width > 1f ? rt.rect.width : Mathf.Max(1f, mediaDisplayBaseSize.x);
+        Vector2 endPos = rt.anchoredPosition;
+        Vector2 startOffset = new Vector2(dir == EntryDirection.FromRight ? width : -width, 0f);
+
+        // Same reflection test ContentZoneController runs for the cards: a
+        // negative 2D determinant means the parent chain mirrors X, so the
+        // anchoredPosition offset must be negated to keep the on-screen motion
+        // entering from the intended side.
+        RectTransform parent = rt.parent as RectTransform;
+        if (parent != null)
+        {
+            Matrix4x4 m = parent.localToWorldMatrix;
+            float det2D = m.m00 * m.m11 - m.m01 * m.m10;
+            if (det2D < 0f) startOffset.x = -startOffset.x;
+        }
+
+        rt.anchoredPosition = endPos + startOffset;
+        if (mediaDisplayGroup != null) mediaDisplayGroup.alpha = 0f;
+
+        Sequence seq = DOTween.Sequence()
+            .Join(rt.DOAnchorPos(endPos, anim.defaultSlideDuration).SetEase(anim.Curve));
+        if (mediaDisplayGroup != null)
+            seq.Join(mediaDisplayGroup.DOFade(1f, anim.defaultFadeInDuration).SetEase(Ease.OutQuad));
+
+        mediaEntrySequence = seq;
     }
 
     // A fresh RenderTexture contains whatever was last in that GPU memory. The
@@ -378,7 +477,17 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         if (mediaDisplay != null)
         {
-            mediaDisplayBaseSize = mediaDisplay.rectTransform.sizeDelta;
+            RectTransform mrt = mediaDisplay.rectTransform;
+            mediaDisplayBaseSize        = mrt.sizeDelta;
+            mediaDisplayBaseAnchorMin   = mrt.anchorMin;
+            mediaDisplayBaseAnchorMax   = mrt.anchorMax;
+            mediaDisplayBasePivot       = mrt.pivot;
+            mediaDisplayBaseAnchoredPos = mrt.anchoredPosition;
+
+            mediaDisplayGroup = mediaDisplay.GetComponent<CanvasGroup>();
+            if (mediaDisplayGroup == null)
+                mediaDisplayGroup = mediaDisplay.gameObject.AddComponent<CanvasGroup>();
+
             mediaDisplay.gameObject.SetActive(false);
         }
 
@@ -1072,8 +1181,17 @@ public class MediaPresentationSystem : MonoBehaviour
 
     // -----------------------------------------------------------------------
     // Black Panel Tracking — fullscreen jump-cut overlay
-    // Format: {Black:duration}  (optional ,T=X.XXX or ,D=duration)
+    // Format: {Black:duration}  (optional ,T=X.XXX or ,D=duration) — timed cut
+    //         {Black:Start} … {Black:End}  — held pair: the panel stays up
+    //         until the End tag's exact narration time, the same in-tag/out-tag
+    //         principle as {Video:name}…{Video:End}. Start/On/In open,
+    //         End/Stop/Out/Off close (Start/End canonical, rest typo-tolerance).
     // -----------------------------------------------------------------------
+
+    // Hold used when a {Black:Start} is flushed AFTER the narration ends —
+    // nothing spoken remains to place its {Black:End} against, so it plays as
+    // a short timed cut instead (the guide's 2-3s black default).
+    const float EndOfAudioBlackSeconds = 2f;
 
     IEnumerator TrackBlackPanelByTime()
     {
@@ -1103,15 +1221,32 @@ public class MediaPresentationSystem : MonoBehaviour
                 if (currentTime >= blackPanelMarkers[i].triggerTime)
                 {
                     var marker = blackPanelMarkers[i];
-                    Debug.Log($"[Black] Triggering black panel for {marker.duration:F2}s at {currentTime:F2}s");
 
-                    // Per-tag sound effect ({Black}).
-                    TagSfxPlayer.Instance.Play(TagSfxEvent.Black);
-
-                    if (blackPanelController != null)
-                        blackPanelController.Show(marker.duration);
+                    if (marker.endsPanel)
+                    {
+                        // {Black:End} — jump-cut the held panel out exactly
+                        // here. Harmless when nothing is showing (like a stray
+                        // {Video:End}). Silent — the cut IN already got the sfx.
+                        Debug.Log($"[Black] {{Black:End}} at {currentTime:F2}s");
+                        if (blackPanelController != null)
+                            blackPanelController.HideImmediate();
+                    }
                     else
-                        Debug.LogError("[Black] blackPanelController is NULL — cannot show panel. Assign it in the Inspector.");
+                    {
+                        Debug.Log(marker.holdsOpen
+                            ? $"[Black] Triggering held black panel at {currentTime:F2}s (until {{Black:End}})"
+                            : $"[Black] Triggering black panel for {marker.duration:F2}s at {currentTime:F2}s");
+
+                        // Per-tag sound effect ({Black}).
+                        TagSfxPlayer.Instance.Play(TagSfxEvent.Black);
+
+                        if (blackPanelController == null)
+                            Debug.LogError("[Black] blackPanelController is NULL — cannot show panel. Assign it in the Inspector.");
+                        else if (marker.holdsOpen)
+                            blackPanelController.ShowHeld();
+                        else
+                            blackPanelController.Show(marker.duration);
+                    }
 
                     lastTriggeredBlackPanelMarker = i;
                 }
@@ -1127,15 +1262,44 @@ public class MediaPresentationSystem : MonoBehaviour
         // Audio finished. A {Black} placed on the script's final word is clamped
         // to the clip-end time, and the loop above stops the instant playback
         // ends — so without this it would never fire. Flush any still-pending
-        // markers now (the recorder holds the take open to capture them).
+        // markers now (the recorder holds the take open to capture them). A
+        // pending {Black:Start} can't be held — nothing after the narration
+        // will ever close it — so it plays as a short timed cut instead, and
+        // its own pending {Black:End} is consumed by that conversion.
+        bool convertedHeldStart = false;
         for (int i = lastTriggeredBlackPanelMarker + 1; i < blackPanelMarkers.Count; i++)
         {
             var marker = blackPanelMarkers[i];
-            Debug.Log($"[Black] Flushing end-of-audio black panel for {marker.duration:F2}s");
+
+            if (marker.endsPanel)
+            {
+                if (convertedHeldStart)
+                    convertedHeldStart = false;   // its Start already plays as a timed cut
+                else if (blackPanelController != null)
+                    blackPanelController.HideImmediate();   // closes a panel held from playback
+                lastTriggeredBlackPanelMarker = i;
+                continue;
+            }
+
+            float hold = marker.holdsOpen ? EndOfAudioBlackSeconds : marker.duration;
+            if (marker.holdsOpen) convertedHeldStart = true;
+
+            Debug.Log($"[Black] Flushing end-of-audio black panel for {hold:F2}s");
             TagSfxPlayer.Instance.Play(TagSfxEvent.Black);
             if (blackPanelController != null)
-                blackPanelController.Show(marker.duration);
+                blackPanelController.Show(hold);
             lastTriggeredBlackPanelMarker = i;
+        }
+
+        // Safety net: a {Black:Start} whose {Black:End} was never written keeps
+        // the panel up forever, and the recorder holds the take open while it
+        // shows — close it so the take can finish (same net as an unclosed
+        // BigText stack).
+        if (blackPanelController != null && blackPanelController.IsHeldOpen)
+        {
+            Debug.LogWarning("[Black] Narration ended with the black panel still held — " +
+                             "missing {Black:End}. Closing it so the take can finish.");
+            blackPanelController.HideImmediate();
         }
 
         Debug.Log("[Black] TrackBlackPanelByTime loop ended (audio no longer playing).");
@@ -1147,8 +1311,12 @@ public class MediaPresentationSystem : MonoBehaviour
         string clean = script;
 
         // Accepts: {Black:3}, {Black:D=3}, {Black:3,T=4.5}, {Black:T=4.5,D=3}, {Black:D=3,T=4.5}
+        // — and the held pair form {Black:Start} … {Black:End} (group 5 keyword +
+        // optional baked ,T= in group 6). Start/End are canonical; On/In and
+        // Stop/Out/Off are typo-tolerated synonyms, matched case-insensitively.
         Regex regex = new Regex(
-            @"\{Black:(?:(?:T=(\d+(?:\.\d+)?),)?(?:D=)?(\d+(?:\.\d+)?)|(?:D=)?(\d+(?:\.\d+)?)(?:,T=(\d+(?:\.\d+)?))?)\}");
+            @"\{Black:(?:(?:T=(\d+(?:\.\d+)?),)?(?:D=)?(\d+(?:\.\d+)?)|(?:D=)?(\d+(?:\.\d+)?)(?:,T=(\d+(?:\.\d+)?))?|(Start|On|In|End|Stop|Out|Off)(?:,T=(\d+(?:\.\d+)?))?)\}",
+            RegexOptions.IgnoreCase);
         MatchCollection matches = regex.Matches(script);
 
         // Also run a very loose probe — if the script contains "{Black" at all
@@ -1167,14 +1335,38 @@ public class MediaPresentationSystem : MonoBehaviour
 
         foreach (Match match in matches)
         {
-            // T= can be either group 1 (T-first form) or group 4 (duration-first form)
-            Group tsGroup = match.Groups[1].Success ? match.Groups[1] : match.Groups[4];
+            // T= can be group 1 (T-first form), group 4 (duration-first form),
+            // or group 6 (keyword pair form).
+            Group tsGroup = match.Groups[1].Success ? match.Groups[1]
+                          : match.Groups[4].Success ? match.Groups[4]
+                          : match.Groups[6];
             float markerTime = TryParseTimestamp(tsGroup);
             if (markerTime < 0f)
             {
                 string textBeforeMarker = script.Substring(0, match.Index);
                 string cleanTextBefore = regex.Replace(textBeforeMarker, "");
                 markerTime = (cleanTextBefore.Length / (float)totalChars) * audioDuration;
+            }
+
+            // Held pair form — {Black:Start} / {Black:End} (no duration).
+            if (match.Groups[5].Success)
+            {
+                string kw = match.Groups[5].Value.ToLowerInvariant();
+                bool ends = kw == "end" || kw == "stop" || kw == "out" || kw == "off";
+
+                markerList.Add(new BlackPanelMarkerData
+                {
+                    triggerTime = markerTime,
+                    duration = 0f,
+                    holdsOpen = !ends,
+                    endsPanel = ends
+                });
+
+                Debug.Log($"[Black] Parsed marker \"{match.Value}\" — " +
+                          $"{(ends ? "closes the held panel" : "opens a held panel")} at {markerTime:F2}s");
+
+                clean = clean.Replace(match.Value, "");
+                continue;
             }
 
             string durStr = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[3].Value;
@@ -1388,10 +1580,18 @@ public class MediaPresentationSystem : MonoBehaviour
                 mediaDisplay.texture = image;
                 FitDisplayToAspect(image.width, image.height);
                 videoPlayer.gameObject.SetActive(false);
-                ShowDisplay();
+                ShowDisplay(marker);
 
-                Debug.Log($"Displaying image: {marker.mediaName} for {marker.displayDuration}s");
-                yield return new WaitForSeconds(marker.displayDuration);
+                // A duration-less {Image:} reaches here as 0 through the TTS
+                // pre-processors (they stamp D=0), not as the parser's 3s
+                // fallback — apply the documented 3s default here so a
+                // side-only tag like {Image:name,Right} doesn't flash for a
+                // single frame.
+                float hold = marker.displayDuration > 0f
+                    ? marker.displayDuration : DefaultMediaSeconds;
+
+                Debug.Log($"Displaying image: {marker.mediaName} for {hold}s");
+                yield return new WaitForSeconds(hold);
             }
             else
             {
@@ -1472,7 +1672,7 @@ public class MediaPresentationSystem : MonoBehaviour
                     FitDisplayToAspect(vw, vh);
 
                     videoPlayer.Play();
-                    ShowDisplay();
+                    ShowDisplay(marker);
 
                     // The tag's duration is a MINIMUM, not a lifetime. The clip
                     // runs until the beat it belongs to ends — the presenter
@@ -1541,9 +1741,18 @@ public class MediaPresentationSystem : MonoBehaviour
             }
         }
 
-        // Undo any letterboxing so the next {Image:} gets the authored slot.
+        // Stop the entry tween mid-flight if it's still running — a dismissed
+        // media must not keep animating the rect the next marker is about to use.
+        if (mediaEntrySequence != null && mediaEntrySequence.IsActive())
+            mediaEntrySequence.Kill();
+        mediaEntrySequence = null;
+
+        // Undo any letterboxing, side mirroring (",Right") and entry fade so the
+        // next {Image:} gets the authored slot at full opacity.
         if (mediaDisplay != null && mediaDisplayBaseSize.x > 0f && mediaDisplayBaseSize.y > 0f)
             mediaDisplay.rectTransform.sizeDelta = mediaDisplayBaseSize;
+        ApplyMediaSide(false);
+        if (mediaDisplayGroup != null) mediaDisplayGroup.alpha = 1f;
 
         // Drop the texture before hiding: whatever it points at is about to be
         // destroyed, and a RawImage holding a dead texture is the white quad
@@ -1701,7 +1910,9 @@ public class MediaPresentationSystem : MonoBehaviour
     // -----------------------------------------------------------------------
     // Parse Media Markers
     // Format: {Image:name}, {Image:name,3}, or the pre-processed
-    //         {Image:name,T=X.XXX,D=Y}. Also handles {Video:...}.
+    //         {Image:name,T=X.XXX,D=Y}. Also handles {Video:...}. All forms
+    //         accept an optional trailing ",Left"/",Right" side modifier
+    //         (kept last, after the duration/D=, like the side cards).
     // -----------------------------------------------------------------------
 
     (string, List<MediaMarkerData>) ParseMediaMarkers(string script, float audioDuration)
@@ -1710,9 +1921,10 @@ public class MediaPresentationSystem : MonoBehaviour
         string clean = script;
 
         // Groups: 1=Image|Video, 2=name, 3=T (optional), 4=D= duration (optional),
-        //         5=bare duration (optional, legacy pre-T= format)
+        //         5=bare duration (optional, legacy pre-T= format),
+        //         6=optional ",Left"/",Right" side modifier (same as the side cards)
         Regex regex = new Regex(
-            @"\{(Image|Video):([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,D=(\d+(?:\.\d+)?))?(?:,(\d+(?:\.\d+)?))?\}");
+            @"\{(Image|Video):([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,D=(\d+(?:\.\d+)?))?(?:,(\d+(?:\.\d+)?))?(?:,\s*(Left|Right))?\}");
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
@@ -1747,19 +1959,28 @@ public class MediaPresentationSystem : MonoBehaviour
             else
                 duration = type == MediaType.IMAGE ? 3f : 0f;
 
+            // Optional ",Left"/",Right" side — same modifier the side cards
+            // take. null = authored default (the left slot).
+            EntryDirection? side = null;
+            if (match.Groups[6].Success)
+                side = match.Groups[6].Value == "Right"
+                    ? EntryDirection.FromRight : EntryDirection.FromLeft;
+
             markerList.Add(new MediaMarkerData
             {
                 triggerTime = markerTime,
                 mediaType = type,
                 mediaName = mediaName,
                 displayDuration = duration,
-                endsMedia = endsMedia
+                endsMedia = endsMedia,
+                side = side
             });
 
             if (endsMedia)
                 Debug.Log($"Media marker {{Video:End}} will end the active b-roll at {markerTime:F2}s");
             else
-                Debug.Log($"Media marker '{mediaName}' ({type}) will trigger at {markerTime:F2}s for {duration}s");
+                Debug.Log($"Media marker '{mediaName}' ({type}) will trigger at {markerTime:F2}s for {duration}s" +
+                          (side.HasValue ? $" on the {(side == EntryDirection.FromRight ? "Right" : "Left")}" : ""));
 
             clean = clean.Replace(match.Value, "");
         }
@@ -2339,6 +2560,11 @@ public class MediaMarkerData
     // marker comes due (NextMediaMarkerDue), this marker included — the
     // trackers just must never try to play it as a clip named "End".
     public bool endsMedia;
+
+    // Optional trailing ",Left"/",Right" — which side of the screen the media
+    // slot rests on (and slides in from), mirroring the side cards' modifier.
+    // null = no per-tag choice; the media stays in the authored (left) slot.
+    public MugsTech.Style.EntryDirection? side;
 }
 
 /// <summary>
@@ -2370,13 +2596,23 @@ public class ZoomMarkerData
 }
 
 /// <summary>
-/// Fullscreen black panel marker. Jump-cuts in, holds for duration, jump-cuts out.
+/// Fullscreen black panel marker. Timed form: jump-cuts in, holds for duration,
+/// jump-cuts out. Held pair form ({Black:Start}…{Black:End}): opens with no
+/// timer and is cut back out at the End tag's exact narration time — the same
+/// in-tag/out-tag principle as {Video:name}…{Video:End}.
 /// </summary>
 [System.Serializable]
 public class BlackPanelMarkerData
 {
     public float triggerTime;
     public float duration;
+
+    // {Black:Start} — jump-cut in and stay up until the matching {Black:End}.
+    public bool holdsOpen;
+
+    // {Black:End} — jump-cut the held panel out at triggerTime instead of
+    // showing anything. Harmless when nothing is showing.
+    public bool endsPanel;
 }
 
 /// <summary>

@@ -3,9 +3,14 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Fullscreen black cut triggered by {Black:seconds} script markers. Jump-cuts a
+/// Fullscreen black cut triggered by {Black:...} script markers. Jump-cuts a
 /// solid black panel IN FRONT of everything — character, content cards, and
-/// background — holds for the duration, then jump-cuts out. No fade.
+/// background — then jump-cuts out. No fade. Two forms: the timed
+/// {Black:seconds} (Show) holds for a fixed duration, and the held pair
+/// {Black:Start}…{Black:End} (ShowHeld/HideImmediate) stays up until the End
+/// tag's exact narration time — the same in-tag/out-tag principle as
+/// {Video:name}…{Video:End}, for when a guessed duration would drift off the
+/// spoken words.
 ///
 /// Renders as a UI Image on the same canvas the content cards use (the one the
 /// recorder actually captures), at a sorting order above every card. The older
@@ -30,8 +35,16 @@ public class BlackPanelController : MonoBehaviour
     private Image panelImage;
     private Coroutine activeCoroutine;
 
-    /// <summary>True while the black panel is currently shown (during its hold).</summary>
-    public bool IsShowing => activeCoroutine != null;
+    // True while the panel was opened by {Black:Start} (ShowHeld) and hasn't
+    // been closed yet — it has no timer; only HideImmediate ({Black:End} or
+    // the end-of-narration safety net) takes it down.
+    private bool heldOpen;
+
+    /// <summary>True while the black panel is currently shown (timed hold OR held open).</summary>
+    public bool IsShowing => panelImage != null && panelImage.gameObject.activeSelf;
+
+    /// <summary>True while the panel is held open by ShowHeld with no timer running.</summary>
+    public bool IsHeldOpen => heldOpen && IsShowing;
 
     void Awake()
     {
@@ -72,7 +85,37 @@ public class BlackPanelController : MonoBehaviour
         if (activeCoroutine != null)
             StopCoroutine(activeCoroutine);
 
+        heldOpen = false; // a timed show supersedes any held one
         activeCoroutine = StartCoroutine(ShowRoutine(duration));
+    }
+
+    /// <summary>
+    /// Jump-cut the panel in and HOLD it — no timer. {Black:Start} opens it and
+    /// the matching {Black:End} (via HideImmediate) cuts it back out at that
+    /// tag's exact narration time.
+    /// </summary>
+    public void ShowHeld()
+    {
+        if (!isActiveAndEnabled)
+        {
+            Debug.LogError("[BlackPanel] Controller is disabled or on an inactive GameObject. " +
+                           "Enable the component and its GameObject.", this);
+            return;
+        }
+
+        EnsurePanelBuilt();
+        if (panelImage == null) return;
+
+        if (activeCoroutine != null)
+        {
+            StopCoroutine(activeCoroutine);
+            activeCoroutine = null;
+        }
+
+        heldOpen = true;
+        panelImage.gameObject.SetActive(true);
+        panelImage.transform.SetAsLastSibling(); // last sibling = drawn last within its parent
+        Debug.Log("[BlackPanel] shown, held until {Black:End}", this);
     }
 
     IEnumerator ShowRoutine(float duration)
@@ -88,7 +131,7 @@ public class BlackPanelController : MonoBehaviour
         activeCoroutine = null;
     }
 
-    /// <summary>Force-hide the panel immediately (jump cut).</summary>
+    /// <summary>Force-hide the panel immediately (jump cut). Closes a held panel ({Black:End}).</summary>
     public void HideImmediate()
     {
         if (activeCoroutine != null)
@@ -96,6 +139,7 @@ public class BlackPanelController : MonoBehaviour
             StopCoroutine(activeCoroutine);
             activeCoroutine = null;
         }
+        heldOpen = false;
         if (panelImage != null) panelImage.gameObject.SetActive(false);
     }
 

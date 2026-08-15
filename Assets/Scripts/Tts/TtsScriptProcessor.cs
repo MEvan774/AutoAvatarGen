@@ -73,7 +73,9 @@ namespace MugsTech.Tts
             @"|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}" +
             @"|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}" +     // whole-screen transitions (+optional duration scale)
             @"|\{Mood:\w+\}" +                              // background mood crossfade
-            @"|\{Black:\d+(?:\.\d+)?\}" +
+            // {Black:3} timed, or the held pair {Black:Start}…{Black:End}
+            // (On/In and Stop/Out/Off tolerated as synonyms).
+            @"|\{Black:(?:\d+(?:\.\d+)?|Start|On|In|End|Stop|Out|Off)\}" +
             @"|\{(?:Image|Video):[^}]+\}" +
             @"|\{Headline:""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}" +
             @"|\{Excerpt:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
@@ -410,14 +412,25 @@ namespace MugsTech.Tts
             if (mBlack.Success)
                 return "{Black:D=" + mBlack.Groups[1].Value + "," + ts + "}";
 
+            // {Black:Start} / {Black:End} — the held pair form; the keyword is
+            // preserved verbatim so the runtime parser sees which edge it is.
+            Match mBlackKw = Regex.Match(innerCurly,
+                @"^Black:(Start|On|In|End|Stop|Out|Off)$", RegexOptions.IgnoreCase);
+            if (mBlackKw.Success)
+                return "{Black:" + mBlackKw.Groups[1].Value + "," + ts + "}";
+
             // {Image:file,5}  /  {Video:file,0}
+            // Both may carry a trailing ",Left"/",Right" side modifier (the
+            // screen side the media rests on); preserve it after D= so the
+            // runtime parser still sees the side.
             Match mMedia = Regex.Match(innerCurly,
-                @"^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?))?$");
+                @"^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?))?(?:,\s*(Left|Right))?$");
             if (mMedia.Success)
             {
                 string dur = mMedia.Groups[3].Success ? mMedia.Groups[3].Value : "0";
+                string side = mMedia.Groups[4].Success ? "," + mMedia.Groups[4].Value : "";
                 return "{" + mMedia.Groups[1].Value + ":" + mMedia.Groups[2].Value
-                     + "," + ts + ",D=" + dur + "}";
+                     + "," + ts + ",D=" + dur + side + "}";
             }
 
             // {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}

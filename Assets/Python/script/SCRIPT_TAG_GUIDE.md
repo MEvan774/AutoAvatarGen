@@ -27,7 +27,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 2. **One tag per line, on its own line.** Don't put two tags on one line and don't bury a tag mid-sentence (emotion tags are one exception; the **transition line** is another — a `{Transition:…}` deliberately gathers all of a section's tags onto one line; and **duration-less `{BigText:LINE}`/`{BigText:End}` tags** sit mid-sentence on purpose, on the exact word their line belongs to — see §4).
 3. **Use straight ASCII double quotes `"` only.** Never curly/smart quotes (`“ ”`). Smart quotes break card tags.
 4. **Never put a `"` *inside* a quoted card field.** The field ends at the first `"`. If you need a quote inside quoted text, rephrase or use single quotes `'`. (Commas, periods, em‑dashes `—`, `%`, `$`, `€` inside quotes are fine.)
-5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline) or `,Left`/`,Right` (side cards) modifiers. **One exception:** `BigText` may drop the duration to enter its line-by-line mode (`{BigText:LINE}` … `{BigText:End}`, see §4) — then the closing `{BigText:End}` is mandatory instead.
+5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline) or `,Left`/`,Right` (side cards and the `{Image:}`/`{Video:}` media tags) modifiers. **One exception:** `BigText` may drop the duration to enter its line-by-line mode (`{BigText:LINE}` … `{BigText:End}`, see §4) — then the closing `{BigText:End}` is mandatory instead.
 6. **Unquoted names (`Logo`, `BRoll`, `BigMedia`, `BigText`, `BigImage`) must not contain commas.** The comma is a delimiter. Use `+` to join multiple items (`BigImage` is a single image — no `+`).
 7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback/ExtremeIn/ExtremeOut`, `Cut`, `Smooth`, `bigCenter`, `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
 8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`, `BigImage`) are exempt** — they render in front of everything and appear in any position, including `Center`. (`BigImage` covers only the left 3/4, so it's meant to *share* the screen — stand the presenter on the **right** with `{Position:Right}`; see §4.)
@@ -46,11 +46,11 @@ Paste this whole file to the model before asking it to write a script, or keep i
 | Character position | `{Position:Left}` (+ optional `,Cut` or `,Smooth`) | no |
 | Camera zoom | `{Zoom:In}` (+ optional `,Cut` and/or `,D=seconds`) | no |
 | Extreme close-up (punchline) | `{Zoom:ExtremeIn}` … `{Zoom:ExtremeOut}` — **always a pair** | no (you place the out tag) |
-| Black cut | `{Black:3}` | yes |
+| Black cut | timed: `{Black:3}` — or held: `{Black:Start}` … `{Black:End}` | timed: yes / held: no (you place the End tag) |
 | Scene transition | `{Transition:Wipe}` `{Transition:Iris,1.2}` (Wipe/Shutter/Iris, optional speed) | no |
 | Background mood | `{Mood:Tense}` (Calm/Energetic/Tense/Playful/Minimal) | no |
-| Image 📁 | `{Image:name}` or `{Image:name,4}` | optional (default 3s) |
-| Video clip 📁 | `{Video:name}` … `{Video:End}` — **no duration, close it with the end tag** | no (you place the end tag) |
+| Image 📁 | `{Image:name}` or `{Image:name,4}` (+ optional `,Left`/`,Right`) | optional (default 3s) |
+| Video clip 📁 | `{Video:name}` … `{Video:End}` — **no duration, close it with the end tag** (+ optional `,Left`/`,Right` on the opening tag) | no (you place the end tag) |
 | Headline card ✅ | `{Headline:"headline text","Source",5}` (+ optional `,bigCenter` **or** `,Left`/`,Right`) | yes |
 | Excerpt card ✅ | `{Excerpt:"full passage","phrase to highlight","Attribution",6}` (+ optional `,Left`/`,Right`) | yes |
 | Quote card ✅ | `{Quote:"the quote","Person Name","Role / Title",5}` (+ optional `,Left`/`,Right`) | yes |
@@ -175,12 +175,24 @@ Hold it across a few lines when the whole beat is the joke:
 ```
 Place each tag on its own line, like any other tag (§5) — it fires as the narration reaches the next spoken word.
 
-### Black cut — `{Black:seconds}`
-Hard-cuts a **fullscreen** black plane in (covering the character and all cards), holds for `seconds`, then cuts out. No fade — pure jump cut. Great for dramatic beats / scene breaks. Duration required.
+### Black cut — `{Black:seconds}` or `{Black:Start}` … `{Black:End}`
+Hard-cuts a **fullscreen** black plane in (covering the character and all cards), then cuts out. No fade — pure jump cut. Great for dramatic beats / scene breaks. Two forms:
+
+**Timed** — holds for `seconds`, then cuts out on its own:
 ```
 {Black:2}
 ```
-> Authoring is unchanged — you still just write `{Black:seconds}`. (Implementation note: the black plane now renders above the character via a high-sorting-order sprite on the recorded camera, so the character no longer shows through it.)
+
+**Held pair (preferred when narration plays under the black)** — you can't know how long the spoken words under a black will take, so instead of guessing a number, open it with `{Black:Start}` and cut back with **`{Black:End}`** placed after the last line the black should cover — the same in-tag/out-tag principle as `{Video:name}`…`{Video:End}` and `{Zoom:ExtremeIn}`…`{Zoom:ExtremeOut}`. Both edges are jump cuts, and the cut back out lands exactly on the word where you put the End tag.
+```
+{Black:Start}
+[flat] And for three days, nobody noticed.
+[deadpan] Three. Days.
+{Black:End}
+```
+- **Always close the pair.** Unlike `{Video:}`, nothing else ends a held black — no position change, card, or media dismisses it. An unclosed `{Black:Start}` stays black until the narration ends, where it's force-closed with a warning.
+- `{Black:End}` with no black showing is harmless (like a stray `{Video:End}`).
+- **A `{Black:Start}` on the script's final words can't be held** — nothing after the narration will ever close it, so it plays as a short ~2s timed cut instead. For an intentional closing black, use the timed form (`{Black:2}`).
 
 ### Scene transitions — `{Transition:Type}` `[,speed]`
 A **whole-screen transition** that covers the screen, reconfigures the scene *behind* the cover, then reveals — so each one reads as a fresh section break. Three variants:
@@ -243,8 +255,12 @@ Rules for every 📁 / 🎬 tag:
 
 ### Image — `{Image:name}` or `{Image:name,seconds}`  📁
 Shows an image in the media area. `name` is the file name (**extension omitted**) found in the configured `Images/` then `Logos/` disk folders — see *"Media & asset cards"* above; use a real name from `MEDIA_LIBRARY.md`. Duration optional — defaults to **3s**.
+
+**Choosing a side — optional `,Left` / `,Right` (last value).** Like the side content cards, the image sits on the **left** of the screen by default and slides in from that side with the same eased overshoot entry the cards use. Append `,Left` or `,Right` as the **final** value to pick the side it rests on (and slides in from) — `,Right` mirrors the media slot to the right of the screen. Place the presenter on the opposite side (`{Position:...}`) so they don't overlap it.
 ```
 {Image:privacy_headline,4}
+{Image:privacy_headline,4,Right}
+{Image:stock_chart,Right}
 ```
 
 ### Video — `{Video:name}` … `{Video:End}`  📁
@@ -273,6 +289,12 @@ Reach for `{Video:End}` whenever none of those beats falls where you want the cl
 A number is still accepted (`{Video:name,6}`) but it only sets a *minimum* — it can not cut a clip short, and it matters only for a clip placed on the script's final words.
 ```
 {Video:datacenter_broll,6}
+```
+
+**Choosing a side — optional `,Left` / `,Right` (last value, opening tag only).** Like `{Image:}` and the side cards, the clip plays on the **left** of the screen by default and slides in with the cards' eased overshoot entry. Append `,Left` or `,Right` as the **final** value of the *opening* tag to pick the side it rests on (and slides in from) — never on `{Video:End}`. Place the presenter on the opposite side so they don't overlap it.
+```
+{Video:hardDriveSpinning,Right}
+{Video:datacenter_broll,6,Right}
 ```
 
 ### Content cards (side panel — character must be Left/Right)
@@ -358,12 +380,13 @@ Don't mix the modes in one beat — a duration-less line landing while a timed B
 [genuine disbelief] No — actually bad.
 ```
 - **Side cards need a side position.** Set `{Position:Left,...}` or `{Position:Right,...}` *before* a `Headline`/`Excerpt`/`Quote`/`Stat`/`Logo`/`BRoll` tag. While the character is `Center`, side cards are suppressed (they'd overlap the centered character).
-- **Pick the side (optional).** A side card sits on the **left** of the screen by default. Append `,Left` or `,Right` as the card's **last** value to choose which side it rests on and slides in from (e.g. `{Quote:"…","…","…",5,Right}`, `{Logo:Brave,4,Right}`) — `,Right` mirrors it to the right side. It's independent of where the character stands, so with the presenter on the `Left` you can drop a card on the `Right`. For `Headline`, it's an alternative to `,bigCenter`.
+- **Pick the side (optional).** A side card sits on the **left** of the screen by default. Append `,Left` or `,Right` as the card's **last** value to choose which side it rests on and slides in from (e.g. `{Quote:"…","…","…",5,Right}`, `{Logo:Brave,4,Right}`) — `,Right` mirrors it to the right side. It's independent of where the character stands, so with the presenter on the `Left` you can drop a card on the `Right`. For `Headline`, it's an alternative to `,bigCenter`. **The `{Image:}` and `{Video:}` media tags take the same modifier** (e.g. `{Image:privacy_headline,4,Right}`, `{Video:hardDriveSpinning,Right}` — on `{Video:}` it goes on the *opening* tag, never on `{Video:End}`) and enter with the same eased slide.
 - **Fullscreen feature cards work anywhere.** `BigText`/`BigMedia`/`BigCenter` (and a `Headline` with `,bigCenter`) render in front of everything, so they appear in any position — including `Center`. Use them for the "front and center" moments.
 - **`BigImage` is the feature card that wants a side.** It isn't suppressed at `Center`, but it covers only the left 3/4 — set `{Position:Right}` so the presenter stands in the open right quarter beside the article instead of hidden behind it.
 - **Transitions open a new section.** Put `{Transition:…}` on the **first line of a section** and group that section's whole scene change onto the same line (position, emotion, mood, a card, an image, a zoom). They're applied under cover — see §4. This is the one place you deliberately stack several tags on a single line. A side card grouped on a transition line still needs a `Left`/`Right` position on that same line (rule 8). Placing it there is also what earns the transition its silent gap: "first line" means **nothing spoken before it** — other tags (`{Timestamp:"…"}`, and the ones on its own line) are fine, a narration line above it is not.
 - **A `{Video:}` has no duration — you end it with `{Video:End}`.** Put `{Video:name}` before the lines the b-roll should cover and `{Video:End}` after the last one; the clip loops under everything in between and cuts exactly there. The end tag is optional: an unclosed clip still ends at the next beat (a `{Position:...}` change, a content card, another `{Image:}`/`{Video:}`, or the end of the narration) — but `{Video:End}` is the only way to stop b-roll mid-read without spending one of those beats (§4).
 - **`{Zoom:ExtremeIn}` has no duration either — you end it with `{Zoom:ExtremeOut}`.** Same in-tag/out-tag principle as `{Video:}`: put the in tag before the line you want in close-up and the out tag after the last line it covers. It works from any position (`Left`/`Right`/`Center`), needs no `{Zoom:Reset}` afterwards, and **must always be closed** — an unpaired `ExtremeIn` holds the close-up for the rest of the video (§4).
+- **A held black works the same way.** `{Black:Start}` before the first line the black should cover, `{Black:End}` after the last one — the cut back out lands exactly on that word. **Always close it** — nothing else ends a held black; an unclosed one stays black until the narration ends (§4). For a black with no narration under it, the timed `{Black:2}` is simpler.
 - **Don't place a tag on the script's very last word and expect it to fire late** — it's fine, the recording now holds until trailing tags (e.g. an end-card `{Logo:...,8}` or final `{Black:2}`) finish their full duration.
 - Reasonable default durations: cards 5s, excerpts 6s, big text 3–4s, logos 3–4s, black cuts 2–3s.
 
@@ -417,6 +440,7 @@ Notes on the example:
 - [ ] Every `{...}` card / Logo / BRoll / BigMedia / BigImage ends in `,number`. `BigText` too, **unless** it's the line-by-line mode — then **no** tag in the run carries a number and the run **ends with `{BigText:End}`** (count opens and Ends; a stack left open is force-closed at narration end).
 - [ ] **No `{Video:}` carries a duration** — each one is closed by a `{Video:End}` after the last line it covers (preferred), or ended by the next `{Position:...}`, content card, or media tag you placed after it.
 - [ ] **Every `{Zoom:ExtremeIn}` has a matching `{Zoom:ExtremeOut}` later in the script** — count them, the totals must be equal. Neither tag carries a duration.
+- [ ] **Every `{Black:Start}` has a matching `{Black:End}` later in the script** — count them, the totals must be equal. (The timed `{Black:seconds}` form needs no End tag.)
 - [ ] **Every 📁/🎬 media name (`Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll`) is a real name copied from `MEDIA_LIBRARY.md`** — exact spelling and case, no extension. Any beat without a confirmed name uses a ✅ text card (`Headline`/`Stat`/`Quote`/`Excerpt`/`BigText`) instead. No invented or placeholder names.
 - [ ] **No space next to a field-separating comma or between `"` and `"`** — `"a","b","c",5`, never `"a", "b", "c", 5`.
 - [ ] **No empty `""` fields; field counts exact** — `Headline` has 2 quoted fields, `Excerpt`/`Quote`/`Stat` have 3.
@@ -426,7 +450,7 @@ Notes on the example:
 - [ ] `Transition` / `Mood` (and their variants) spelled exactly and capitalized.
 - [ ] Each `{Transition:…}` is on the first line of its section, with that section's other tags grouped onto the same line.
 - [ ] Every content card is preceded by a `Left` or `Right` position.
-- [ ] Any `,Left`/`,Right` entry-side modifier is the **last** value in the tag, spelled exactly (capitalized), and not combined with `,bigCenter`.
+- [ ] Any `,Left`/`,Right` entry-side modifier (side cards, `{Image:}`, `{Video:}`) is the **last** value in the tag, spelled exactly (capitalized), not combined with `,bigCenter`, and never on `{Video:End}`.
 - [ ] No `T=` written by hand.
 - [ ] One tag per line.
 - [ ] Each `## SECTION` that should be a YouTube chapter has a `{Timestamp:"..."}` on its first line, and the first section's is at the very top (so its chapter is `0:00`).

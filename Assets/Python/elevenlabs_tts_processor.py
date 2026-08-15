@@ -31,9 +31,9 @@ What gets STRIPPED before TTS (never read aloud):
   - {Zoom:...}       e.g. {Zoom:In}
   - {Transition:...} e.g. {Transition:Wipe} {Transition:Iris,1.2}  (whole-screen scene transition; optional duration scale)
   - {Mood:...}       e.g. {Mood:Tense}  (background mood crossfade: Calm/Energetic/Tense/Playful/Minimal)
-  - {Black:...}      e.g. {Black:3}  (fullscreen black panel, duration in seconds)
-  - {Image:...}      e.g. {Image:file,5}
-  - {Video:...}      e.g. {Video:clip,0}
+  - {Black:...}      e.g. {Black:3}  /  {Black:Start} ... {Black:End}  (fullscreen black panel: timed, or held until the End tag)
+  - {Image:...}      e.g. {Image:file,5}  {Image:file,5,Right}  (optional ,Left/,Right side)
+  - {Video:...}      e.g. {Video:clip,0}  {Video:clip,Right}    (optional ,Left/,Right side)
   - {Headline:...}   content cards
   - {Excerpt:...}
   - {Quote:...}
@@ -73,7 +73,7 @@ ELEVENLABS_API_KEY = "sk_d5b1984b2dcfcc8ca651004f5a6d39e471a4db30f552806a"
 VOICE_CONFIG = {
     "voice_id":          "3jR9BuQAOPMWUjWpi0ll",    # from elevenlabs.io/app/voice-lab
     "model_id":          "eleven_multilingual_v2", # or "eleven_turbo_v2_5" for speed
-    "stability":         0.00,   # 0.0-1.0  | lower = more expressive (v3: 0.0 = Creative)
+    "stability":         0.50,   # 0.0-1.0  | lower = more expressive (v3: 0.5 = Natural)
     "similarity_boost":  0.80,   # 0.0-1.0  | higher = truer to cloned voice
     "style":             0.35,   # 0.0-1.0  | 0 = neutral, 1 = very dramatic
     "use_speaker_boost": True,   # enhances voice clarity
@@ -104,7 +104,7 @@ _ALL_MARKERS = re.compile(
        r'|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}'        # zoom markers (+optional Cut / D=)
        r'|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}'            # whole-screen transitions (+optional scale)
        r'|\{Mood:\w+\}'                                     # background mood crossfade
-       r'|\{Black:\d+(?:\.\d+)?\}'                          # black panel markers
+       r'|\{Black:(?:\d+(?:\.\d+)?|Start|On|In|End|Stop|Out|Off)\}'  # black panel markers (timed, or Start/End held pair)
        r'|\{(?:Image|Video):[^}]+\}'                        # media markers
        r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}'  # headline cards (+optional bigCenter / side)
        r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'   # excerpt cards (+optional side)
@@ -563,11 +563,21 @@ def _stamp_marker(marker: str, t: float) -> str:
     if m_black:
         return f"{{Black:D={m_black.group(1)},{ts}}}"
 
+    # {Black:Start} / {Black:End} — the held pair form; the keyword is
+    # preserved verbatim so the runtime parser sees which edge it is.
+    m_black_kw = re.match(r'^Black:(Start|On|In|End|Stop|Out|Off)$', inner, re.IGNORECASE)
+    if m_black_kw:
+        return f"{{Black:{m_black_kw.group(1)},{ts}}}"
+
     # {Image:file,5}  /  {Video:file,0}
-    m_media = re.match(r'^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?))?$', inner)
+    # Both may carry a trailing ",Left"/",Right" side modifier (the screen side
+    # the media rests on); preserve it after D= so the runtime parser still
+    # sees the side.
+    m_media = re.match(r'^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?))?(?:,\s*(Left|Right))?$', inner)
     if m_media:
         dur = m_media.group(3) or '0'
-        return f"{{{m_media.group(1)}:{m_media.group(2)},{ts},D={dur}}}"
+        side = f",{m_media.group(4)}" if m_media.group(4) else ''
+        return f"{{{m_media.group(1)}:{m_media.group(2)},{ts},D={dur}{side}}}"
 
     # {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}
     # Logo/BRoll may carry a trailing ",Left"/",Right" side modifier; preserve
