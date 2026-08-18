@@ -43,10 +43,13 @@ public class ContentCardEvent
     // default (Left) / runtime direction. See ContentCard.SetDirectionOverride.
     public EntryDirection? entryDirectionOverride;
 
-    // {BigText:End} — closes the persistent BigText stack instead of showing
-    // anything. Only set for duration-less BigText tags whose text is the
-    // reserved End keyword; see ContentZoneTagParser.ExtractBigTexts.
-    // A duration-less BigText event WITHOUT this flag opens the persistent
-    // stack (duration <= 0) or appends a line to the one already on screen.
+    // The closing edge of a held pair — {BigText:End} for the persistent
+    // BigText stack, or {Headline:End}/{Quote:End}/{Logo:End}/… for a side
+    // card opened with ",Start" in its duration slot. The event shows nothing;
+    // ContentZoneController closes the active card of the same type. See
+    // ContentZoneTagParser.ExtractBigTexts / ExtractCardEnds.
+    // A duration-less (duration <= 0) event WITHOUT this flag is the held
+    // opening edge: it stays up with no timer until its End tag arrives (for
+    // BigText, later duration-less lines append to the stack instead).
     public bool dismissesCard;
 }

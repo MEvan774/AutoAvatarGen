@@ -44,8 +44,9 @@ public class ContentZoneController : MonoBehaviour
     private Coroutine durationCoroutine;
     private Coroutine hideAndShowCoroutine;
 
-    // True while the active card is a duration-less (persistent) BigText stack —
-    // it has no duration timer and stays up until {BigText:End}, a transition
+    // True while the active card is a duration-less (held) card — a persistent
+    // BigText stack, or a side card opened with ",Start" in its duration slot.
+    // It has no duration timer and stays up until its {Tag:End}, a transition
     // clears it, or the end-of-narration safety net closes it.
     private bool activeCardPersistent;
 
@@ -283,18 +284,19 @@ public class ContentZoneController : MonoBehaviour
             }
         }
 
-        // Safety net: a persistent BigText stack whose {BigText:End} was never
-        // written has no duration timer, and the recorder holds the take open
-        // while a card is active (HasActiveOrQueuedCard) — it would hang the
-        // recording forever. Watch the queue drain and close any persistent
-        // stack that is (or becomes) the active card. The flag is cleared
-        // before hiding so the close fires exactly once per stack.
+        // Safety net: a held card whose {Tag:End} was never written (a
+        // persistent BigText stack, or a side card opened with ",Start") has no
+        // duration timer, and the recorder holds the take open while a card is
+        // active (HasActiveOrQueuedCard) — it would hang the recording forever.
+        // Watch the queue drain and close any held card that is (or becomes)
+        // the active card. The flag is cleared before hiding so the close
+        // fires exactly once per card.
         while (HasActiveOrQueuedCard)
         {
             if (activeCard != null && activeCardPersistent)
             {
-                Debug.LogWarning("Narration ended with a BigText stack still open — " +
-                                 "missing {BigText:End}. Closing it so the take can finish.");
+                Debug.LogWarning($"Narration ended with a held {activeCardType} card still open — " +
+                                 $"missing {{{activeCardType}:End}}. Closing it so the take can finish.");
                 activeCardPersistent = false;
                 HideCurrentCard();
             }
@@ -315,30 +317,34 @@ public class ContentZoneController : MonoBehaviour
             return;
         }
 
-        // Persistent BigText flow ({BigText:LINE}…{BigText:End}, no durations):
-        // an End tag closes whatever BigText is up; a line tag lands on the open
-        // BigText stack instead of queueing behind it. With no BigText on screen
-        // a line tag falls through and opens the stack like a normal card.
-        if (evt.cardType == ContentCardType.BigText && evt.duration <= 0f)
+        // The closing edge of a held pair — {BigText:End}, or a side card's
+        // {Headline:End}/{Quote:End}/{Logo:End}/… . Closes the active card of
+        // the same type (silently — the cut IN already got the sfx). A held
+        // card that never made it on screen (crowded out into the queue while
+        // its End passed) is dropped from the queue instead, so it can't pop
+        // up later with nothing left to ever close it.
+        if (evt.dismissesCard)
         {
-            if (evt.dismissesCard)
+            if (activeCard != null && activeCardType == evt.cardType)
             {
-                if (activeCard is BigTextCard)
-                {
-                    activeCardPersistent = false; // hand the close to the normal hide flow
-                    HideCurrentCard();
-                }
-                else
-                    Debug.LogWarning("{BigText:End} fired with no BigText on screen — ignored.");
-                return;
+                activeCardPersistent = false; // hand the close to the normal hide flow
+                HideCurrentCard();
             }
+            else if (!RemoveQueuedHeldCard(evt.cardType))
+                Debug.LogWarning($"{{{evt.cardType}:End}} fired with no {evt.cardType} on screen — ignored.");
+            return;
+        }
 
-            if (activeCard is BigTextCard stack)
-            {
-                if (stack.AppendLines(evt.primaryText))
-                    TagSfxPlayer.Instance.Play(ContentCardType.BigText);
-                return;
-            }
+        // Persistent BigText flow ({BigText:LINE}…{BigText:End}, no durations):
+        // a line tag lands on the open BigText stack instead of queueing behind
+        // it. With no BigText on screen a line tag falls through and opens the
+        // stack like a normal card.
+        if (evt.cardType == ContentCardType.BigText && evt.duration <= 0f &&
+            activeCard is BigTextCard stack)
+        {
+            if (stack.AppendLines(evt.primaryText))
+                TagSfxPlayer.Instance.Play(ContentCardType.BigText);
+            return;
         }
 
         // If a card is already on screen (or others are waiting), queue this one
@@ -381,6 +387,30 @@ public class ContentZoneController : MonoBehaviour
             hideAndShowCoroutine = StartCoroutine(HideAndShowSequence(next, zone));
             return;
         }
+    }
+
+    // Drops the first queued held card (duration-less opening edge) of the
+    // given type. Called when its {Tag:End} arrives while the card is still
+    // waiting behind another — the beat it belonged to has passed, and showing
+    // it later would leave it with no End tag ever coming to close it.
+    private bool RemoveQueuedHeldCard(ContentCardType type)
+    {
+        if (cardQueue.Count == 0) return false;
+
+        bool removed = false;
+        int count = cardQueue.Count;
+        for (int i = 0; i < count; i++)
+        {
+            ContentCardEvent e = cardQueue.Dequeue();
+            if (!removed && e.cardType == type && e.duration <= 0f && !e.dismissesCard)
+            {
+                removed = true;
+                Debug.Log($"Dropped queued held {type} card — its {{{type}:End}} already fired.");
+                continue;
+            }
+            cardQueue.Enqueue(e);
+        }
+        return removed;
     }
 
     private RectTransform GetZoneForCard(ContentCardEvent evt)
@@ -545,10 +575,11 @@ public class ContentZoneController : MonoBehaviour
         // sounds for cards that don't visibly show.
         TagSfxPlayer.Instance.Play(evt.cardType);
 
-        // Start duration timer. A duration-less BigText is the persistent
-        // line-by-line stack — no timer; it stays until {BigText:End}, a
-        // transition, or the end-of-narration safety net in TrackCardsByTime.
-        activeCardPersistent = evt.cardType == ContentCardType.BigText && evt.duration <= 0f;
+        // Start duration timer. A duration-less card is the held form — the
+        // persistent BigText stack, or a side card opened with ",Start" — no
+        // timer; it stays until its {Tag:End}, a transition, or the
+        // end-of-narration safety net in TrackCardsByTime.
+        activeCardPersistent = evt.duration <= 0f;
         if (!activeCardPersistent)
             durationCoroutine = StartCoroutine(DurationTimer(evt.duration));
     }

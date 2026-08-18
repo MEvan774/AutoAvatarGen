@@ -27,9 +27,9 @@ Paste this whole file to the model before asking it to write a script, or keep i
 2. **One tag per line, on its own line.** Don't put two tags on one line and don't bury a tag mid-sentence (emotion tags are one exception; the **transition line** is another — a `{Transition:…}` deliberately gathers all of a section's tags onto one line; and **duration-less `{BigText:LINE}`/`{BigText:End}` tags** sit mid-sentence on purpose, on the exact word their line belongs to — see §4).
 3. **Use straight ASCII double quotes `"` only.** Never curly/smart quotes (`“ ”`). Smart quotes break card tags.
 4. **Never put a `"` *inside* a quoted card field.** The field ends at the first `"`. If you need a quote inside quoted text, rephrase or use single quotes `'`. (Commas, periods, em‑dashes `—`, `%`, `$`, `€` inside quotes are fine.)
-5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline) or `,Left`/`,Right` (side cards and the `{Image:}`/`{Video:}` media tags) modifiers. **One exception:** `BigText` may drop the duration to enter its line-by-line mode (`{BigText:LINE}` … `{BigText:End}`, see §4) — then the closing `{BigText:End}` is mandatory instead.
+5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline) or `,Left`/`,Right` (side cards and the `{Image:}`/`{Video:}` media tags) modifiers. **Two exceptions:** `BigText` may drop the duration to enter its line-by-line mode (`{BigText:LINE}` … `{BigText:End}`, see §4) — then the closing `{BigText:End}` is mandatory instead. And every **side card** (`Headline`/`Excerpt`/`Quote`/`Stat`/`Logo`/`BRoll`) and `{Image:}` may write the keyword **`Start`** in the duration slot to open a **held** card/image, closed with a matching `{Tag:End}` later — see §4 *"Holding a card"*; then that End tag is mandatory instead.
 6. **Unquoted names (`Logo`, `BRoll`, `BigMedia`, `BigText`, `BigImage`) must not contain commas.** The comma is a delimiter. Use `+` to join multiple items (`BigImage` is a single image — no `+`).
-7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback/ExtremeIn/ExtremeOut`, `Cut`, `Smooth`, `bigCenter`, `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
+7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback/ExtremeIn/ExtremeOut`, `Cut`, `Smooth`, `bigCenter`, `Start/End` (held pairs), `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
 8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`, `BigImage`) are exempt** — they render in front of everything and appear in any position, including `Center`. (`BigImage` covers only the left 3/4, so it's meant to *share* the screen — stand the presenter on the **right** with `{Position:Right}`; see §4.)
 9. Keep the narration itself natural — it can contain quotes, commas, anything. The rules above apply to **tags only**.
 10. **Never put a space next to the commas or quotes that separate a tag's fields.** The strip regex is exact: `{Quote:"a","b","c",5}` works, but `{Quote:"a", "b", "c", 5}` (spaces after the commas) does **not** — the tag is left in the narration and read aloud. Spaces are only allowed **inside** a quoted value (`"VP of Comms, MegaCorp"`) or inside an unquoted name/description (`{BRoll:server room,4}`). Never around the `,` between fields, and never between `"` and `"`.
@@ -49,20 +49,22 @@ Paste this whole file to the model before asking it to write a script, or keep i
 | Black cut | timed: `{Black:3}` — or held: `{Black:Start}` … `{Black:End}` | timed: yes / held: no (you place the End tag) |
 | Scene transition | `{Transition:Wipe}` `{Transition:Iris,1.2}` (Wipe/Shutter/Iris, optional speed) | no |
 | Background mood | `{Mood:Tense}` (Calm/Energetic/Tense/Playful/Minimal) | no |
-| Image 📁 | `{Image:name}` or `{Image:name,4}` (+ optional `,Left`/`,Right`) | optional (default 3s) |
+| Image 📁 | `{Image:name}` or `{Image:name,4}` (+ optional `,Left`/`,Right`) — or held: `{Image:name,Start}` … `{Image:End}` | optional (default 3s) — held: you place the End tag |
 | Video clip 📁 | `{Video:name}` … `{Video:End}` — **no duration, close it with the end tag** (+ optional `,Left`/`,Right` on the opening tag) | no (you place the end tag) |
-| Headline card ✅ | `{Headline:"headline text","Source",5}` (+ optional `,bigCenter` **or** `,Left`/`,Right`) | yes |
-| Excerpt card ✅ | `{Excerpt:"full passage","phrase to highlight","Attribution",6}` (+ optional `,Left`/`,Right`) | yes |
-| Quote card ✅ | `{Quote:"the quote","Person Name","Role / Title",5}` (+ optional `,Left`/`,Right`) | yes |
-| Stat card ✅ | `{Stat:"2.3 billion","Label","Context line",5}` (+ optional `,Left`/`,Right`) | yes |
-| Logo card 🎬 | `{Logo:Google,4}` (+ optional `,Left`/`,Right`) | yes |
-| B‑roll card 🎬 | `{BRoll:description,4}` (+ optional `,Left`/`,Right`) | yes |
+| Headline card ✅ | `{Headline:"headline text","Source",5}` (+ optional `,bigCenter` **or** `,Left`/`,Right`) | yes — or `Start` … `{Headline:End}` |
+| Excerpt card ✅ | `{Excerpt:"full passage","phrase to highlight","Attribution",6}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Excerpt:End}` |
+| Quote card ✅ | `{Quote:"the quote","Person Name","Role / Title",5}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Quote:End}` |
+| Stat card ✅ | `{Stat:"2.3 billion","Label","Context line",5}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Stat:End}` |
+| Logo card 🎬 | `{Logo:Google,4}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Logo:End}` |
+| B‑roll card 🎬 | `{BRoll:description,4}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{BRoll:End}` |
 | Big media (fullscreen) 🎬 | `{BigMedia:Google,4}` or `{BigMedia:Google+Brave+X,4}` (≤4) | yes |
 | Big text (fullscreen) ✅ | timed: `{BigText:ONE LINE,3}` / `{BigText:LINE 1+LINE 2,4}` (≤4) — or line-by-line: `{BigText:LINE}` … `{BigText:End}` (no durations) | timed: yes / line-by-line: no (you place the End tag) |
 | Big image (article, left 3/4) 📁 | `{BigImage:name,5}` (pair with `{Position:Right}`) | yes |
 | Stage direction ✅ | `[deadpan]` `[slowing down, serious]` | no |
 | Chapter timestamp ✅ | `{Timestamp:"Cold Open"}` | no |
 | Section heading ✅ | `## COLD OPEN` | n/a |
+
+**Held side cards & images:** every side card (`Headline`/`Excerpt`/`Quote`/`Stat`/`Logo`/`BRoll`) and `{Image:}` may write **`Start`** in place of its duration number; the card then stays up until its matching `{Tag:End}` — e.g. `{Quote:"…","…","…",Start}` … `{Quote:End}`. Same in-tag/out-tag principle as `{Black:Start}`…`{Black:End}` and `{Video:name}`…`{Video:End}` — see §4 *"Holding a card"*.
 
 **Legend — does the tag need a real asset to exist?**
 - ✅ **Self-contained — always works.** The tag carries its own text; nothing external to resolve. Safe to use anytime.
@@ -264,6 +266,13 @@ Shows an image in the media area. `name` is the file name (**extension omitted**
 {Image:stock_chart,Right}
 ```
 
+**Holding an image — `{Image:name,Start}` … `{Image:End}` (optional).** When an image should stay up for as long as some narration runs — which you can't know in seconds — swap the duration for the keyword **`Start`** and close with **`{Image:End}`** placed after the last line the image should cover. It works exactly like `{Video:name}`…`{Video:End}`: the image stays up under everything between the two tags and leaves precisely where the End tag sits in the narration. A `,Left`/`,Right` side still goes **last, on the opening tag only** (`{Image:name,Start,Right}`), never on `{Image:End}`. Like a `{Video:}`, the end tag is a safety-netted pair: an unclosed held image still ends at the next beat (a position change, a content card, the next `{Image:}`/`{Video:}`) or shortly after the narration ends. `End` is a **reserved name** here too — an image file literally called `End` can't be shown (rename it).
+```
+{Image:stock_chart,Start,Right}
+Look at the cliff in March. That is the exact day the policy leaked, and the market never forgave them for it.
+{Image:End}
+```
+
 ### Video — `{Video:name}` … `{Video:End}`  📁
 Plays a video clip file from the `BRoll/` disk folder — `name` is the **filename without extension** (a real one from `MEDIA_LIBRARY.md`). **The clip is always silent and the narration keeps playing right over it** — treat it as b-roll under the voice, not as a break in the read. (Not to be confused with the `{BRoll:description}` **side card**, which resolves a description through the Unity asset — see *"Media & asset cards"*.)
 
@@ -301,6 +310,19 @@ A number is still accepted (`{Video:name,6}`) but it only sets a *minimum* — i
 ### Content cards (side panel — character must be Left/Right)
 
 **Choosing a side — optional `,Left` / `,Right`.** Every card in this group appears on the **left** of the screen by default. Add `,Left` or `,Right` as the **final** value (right after the duration) to choose which side it **sits on** (and slides in from); omit it to keep the default (`Left`). A `,Right` card mirrors the left layout over to the right side of the screen. This is independent of rule 8 — the character must still be at `Left`/`Right` for any side card to show at all, and the card's side does **not** move the character (place the presenter with `{Position:...}` so they don't overlap a same-side card). (For `Headline`, the side is an alternative to `,bigCenter` — a `bigCenter` headline is centered, so it takes no side.)
+
+**Holding a card — `Start` … `{Tag:End}` (optional, every card in this group).** When a card should stay up for as long as some narration runs — which you can't know in seconds — swap its duration number for the keyword **`Start`** and close it with the matching End tag (`{Headline:End}`, `{Excerpt:End}`, `{Quote:End}`, `{Stat:End}`, `{Logo:End}`, `{BRoll:End}`) placed after the last line the card should cover. Same in-tag/out-tag principle as `{Black:Start}`…`{Black:End}`, `{Video:name}`…`{Video:End}` and `{Zoom:ExtremeIn}`…`{Zoom:ExtremeOut}`: the card slides in exactly where the `Start` tag sits and leaves exactly where the End tag sits, so its timing always matches the words.
+```
+{Position:Left}
+{Quote:"We believe transparency is at the core of everything we do.","Sarah Mitchell","VP of Communications, MegaCorp",Start}
+[dry] Keep that sentence on screen while I read what they actually did.
+[flat] Because the contrast is the whole story.
+{Quote:End}
+```
+- `Start` sits **exactly where the duration number would**; an optional `,Left`/`,Right` may still follow it (`{Stat:"…","…","…",Start,Right}`), and it goes on the **opening** tag only — never on the End tag.
+- **Always close the pair, with the matching type** — `{Quote:End}` closes a Quote, not a Logo. An End tag with no matching card up is harmless. An unclosed held card is force-closed when the narration ends, with a warning — but everything that normally clears cards still applies first: a `{Transition:…}` wipes it, moving to `Center` hides it, and a later card replaces it.
+- `End` is a **reserved word** for `Logo` names and `BRoll` descriptions (a company literally named "End" can't be shown).
+- **Side cards only.** Not available on a `,bigCenter` headline or the fullscreen feature cards (`BigMedia`, `BigImage`) — those stay timed. (`BigText` has its own held mode — the line-by-line flow, see below.)
 
 **Headline** — a news headline with its source. Add `,bigCenter` to promote it to a fullscreen centered card, **or** `,Left`/`,Right` to choose which side of the screen a normal side-panel headline sits on.
 ```
@@ -388,6 +410,7 @@ Don't mix the modes in one beat — a duration-less line landing while a timed B
 - **A `{Video:}` has no duration — you end it with `{Video:End}`.** Put `{Video:name}` before the lines the b-roll should cover and `{Video:End}` after the last one; the clip loops under everything in between and cuts exactly there. The end tag is optional: an unclosed clip still ends at the next beat (a `{Position:...}` change, a content card, another `{Image:}`/`{Video:}`, or the end of the narration) — but `{Video:End}` is the only way to stop b-roll mid-read without spending one of those beats (§4).
 - **`{Zoom:ExtremeIn}` has no duration either — you end it with `{Zoom:ExtremeOut}`.** Same in-tag/out-tag principle as `{Video:}`: put the in tag before the line you want in close-up and the out tag after the last line it covers. It works from any position (`Left`/`Right`/`Center`), needs no `{Zoom:Reset}` afterwards, and **must always be closed** — an unpaired `ExtremeIn` holds the close-up for the rest of the video (§4).
 - **A held black works the same way.** `{Black:Start}` before the first line the black should cover, `{Black:End}` after the last one — the cut back out lands exactly on that word. **Always close it** — nothing else ends a held black; an unclosed one stays black until the narration ends (§4). For a black with no narration under it, the timed `{Black:2}` is simpler.
+- **A held side card or image works the same way too.** Swap the duration for `Start` (`{Stat:"…","…","…",Start}`, `{Logo:Brave,Start,Right}`, `{Image:stock_chart,Start}`) and close with the matching `{Stat:End}` / `{Logo:End}` / `{Image:End}` after the last line it should cover (§4 *"Holding a card"* / *"Holding an image"*). Reach for it whenever a card should track a stretch of narration instead of guessing seconds — the entry and exit then land exactly on your words, like every other held pair.
 - **Don't place a tag on the script's very last word and expect it to fire late** — it's fine, the recording now holds until trailing tags (e.g. an end-card `{Logo:...,8}` or final `{Black:2}`) finish their full duration.
 - Reasonable default durations: cards 5s, excerpts 6s, big text 3–4s, logos 3–4s, black cuts 2–3s.
 
@@ -438,8 +461,9 @@ Notes on the example:
 ## 7. Final self-check before returning a script
 
 - [ ] File begins with `## SECTION`.
-- [ ] Every `{...}` card / Logo / BRoll / BigMedia / BigImage ends in `,number`. `BigText` too, **unless** it's the line-by-line mode — then **no** tag in the run carries a number and the run **ends with `{BigText:End}`** (count opens and Ends; a stack left open is force-closed at narration end).
+- [ ] Every `{...}` card / Logo / BRoll / BigMedia / BigImage ends in `,number`. `BigText` too, **unless** it's the line-by-line mode — then **no** tag in the run carries a number and the run **ends with `{BigText:End}`** (count opens and Ends; a stack left open is force-closed at narration end). **Side cards** (`Headline`/`Excerpt`/`Quote`/`Stat`/`Logo`/`BRoll`) may instead end in `,Start` — then each has a matching same-type `{Tag:End}` later in the script (count them per type, the totals must be equal).
 - [ ] **No `{Video:}` carries a duration** — each one is closed by a `{Video:End}` after the last line it covers (preferred), or ended by the next `{Position:...}`, content card, or media tag you placed after it.
+- [ ] **Every `{Image:name,Start}` has a matching `{Image:End}` later in the script** (an unclosed one is ended by the next beat or the end of the narration, like a `{Video:}`).
 - [ ] **Every `{Zoom:ExtremeIn}` has a matching `{Zoom:ExtremeOut}` later in the script** — count them, the totals must be equal. Neither tag carries a duration.
 - [ ] **Every `{Black:Start}` has a matching `{Black:End}` later in the script** — count them, the totals must be equal. (The timed `{Black:seconds}` form needs no End tag.)
 - [ ] **Every 📁/🎬 media name (`Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll`) is a real name copied from `MEDIA_LIBRARY.md`** — exact spelling and case, no extension. Any beat without a confirmed name uses a ✅ text card (`Headline`/`Stat`/`Quote`/`Excerpt`/`BigText`) instead. No invented or placeholder names.
@@ -451,7 +475,7 @@ Notes on the example:
 - [ ] `Transition` / `Mood` (and their variants) spelled exactly and capitalized.
 - [ ] Each `{Transition:…}` is on the first line of its section, with that section's other tags grouped onto the same line.
 - [ ] Every content card is preceded by a `Left` or `Right` position.
-- [ ] Any `,Left`/`,Right` entry-side modifier (side cards, `{Image:}`, `{Video:}`) is the **last** value in the tag, spelled exactly (capitalized), not combined with `,bigCenter`, and never on `{Video:End}`.
+- [ ] Any `,Left`/`,Right` entry-side modifier (side cards, `{Image:}`, `{Video:}`) is the **last** value in the tag (after the duration **or** `Start`), spelled exactly (capitalized), not combined with `,bigCenter`, and never on an `End` tag.
 - [ ] No `T=` written by hand.
 - [ ] One tag per line.
 - [ ] Each `## SECTION` that should be a YouTube chapter has a `{Timestamp:"..."}` on its first line, and the first section's is at the very top (so its chapter is `0:00`).

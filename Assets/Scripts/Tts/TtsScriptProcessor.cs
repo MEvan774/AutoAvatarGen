@@ -77,12 +77,17 @@ namespace MugsTech.Tts
             // (On/In and Stop/Out/Off tolerated as synonyms).
             @"|\{Black:(?:\d+(?:\.\d+)?|Start|On|In|End|Stop|Out|Off)\}" +
             @"|\{(?:Image|Video):[^}]+\}" +
-            @"|\{Headline:""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}" +
-            @"|\{Excerpt:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
-            @"|\{Quote:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
-            @"|\{Stat:""[^""]*"",""[^""]*"",""[^""]*"",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
-            @"|\{Logo:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
-            @"|\{BRoll:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
+            // Side cards: the duration slot also accepts the "Start" keyword —
+            // the held pair form ({Quote:...,Start}…{Quote:End}), mirroring
+            // {Black:Start}…{Black:End}. The bare {Tag:End} closing edge is its
+            // own alternative below the BRoll line.
+            @"|\{Headline:""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Left|Right))?\}" +
+            @"|\{Excerpt:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+            @"|\{Quote:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+            @"|\{Stat:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+            @"|\{Logo:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+            @"|\{BRoll:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+            @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End\}" +
             @"|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}" +
             // BigText duration is OPTIONAL — duration-less is the persistent
             // line-by-line flow ({BigText:LINE}…{BigText:End}); kept in
@@ -448,30 +453,55 @@ namespace MugsTech.Tts
             if (mBlackKw.Success)
                 return "{Black:" + mBlackKw.Groups[1].Value + "," + ts + "}";
 
-            // {Image:file,5}  /  {Video:file,0}
+            // {Headline:End} / {Quote:End} / {Logo:End} / … — the held pair's
+            // closing edge ({Tag:...,Start}…{Tag:End}); keep the keyword
+            // verbatim (like {Black:End}) so the runtime parser sees the close.
+            if (Regex.IsMatch(innerCurly, @"^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End$"))
+                return "{" + innerCurly + "," + ts + "}";
+
+            // {Image:file,5}  /  {Video:file,0}  /  {Image:file,Start} held pair
             // Both may carry a trailing ",Left"/",Right" side modifier (the
             // screen side the media rests on); preserve it after D= so the
-            // runtime parser still sees the side.
+            // runtime parser still sees the side. "Start" in the duration slot
+            // is the held pair form ({Image:name,Start}…{Image:End}) — the
+            // keyword is preserved verbatim, like {Black:Start}.
             Match mMedia = Regex.Match(innerCurly,
-                @"^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?))?(?:,\s*(Left|Right))?$");
+                @"^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?|Start))?(?:,\s*(Left|Right))?$");
             if (mMedia.Success)
             {
-                string dur = mMedia.Groups[3].Success ? mMedia.Groups[3].Value : "0";
                 string side = mMedia.Groups[4].Success ? "," + mMedia.Groups[4].Value : "";
+                if (mMedia.Groups[3].Success && mMedia.Groups[3].Value == "Start")
+                    return "{" + mMedia.Groups[1].Value + ":" + mMedia.Groups[2].Value
+                         + "," + ts + ",Start" + side + "}";
+                string dur = mMedia.Groups[3].Success ? mMedia.Groups[3].Value : "0";
                 return "{" + mMedia.Groups[1].Value + ":" + mMedia.Groups[2].Value
                      + "," + ts + ",D=" + dur + side + "}";
             }
 
-            // {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}
-            // Logo/BRoll may carry a trailing ",Left"/",Right" side modifier;
-            // preserve it after D= so the runtime parser still sees the side.
+            // {Logo:name,5}  /  {BRoll:name,4}  — may carry a trailing
+            // ",Left"/",Right" side modifier; preserve it after D= so the
+            // runtime parser still sees the side. "Start" in the duration slot
+            // is the held pair form ({Logo:name,Start}…{Logo:End}) and stamps
+            // D=0 — the same persistent marker the duration-less BigText uses.
             Match mLb = Regex.Match(innerCurly,
-                @"^(Logo|BRoll|BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?$");
+                @"^(Logo|BRoll):([^,}]+),(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?$");
             if (mLb.Success)
             {
                 string side = mLb.Groups[4].Success ? "," + mLb.Groups[4].Value : "";
+                string dur = mLb.Groups[3].Value == "Start" ? "0" : mLb.Groups[3].Value;
                 return "{" + mLb.Groups[1].Value + ":" + mLb.Groups[2].Value
-                     + "," + ts + ",D=" + mLb.Groups[3].Value + side + "}";
+                     + "," + ts + ",D=" + dur + side + "}";
+            }
+
+            // {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}
+            // Fullscreen feature cards — timed only, no held pair form.
+            Match mBig = Regex.Match(innerCurly,
+                @"^(BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?$");
+            if (mBig.Success)
+            {
+                string side = mBig.Groups[4].Success ? "," + mBig.Groups[4].Value : "";
+                return "{" + mBig.Groups[1].Value + ":" + mBig.Groups[2].Value
+                     + "," + ts + ",D=" + mBig.Groups[3].Value + side + "}";
             }
 
             // {BigText:LINE} — duration-less persistent line (or {BigText:End}).
@@ -484,15 +514,19 @@ namespace MugsTech.Tts
             // (DOTALL so embedded newlines in quoted text are tolerated). Preserve
             // an optional trailing modifier after D= — ",bigCenter" (Headline →
             // centered feature card) or ",Left"/",Right" (the side a side card
-            // flies in from) — so the runtime parser still sees it.
+            // flies in from) — so the runtime parser still sees it. "Start" in
+            // the duration slot is the held pair form
+            // ({Quote:...,Start}…{Quote:End}) and stamps D=0 — the same
+            // persistent marker the duration-less BigText flow uses.
             Match mCard = Regex.Match(innerCurly,
-                @"^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?)(?:,\s*(bigCenter|Left|Right))?$",
+                @"^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?|Start)(?:,\s*(bigCenter|Left|Right))?$",
                 RegexOptions.Singleline);
             if (mCard.Success)
             {
                 string suffix = mCard.Groups[4].Success ? "," + mCard.Groups[4].Value : "";
+                string dur = mCard.Groups[3].Value == "Start" ? "0" : mCard.Groups[3].Value;
                 return "{" + mCard.Groups[1].Value + ":" + mCard.Groups[2].Value
-                     + "," + ts + ",D=" + mCard.Groups[3].Value + suffix + "}";
+                     + "," + ts + ",D=" + dur + suffix + "}";
             }
 
             // Fallback — unknown marker shape; append the timestamp anyway.

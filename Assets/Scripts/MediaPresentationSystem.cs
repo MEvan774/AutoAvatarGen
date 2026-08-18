@@ -1414,12 +1414,13 @@ public class MediaPresentationSystem : MonoBehaviour
                 {
                     if (currentTime >= mediaMarkers[i].triggerTime)
                     {
-                        // {Video:End} — the clip it closes already broke out of
-                        // its play loop the frame this marker came due
-                        // (NextMediaMarkerDue); there is nothing to show here.
+                        // {Video:End} / {Image:End} — the media it closes
+                        // already broke out of its display loop the frame this
+                        // marker came due (NextMediaMarkerDue); there is
+                        // nothing to show here.
                         if (mediaMarkers[i].endsMedia)
                         {
-                            Debug.Log($"{{Video:End}} consumed at {currentTime:F2}s");
+                            Debug.Log($"{{{(mediaMarkers[i].mediaType == MediaType.IMAGE ? "Image" : "Video")}:End}} consumed at {currentTime:F2}s");
                             lastTriggeredMediaMarker = i;
                             continue;
                         }
@@ -1590,8 +1591,43 @@ public class MediaPresentationSystem : MonoBehaviour
                 float hold = marker.displayDuration > 0f
                     ? marker.displayDuration : DefaultMediaSeconds;
 
-                Debug.Log($"Displaying image: {marker.mediaName} for {hold}s");
-                yield return new WaitForSeconds(hold);
+                if (marker.holdsOpen)
+                {
+                    // Held image ({Image:name,Start}…{Image:End}) — no fixed
+                    // lifetime. It lives until its End tag or the next media
+                    // marker arrives (both surface as NextMediaMarkerDue), or
+                    // the beat ends another way (position change / content
+                    // card → dismiss token). Once the narration is over it
+                    // holds the default beat, then closes itself so an
+                    // unclosed pair can't keep the recorder open forever.
+                    Debug.Log($"Displaying held image: {marker.mediaName} " +
+                              "(until {Image:End} or the next beat)");
+
+                    int   token       = mediaDismissToken;
+                    float heldElapsed = 0f;
+                    while (true)
+                    {
+                        if (mediaDismissToken != token) break;   // position change / card
+                        if (NextMediaMarkerDue())       break;   // {Image:End} or next media
+
+                        // Narration over (an End tag on the final words can no
+                        // longer fire — same end-of-audio race as the cards):
+                        // hold the default beat, then close so an open pair
+                        // can't keep the recorder waiting forever.
+                        if ((voiceAudio == null || !voiceAudio.isPlaying) && heldElapsed >= hold)
+                            break;
+
+                        heldElapsed += Time.deltaTime;
+                        yield return null;
+                    }
+
+                    Debug.Log($"Held image finished: {marker.mediaName} after {heldElapsed:F2}s");
+                }
+                else
+                {
+                    Debug.Log($"Displaying image: {marker.mediaName} for {hold}s");
+                    yield return new WaitForSeconds(hold);
+                }
             }
             else
             {
@@ -1913,6 +1949,10 @@ public class MediaPresentationSystem : MonoBehaviour
     //         {Image:name,T=X.XXX,D=Y}. Also handles {Video:...}. All forms
     //         accept an optional trailing ",Left"/",Right" side modifier
     //         (kept last, after the duration/D=, like the side cards).
+    //         {Image:name,Start} is the held pair form — no fixed lifetime,
+    //         the image stays until {Image:End} or the next beat, mirroring
+    //         {Black:Start}…{Black:End} (a {Video:} is already held by
+    //         default, so Start on one changes nothing).
     // -----------------------------------------------------------------------
 
     (string, List<MediaMarkerData>) ParseMediaMarkers(string script, float audioDuration)
@@ -1922,9 +1962,10 @@ public class MediaPresentationSystem : MonoBehaviour
 
         // Groups: 1=Image|Video, 2=name, 3=T (optional), 4=D= duration (optional),
         //         5=bare duration (optional, legacy pre-T= format),
-        //         6=optional ",Left"/",Right" side modifier (same as the side cards)
+        //         6=optional "Start" hold keyword (held pair opening edge),
+        //         7=optional ",Left"/",Right" side modifier (same as the side cards)
         Regex regex = new Regex(
-            @"\{(Image|Video):([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,D=(\d+(?:\.\d+)?))?(?:,(\d+(?:\.\d+)?))?(?:,\s*(Left|Right))?\}");
+            @"\{(Image|Video):([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,D=(\d+(?:\.\d+)?))?(?:,(\d+(?:\.\d+)?))?(?:,\s*(Start))?(?:,\s*(Left|Right))?\}");
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
@@ -1943,13 +1984,18 @@ public class MediaPresentationSystem : MonoBehaviour
             MediaType type = match.Groups[1].Value == "Image" ? MediaType.IMAGE : MediaType.VIDEO;
             string mediaName = match.Groups[2].Value.Trim();
 
-            // {Video:End} closes the running b-roll clip, paired like
-            // {Zoom:ExtremeIn}/{Zoom:ExtremeOut}. "End" is canonical (the guide
-            // documents only it); Stop/Out are accepted as typo-tolerance. The
-            // name is reserved — a real clip file named End.mp4 can't be played.
+            // {Video:End} closes the running b-roll clip and {Image:End} the
+            // held image, paired like {Zoom:ExtremeIn}/{Zoom:ExtremeOut}. "End"
+            // is canonical (the guide documents only it); Stop/Out are accepted
+            // as typo-tolerance. The name is reserved — a real file named
+            // End.mp4/End.png can't be played.
             string lowerName = mediaName.ToLowerInvariant();
-            bool endsMedia = type == MediaType.VIDEO &&
-                             (lowerName == "end" || lowerName == "stop" || lowerName == "out");
+            bool endsMedia = lowerName == "end" || lowerName == "stop" || lowerName == "out";
+
+            // ",Start" hold keyword — the held pair's opening edge: the image
+            // stays until its {Image:End} or the next beat instead of a fixed
+            // duration. (Redundant on a {Video:}, which is already held.)
+            bool holdsOpen = !endsMedia && match.Groups[6].Success;
 
             float duration;
             if (match.Groups[4].Success)
@@ -1962,8 +2008,8 @@ public class MediaPresentationSystem : MonoBehaviour
             // Optional ",Left"/",Right" side — same modifier the side cards
             // take. null = authored default (the left slot).
             EntryDirection? side = null;
-            if (match.Groups[6].Success)
-                side = match.Groups[6].Value == "Right"
+            if (match.Groups[7].Success)
+                side = match.Groups[7].Value == "Right"
                     ? EntryDirection.FromRight : EntryDirection.FromLeft;
 
             markerList.Add(new MediaMarkerData
@@ -1973,11 +2019,15 @@ public class MediaPresentationSystem : MonoBehaviour
                 mediaName = mediaName,
                 displayDuration = duration,
                 endsMedia = endsMedia,
+                holdsOpen = holdsOpen,
                 side = side
             });
 
             if (endsMedia)
-                Debug.Log($"Media marker {{Video:End}} will end the active b-roll at {markerTime:F2}s");
+                Debug.Log($"Media marker {{{match.Groups[1].Value}:End}} will end the active media at {markerTime:F2}s");
+            else if (holdsOpen)
+                Debug.Log($"Media marker '{mediaName}' ({type}) will trigger at {markerTime:F2}s and hold until its End tag" +
+                          (side.HasValue ? $" on the {(side == EntryDirection.FromRight ? "Right" : "Left")}" : ""));
             else
                 Debug.Log($"Media marker '{mediaName}' ({type}) will trigger at {markerTime:F2}s for {duration}s" +
                           (side.HasValue ? $" on the {(side == EntryDirection.FromRight ? "Right" : "Left")}" : ""));
@@ -2553,13 +2603,20 @@ public class MediaMarkerData
     public MediaType mediaType;
     public string mediaName;
     public float displayDuration;
-    // {Video:End} — dismisses the active b-roll clip at triggerTime instead of
-    // starting one. The pair {Video:name}…{Video:End} mirrors
-    // {Zoom:ExtremeIn}…{Zoom:ExtremeOut}. The cut itself needs no extra code
-    // path: the clip's play loop already breaks the frame the NEXT media
-    // marker comes due (NextMediaMarkerDue), this marker included — the
-    // trackers just must never try to play it as a clip named "End".
+    // {Video:End} / {Image:End} — dismisses the active media at triggerTime
+    // instead of starting one. The pairs {Video:name}…{Video:End} and
+    // {Image:name,Start}…{Image:End} mirror {Zoom:ExtremeIn}…{Zoom:ExtremeOut}.
+    // The cut itself needs no extra code path: the active media's display loop
+    // already breaks the frame the NEXT media marker comes due
+    // (NextMediaMarkerDue), this marker included — the trackers just must
+    // never try to play it as a file named "End".
     public bool endsMedia;
+
+    // {Image:name,Start} — the held pair's opening edge: the image has no
+    // fixed lifetime and stays up until its {Image:End}, the next beat, or the
+    // end-of-narration hold, mirroring {Black:Start}…{Black:End}. Meaningless
+    // on a {Video:} (clips are already held open by default).
+    public bool holdsOpen;
 
     // Optional trailing ",Left"/",Right" — which side of the screen the media
     // slot rests on (and slides in from), mirroring the side cards' modifier.

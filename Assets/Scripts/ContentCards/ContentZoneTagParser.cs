@@ -20,9 +20,15 @@ public static class ContentZoneTagParser
     // (Headline/Excerpt/Quote/Stat/Logo/BRoll) also accept an optional trailing
     // ",Left"/",Right" picking the side they slide in from. The fullscreen
     // feature cards (BigMedia/BigText/BigImage) take no side modifier.
+    // The side cards' duration slot also accepts the "Start" keyword — the held
+    // pair form ({Quote:...,Start}…{Quote:End}), mirroring
+    // {Black:Start}…{Black:End}; the bare {Tag:End} closing edge is its own
+    // alternative below. (The TTS processors stamp a held opener as D=0, so the
+    // keyword only reaches this parser in legacy/unstamped scripts.)
     private static readonly Regex StripAllRegex = new Regex(
-        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}" +
-        @"|\{(?:Logo|BRoll):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}" +
+        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Left|Right))?\}" +
+        @"|\{(?:Logo|BRoll):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+        @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End(?:,T=\d+(?:\.\d+)?)?\}" +
         @"|\{(?:BigMedia|BigImage):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}" +
         // BigText's duration is OPTIONAL — the duration-less form is the
         // persistent line-by-line flow ({BigText:LINE}…{BigText:End}).
@@ -35,22 +41,28 @@ public static class ContentZoneTagParser
     // trailing ",Left"/",Right" (the last capture group) that picks the side the
     // card slides in from — null/absent keeps the default (Left).
     private static readonly Regex HeadlineRegex = new Regex(
-        @"\{Headline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(bigCenter))?(?:,\s*(Left|Right))?\}");
+        @"\{Headline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(bigCenter))?(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex ExcerptRegex = new Regex(
-        @"\{Excerpt:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
+        @"\{Excerpt:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex QuoteRegex = new Regex(
-        @"\{Quote:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
+        @"\{Quote:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex StatRegex = new Regex(
-        @"\{Stat:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
+        @"\{Stat:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex LogoRegex = new Regex(
-        @"\{Logo:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
+        @"\{Logo:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
 
     private static readonly Regex BRollRegex = new Regex(
-        @"\{BRoll:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?\}");
+        @"\{BRoll:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
+
+    // The held pair's closing edge — {Headline:End}, {Quote:End}, {Logo:End}, …
+    // — closes the matching held card ({Tag:...,Start}), the same in-tag/out-tag
+    // principle as {Black:Start}…{Black:End} and {BigText:LINE}…{BigText:End}.
+    private static readonly Regex CardEndRegex = new Regex(
+        @"\{(Headline|Excerpt|Quote|Stat|Logo|BRoll):End(?:,T=(\d+(?:\.\d+)?))?\}");
 
     private static readonly Regex BigMediaRegex = new Regex(
         @"\{BigMedia:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
@@ -83,6 +95,7 @@ public static class ContentZoneTagParser
         ExtractStats(script, audioDuration, totalCleanChars, events);
         ExtractLogos(script, audioDuration, totalCleanChars, events);
         ExtractBRolls(script, audioDuration, totalCleanChars, events);
+        ExtractCardEnds(script, audioDuration, totalCleanChars, events);
         ExtractBigMedias(script, audioDuration, totalCleanChars, events);
         ExtractBigTexts(script, audioDuration, totalCleanChars, events);
         ExtractBigImages(script, audioDuration, totalCleanChars, events);
@@ -116,6 +129,15 @@ public static class ContentZoneTagParser
         return float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 
+    // The side cards' duration slot: a number, or the "Start" keyword — the
+    // held pair's opening edge, which parses as 0 (the same "no timer" value a
+    // stamped D=0 carries; duration <= 0 is what ContentZoneController treats
+    // as a held card).
+    private static float ParseDuration(string s)
+    {
+        return s == "Start" ? 0f : ParseFloat(s);
+    }
+
     // Translates an optional ",Left"/",Right" capture group into a forced entry
     // direction. Returns null when the group is absent so the card keeps its
     // default side (the CardEntryAnimator's per-card direction / runtime choice).
@@ -138,7 +160,7 @@ public static class ContentZoneTagParser
                 cardType = type,
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
-                duration = ParseFloat(match.Groups[4].Value),
+                duration = ParseDuration(match.Groups[4].Value),
                 // bigCenter is a centered feature card, so a side has no meaning there.
                 entryDirectionOverride = isBigCenter ? null : ParseSide(match.Groups[6])
             });
@@ -158,7 +180,7 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
-                duration = ParseFloat(match.Groups[5].Value),
+                duration = ParseDuration(match.Groups[5].Value),
                 entryDirectionOverride = ParseSide(match.Groups[6])
             });
             Debug.Log($"  Excerpt at {time:F2}s: highlight=\"{match.Groups[2].Value}\"");
@@ -177,7 +199,7 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
-                duration = ParseFloat(match.Groups[5].Value),
+                duration = ParseDuration(match.Groups[5].Value),
                 entryDirectionOverride = ParseSide(match.Groups[6])
             });
             Debug.Log($"  Quote at {time:F2}s: by {match.Groups[2].Value}");
@@ -196,7 +218,7 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
-                duration = ParseFloat(match.Groups[5].Value),
+                duration = ParseDuration(match.Groups[5].Value),
                 entryDirectionOverride = ParseSide(match.Groups[6])
             });
             Debug.Log($"  Stat at {time:F2}s: {match.Groups[1].Value}");
@@ -208,15 +230,31 @@ public static class ContentZoneTagParser
         foreach (Match match in LogoRegex.Matches(script))
         {
             float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            string name = match.Groups[1].Value.Trim();
+
+            // "End" is the reserved closing keyword (see CardEndRegex), never a
+            // company name — a stray duration on it ({Logo:End,4}) still closes.
+            if (name.Equals("End", System.StringComparison.OrdinalIgnoreCase))
+            {
+                events.Add(new ContentCardEvent
+                {
+                    triggerTime = time,
+                    cardType = ContentCardType.Logo,
+                    dismissesCard = true
+                });
+                Debug.Log($"  Logo End at {time:F2}s");
+                continue;
+            }
+
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
                 cardType = ContentCardType.Logo,
-                primaryText = match.Groups[1].Value.Trim(),
-                duration = ParseFloat(match.Groups[3].Value),
+                primaryText = name,
+                duration = ParseDuration(match.Groups[3].Value),
                 entryDirectionOverride = ParseSide(match.Groups[4])
             });
-            Debug.Log($"  Logo at {time:F2}s: {match.Groups[1].Value.Trim()}");
+            Debug.Log($"  Logo at {time:F2}s: {name}");
         }
     }
 
@@ -225,15 +263,52 @@ public static class ContentZoneTagParser
         foreach (Match match in BRollRegex.Matches(script))
         {
             float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            string name = match.Groups[1].Value.Trim();
+
+            // "End" is the reserved closing keyword (see CardEndRegex), never a
+            // clip description — a stray duration on it still closes.
+            if (name.Equals("End", System.StringComparison.OrdinalIgnoreCase))
+            {
+                events.Add(new ContentCardEvent
+                {
+                    triggerTime = time,
+                    cardType = ContentCardType.BRoll,
+                    dismissesCard = true
+                });
+                Debug.Log($"  BRoll End at {time:F2}s");
+                continue;
+            }
+
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
                 cardType = ContentCardType.BRoll,
-                primaryText = match.Groups[1].Value.Trim(),
-                duration = ParseFloat(match.Groups[3].Value),
+                primaryText = name,
+                duration = ParseDuration(match.Groups[3].Value),
                 entryDirectionOverride = ParseSide(match.Groups[4])
             });
-            Debug.Log($"  BRoll at {time:F2}s: {match.Groups[1].Value.Trim()}");
+            Debug.Log($"  BRoll at {time:F2}s: {name}");
+        }
+    }
+
+    // {Headline:End} / {Excerpt:End} / {Quote:End} / {Stat:End} / {Logo:End} /
+    // {BRoll:End} — the closing edge of a held card opened with ",Start". The
+    // event carries only the type and the dismiss flag; ContentZoneController
+    // closes the matching active card (or warns when there is none).
+    private static void ExtractCardEnds(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        foreach (Match match in CardEndRegex.Matches(script))
+        {
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            ContentCardType type = (ContentCardType)System.Enum.Parse(
+                typeof(ContentCardType), match.Groups[1].Value);
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = type,
+                dismissesCard = true
+            });
+            Debug.Log($"  {type} End at {time:F2}s");
         }
     }
 

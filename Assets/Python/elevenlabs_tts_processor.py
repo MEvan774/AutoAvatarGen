@@ -106,12 +106,17 @@ _ALL_MARKERS = re.compile(
        r'|\{Mood:\w+\}'                                     # background mood crossfade
        r'|\{Black:(?:\d+(?:\.\d+)?|Start|On|In|End|Stop|Out|Off)\}'  # black panel markers (timed, or Start/End held pair)
        r'|\{(?:Image|Video):[^}]+\}'                        # media markers
-       r'|\{Headline:"[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:bigCenter|Left|Right))?\}'  # headline cards (+optional bigCenter / side)
-       r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'   # excerpt cards (+optional side)
-       r'|\{Quote:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'     # quote cards (+optional side)
-       r'|\{Stat:"[^"]*","[^"]*","[^"]*",\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'      # stat cards (+optional side)
-       r'|\{Logo:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
-       r'|\{BRoll:[^,}]+,\d+(?:\.\d+)?(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
+       # Side cards: the duration slot also accepts the "Start" keyword — the
+       # held pair form ({Quote:...,Start}…{Quote:End}), mirroring
+       # {Black:Start}…{Black:End}. The bare {Tag:End} closing edge is its own
+       # alternative below the BRoll line. Lockstep with TtsScriptProcessor.cs.
+       r'|\{Headline:"[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Left|Right))?\}'  # headline cards (+optional bigCenter / side)
+       r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'   # excerpt cards (+optional side)
+       r'|\{Quote:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'     # quote cards (+optional side)
+       r'|\{Stat:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'      # stat cards (+optional side)
+       r'|\{Logo:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
+       r'|\{BRoll:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
+       r'|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End\}'                         # held pair closing edge ({Tag:...,Start}…{Tag:End})
        r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                # big-media feature cards
        r'|\{BigText:[^,}]+(?:,\d+(?:\.\d+)?)?\}'            # big-text cards — duration OPTIONAL (persistent {BigText:LINE}…{BigText:End} flow); lockstep with TtsScriptProcessor.cs
        r'|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}'                # big-image article cards
@@ -569,23 +574,43 @@ def _stamp_marker(marker: str, t: float) -> str:
     if m_black_kw:
         return f"{{Black:{m_black_kw.group(1)},{ts}}}"
 
-    # {Image:file,5}  /  {Video:file,0}
+    # {Headline:End} / {Quote:End} / {Logo:End} / … — the held pair's closing
+    # edge ({Tag:...,Start}…{Tag:End}); keep the keyword verbatim (like
+    # {Black:End}) so the runtime parser sees the close.
+    if re.match(r'^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End$', inner):
+        return f"{{{inner},{ts}}}"
+
+    # {Image:file,5}  /  {Video:file,0}  /  {Image:file,Start} held pair
     # Both may carry a trailing ",Left"/",Right" side modifier (the screen side
     # the media rests on); preserve it after D= so the runtime parser still
-    # sees the side.
-    m_media = re.match(r'^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?))?(?:,\s*(Left|Right))?$', inner)
+    # sees the side. "Start" in the duration slot is the held pair form
+    # ({Image:name,Start}…{Image:End}) — the keyword is preserved verbatim,
+    # like {Black:Start}.
+    m_media = re.match(r'^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?|Start))?(?:,\s*(Left|Right))?$', inner)
     if m_media:
-        dur = m_media.group(3) or '0'
         side = f",{m_media.group(4)}" if m_media.group(4) else ''
+        if m_media.group(3) == 'Start':
+            return f"{{{m_media.group(1)}:{m_media.group(2)},{ts},Start{side}}}"
+        dur = m_media.group(3) or '0'
         return f"{{{m_media.group(1)}:{m_media.group(2)},{ts},D={dur}{side}}}"
 
-    # {Logo:name,5}  /  {BRoll:name,4}  /  {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}
-    # Logo/BRoll may carry a trailing ",Left"/",Right" side modifier; preserve
-    # it after D= so the runtime parser still sees the side.
-    m_lb = re.match(r'^(Logo|BRoll|BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?$', inner)
+    # {Logo:name,5}  /  {BRoll:name,4} — may carry a trailing ",Left"/",Right"
+    # side modifier; preserve it after D= so the runtime parser still sees the
+    # side. "Start" in the duration slot is the held pair form
+    # ({Logo:name,Start}…{Logo:End}) and stamps D=0 — the same persistent
+    # marker the duration-less BigText flow uses.
+    m_lb = re.match(r'^(Logo|BRoll):([^,}]+),(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?$', inner)
     if m_lb:
         side = f",{m_lb.group(4)}" if m_lb.group(4) else ''
-        return f"{{{m_lb.group(1)}:{m_lb.group(2)},{ts},D={m_lb.group(3)}{side}}}"
+        dur = '0' if m_lb.group(3) == 'Start' else m_lb.group(3)
+        return f"{{{m_lb.group(1)}:{m_lb.group(2)},{ts},D={dur}{side}}}"
+
+    # {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}
+    # Fullscreen feature cards — timed only, no held pair form.
+    m_big = re.match(r'^(BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?$', inner)
+    if m_big:
+        side = f",{m_big.group(4)}" if m_big.group(4) else ''
+        return f"{{{m_big.group(1)}:{m_big.group(2)},{ts},D={m_big.group(3)}{side}}}"
 
     # {BigText:LINE} — duration-less persistent line (or {BigText:End}).
     # D=0 marks the persistent flow for the runtime parser.
@@ -596,12 +621,15 @@ def _stamp_marker(marker: str, t: float) -> str:
     # Content cards: Headline / Excerpt / Quote / Stat
     # Preserve an optional trailing modifier after D= — ",bigCenter" (Headline →
     # centered feature card) or ",Left"/",Right" (the side a side card flies in
-    # from) — so the runtime parser still sees it.
-    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?)(?:,\s*(bigCenter|Left|Right))?$',
+    # from) — so the runtime parser still sees it. "Start" in the duration slot
+    # is the held pair form ({Quote:...,Start}…{Quote:End}) and stamps D=0 —
+    # the same persistent marker the duration-less BigText flow uses.
+    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?|Start)(?:,\s*(bigCenter|Left|Right))?$',
                       inner, re.DOTALL)
     if m_card:
         suffix = f",{m_card.group(4)}" if m_card.group(4) else ''
-        return f"{{{m_card.group(1)}:{m_card.group(2)},{ts},D={m_card.group(3)}{suffix}}}"
+        dur = '0' if m_card.group(3) == 'Start' else m_card.group(3)
+        return f"{{{m_card.group(1)}:{m_card.group(2)},{ts},D={dur}{suffix}}}"
 
     # Fallback
     return f"{{{inner},{ts}}}"
