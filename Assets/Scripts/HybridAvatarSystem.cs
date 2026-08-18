@@ -167,6 +167,12 @@ public class HybridAvatarSystem : MonoBehaviour
         crossfadeRenderer.sortingOrder = avatarRenderer.sortingOrder + 1;
         crossfadeRenderer.color = new Color(1f, 1f, 1f, 0f);
 
+        // Soft drop shadow behind the presenter — the same CSS-style elevation
+        // the content cards carry. Auto-added like MugsShake below; add the
+        // component in the Inspector to override its knobs.
+        if (avatarRenderer.GetComponent<PresenterShadow>() == null)
+            avatarRenderer.gameObject.AddComponent<PresenterShadow>();
+
         if (pivot != null)
         {
             originalPosition = pivot.transform.localPosition;

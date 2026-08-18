@@ -49,6 +49,13 @@ public class BigImageCard : ContentCard
     private RectTransform imageRect;
     private Vector2 restPos; // settled anchoredPosition (shifted by the edge margins)
 
+    // Soft drop shadow behind the image box. Built as an earlier sibling with
+    // the image's own anchors/offsets (grown + shifted by the shadow geometry),
+    // then kept glued to the image in LateUpdate so it rides the entry/exit
+    // slide, which animates imageRect.anchoredPosition directly.
+    private RectTransform shadowRect;
+    private Vector2 shadowRestDelta; // shadowRect.anchoredPosition − imageRect.anchoredPosition at build
+
     // Non-null only when we decoded the texture from disk — we own it and must
     // Destroy() it on teardown. A Resources texture is shared and left alone.
     private Texture2D ownedTexture;
@@ -63,6 +70,27 @@ public class BigImageCard : ContentCard
 
     protected override void BuildUI()
     {
+        // Soft drop shadow behind the image box (created first so it renders
+        // behind). Same anchors as the image; its offsets are the image's grown
+        // by the blur padding and shifted down, so the blurred edge falls just
+        // outside the image on every side.
+        GameObject shadowGO = new GameObject("Shadow", typeof(RectTransform));
+        shadowGO.transform.SetParent(rectTransform, false);
+        shadowRect = shadowGO.GetComponent<RectTransform>();
+        shadowRect.anchorMin = new Vector2(0f, 0f);
+        shadowRect.anchorMax = new Vector2(COVER_WIDTH_FRACTION, 1f);
+        float g = ContentCardUIBuilder.ShadowGrowPx;
+        float dy = ContentCardUIBuilder.ShadowOffsetYPx;
+        shadowRect.offsetMin = new Vector2(EDGE_MARGIN - g, EDGE_MARGIN - g - dy);
+        shadowRect.offsetMax = new Vector2(g, -EDGE_MARGIN + g - dy);
+
+        Image shadowImg = shadowGO.AddComponent<Image>();
+        shadowImg.sprite = MugsTech.Style.StyleSpriteFactory.GetRoundedRectShadow(
+            0, ContentCardUIBuilder.ShadowBlurPx);
+        shadowImg.type = Image.Type.Sliced;
+        shadowImg.color = ContentCardUIBuilder.ShadowColor;
+        shadowImg.raycastTarget = false;
+
         // RawImage covering the LEFT COVER_WIDTH_FRACTION of the card, full height.
         // The card root is stretched to fill the (fullscreen) feature zone by the
         // base Awake; anchoring to the left here — under the controller's mirror
@@ -82,6 +110,8 @@ public class BigImageCard : ContentCard
         imageRect.offsetMin = new Vector2(EDGE_MARGIN, EDGE_MARGIN); // left, bottom
         imageRect.offsetMax = new Vector2(0f, -EDGE_MARGIN);         // right flush, top
         restPos = imageRect.anchoredPosition; // settled position the slide returns to
+
+        shadowRestDelta = shadowRect.anchoredPosition - restPos;
     }
 
     public override void Initialize(ContentCardEvent data, ContentCardAssets assets)
@@ -106,8 +136,10 @@ public class BigImageCard : ContentCard
         else
         {
             // Hide the RawImage so a failed lookup shows nothing instead of a
-            // white box sliding in.
+            // white box sliding in. The shadow goes with it — a floating shadow
+            // under an empty card would read as a rendering glitch.
             image.enabled = false;
+            if (shadowRect != null) shadowRect.gameObject.SetActive(false);
             Debug.LogWarning($"[BigImage] Could not load image \"{data.primaryText}\" — checked the " +
                              $"external Images/Logos folders and Resources/Media. Showing an empty card.");
         }
@@ -154,10 +186,15 @@ public class BigImageCard : ContentCard
 
     // Cover-crop: pick the centered UV window whose aspect matches the box so the
     // image fills it edge-to-edge without distortion (overflow on the long axis is
-    // cropped). Recomputed only when the box or texture changes.
+    // cropped). Recomputed only when the box or texture changes. Also keeps the
+    // drop shadow glued to the image box through the entry/exit slide (which
+    // animates imageRect.anchoredPosition directly).
     void LateUpdate()
     {
         if (image == null || image.texture == null) return;
+
+        if (shadowRect != null)
+            shadowRect.anchoredPosition = imageRect.anchoredPosition + shadowRestDelta;
 
         Rect box = imageRect.rect;
         float boxW = box.width;

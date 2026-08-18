@@ -80,6 +80,26 @@ public static class ContentCardUIBuilder
 
     public const float CardPadding = 24f;
 
+    // ---- Card drop shadow ----
+    // Modeled on the CSS `box-shadow: 0px 4px 6px -1px rgba(0,0,0,0.1)` from the
+    // channel's web-style comps, but scaled up for the video: the project
+    // composites in LINEAR color space, which reads at roughly half the
+    // perceptual strength of a browser's sRGB blend, and the animated backdrop
+    // is busier and darker than a web page — at the literal CSS values the
+    // shadow was invisible in a finished take. Pixels are 1080p canvas pixels.
+    public const float ShadowOffsetYPx = 6f;
+    public const int   ShadowBlurPx    = 12;
+    public const float ShadowSpreadPx  = -1f;
+    public static readonly Color ShadowColor = new Color(0f, 0f, 0f, 0.30f);
+
+    /// <summary>
+    /// How far the shadow Image's rect extends past the element it sits under,
+    /// per side: the sprite's blur padding (the solid shape is inset that far
+    /// from the sprite edge) plus the CSS spread (negative = shadow shape
+    /// slightly smaller than the element).
+    /// </summary>
+    public const float ShadowGrowPx = ShadowBlurPx + ShadowSpreadPx;
+
     // Inter SDF assets shipped under Resources/Fonts/RecordingText/. Loaded
     // once on first access and reused — TMP_FontAssets are immutable runtime
     // resources, so caching them is safe.
@@ -117,18 +137,50 @@ public static class ContentCardUIBuilder
     }
 
     /// <summary>
-    /// Creates the card background filling the parent.
+    /// Creates a soft drop shadow filling the parent (grown by the blur padding,
+    /// shifted 4px down — see the Shadow* constants). Add it BEFORE the element
+    /// it should sit under, so it renders behind. The sprite's corner radius
+    /// should match the element's so the silhouettes agree.
+    /// </summary>
+    public static Image CreateShadow(RectTransform parent, float cornerRadiusPx)
+    {
+        RectTransform rt = CreateChild(parent, "Shadow");
+        rt.offsetMin = new Vector2(-ShadowGrowPx, -ShadowGrowPx - ShadowOffsetYPx);
+        rt.offsetMax = new Vector2( ShadowGrowPx,  ShadowGrowPx - ShadowOffsetYPx);
+
+        Image img = rt.gameObject.AddComponent<Image>();
+        img.sprite = StyleSpriteFactory.GetRoundedRectShadow(
+            Mathf.RoundToInt(cornerRadiusPx), ShadowBlurPx);
+        img.type = Image.Type.Sliced;
+        img.color = ShadowColor;
+        img.raycastTarget = false;
+        return img;
+    }
+
+    /// <summary>
+    /// Creates the card background filling the parent, with a soft drop shadow
+    /// behind it (the CSS-style card elevation — see the Shadow* constants).
     /// If a <see cref="StyleManager"/> with an active preset exists, the background
     /// uses the preset's cream color, corner radius, and opacity. Otherwise it
     /// falls back to the original dark semi-transparent panel.
+    /// Pass <paramref name="withShadow"/> = false for a background that ISN'T an
+    /// elevated card — BigCenter's fullscreen overlay panel slides independently
+    /// of the card root, so a root-anchored shadow would wash the screen before
+    /// the panel arrives (and a fullscreen cover has no elevation to express).
     /// </summary>
-    public static Image CreateBackground(RectTransform parent)
+    public static Image CreateBackground(RectTransform parent, bool withShadow = true)
     {
+        ChannelStylePreset preset = StyleManager.Instance != null ? StyleManager.Instance.ActivePreset : null;
+        float radius = preset != null ? preset.cornerRadiusPx : 0f;
+
+        // Shadow first, so it sits behind the background in sibling order.
+        if (withShadow)
+            CreateShadow(parent, radius);
+
         RectTransform rt = CreateChild(parent, "Background");
         Image img = rt.gameObject.AddComponent<Image>();
         img.raycastTarget = false;
 
-        ChannelStylePreset preset = StyleManager.Instance != null ? StyleManager.Instance.ActivePreset : null;
         if (preset != null)
         {
             img.sprite = StyleSpriteFactory.GetRoundedRect(Mathf.RoundToInt(preset.cornerRadiusPx));

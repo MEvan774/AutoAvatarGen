@@ -22,6 +22,11 @@ public class BRollDisplay : ContentCard
 
     protected override void BuildUI()
     {
+        // Soft drop shadow behind the clip — same elevation the panel cards get
+        // from CreateBackground. Square corners: RectMask2D clips the video to
+        // the card's rectangular bounds, so a rounded shadow wouldn't match.
+        ContentCardUIBuilder.CreateShadow(rectTransform, 0f);
+
         // Container — kept for layout. RectMask2D clips the video to the card
         // bounds (still useful at fixed scale because aspect-ratio mismatch
         // could otherwise bleed past the card edges).

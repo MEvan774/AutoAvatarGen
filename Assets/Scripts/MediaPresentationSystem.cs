@@ -488,6 +488,10 @@ public class MediaPresentationSystem : MonoBehaviour
             if (mediaDisplayGroup == null)
                 mediaDisplayGroup = mediaDisplay.gameObject.AddComponent<CanvasGroup>();
 
+            // Soft drop shadow sibling behind the display — self-syncing, same
+            // elevation the content cards get (see MediaDisplayShadow).
+            MediaDisplayShadow.Create(mediaDisplay, mediaDisplayGroup);
+
             mediaDisplay.gameObject.SetActive(false);
         }
 

@@ -13,6 +13,10 @@ namespace MugsTech.Style
         // ---- Rounded rect cache (key = corner radius in px) ----
         private static readonly Dictionary<int, Sprite> s_RoundedRectCache = new Dictionary<int, Sprite>();
 
+        // ---- Shadow cache (key = corner radius, blur) ----
+        private static readonly Dictionary<(int radius, int blur), Sprite> s_ShadowCache
+            = new Dictionary<(int, int), Sprite>();
+
         // ---- Star cache (key = number of points) ----
         private static readonly Dictionary<int, Sprite> s_StarCache = new Dictionary<int, Sprite>();
 
@@ -85,6 +89,88 @@ namespace MugsTech.Style
                 border);
             spr.name = $"RoundedRect_{cornerRadiusPx}";
             s_RoundedRectCache[cornerRadiusPx] = spr;
+            return spr;
+        }
+
+        // -------------------------------------------------------------------
+        // Soft drop shadow (9-sliced)
+        // -------------------------------------------------------------------
+
+        /// <summary>
+        /// Returns a 9-sliced white "soft shadow" sprite: a rounded rect of the
+        /// given corner radius whose edge fades out over <paramref name="blurPx"/>
+        /// — the pre-blurred silhouette a CSS box-shadow produces. The SOLID part
+        /// of the shape is inset <paramref name="blurPx"/> from the sprite edge,
+        /// so an Image using this sprite must be grown by that padding on every
+        /// side for the shadow to line up with the element it sits under (see
+        /// ContentCardUIBuilder.CreateShadow). Pure white — tint via Image.color.
+        /// </summary>
+        public static Sprite GetRoundedRectShadow(int cornerRadiusPx, int blurPx)
+        {
+            cornerRadiusPx = Mathf.Clamp(cornerRadiusPx, 0, 64);
+            blurPx = Mathf.Clamp(blurPx, 1, 32);
+            if (s_ShadowCache.TryGetValue((cornerRadiusPx, blurPx), out Sprite cached))
+                return cached;
+
+            // Blur padding around the solid rounded rect + a few center pixels
+            // for slicing. The falloff spans blur/2 either side of the shape's
+            // edge (a smoothstep read of a Gaussian of radius blurPx), so a pad
+            // of blurPx holds the whole fade comfortably.
+            //
+            // The 9-slice border must reach past the INNER end of the fade
+            // (pad + blur/2) as well as past the corner curvature (pad +
+            // radius) — a border that stops at the solid edge leaves the inner
+            // half of the fade inside the stretched center zone, which smears
+            // it across the whole rect (verified empirically: a radius-0
+            // border of `pad` alone turned the 6px fade into a ~60px one).
+            int pad = blurPx;
+            int border = pad + Mathf.Max(cornerRadiusPx, (blurPx + 1) / 2);
+            int size = Mathf.Max(64, border * 2 + 8);
+
+            Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            tex.filterMode = FilterMode.Bilinear;
+            tex.wrapMode = TextureWrapMode.Clamp;
+
+            Color[] pixels = new Color[size * size];
+            float r = cornerRadiusPx;
+            float halfBlur = blurPx * 0.5f;
+            float center = size * 0.5f;
+            // Half-extent of the SOLID rounded rect (its edge sits `pad` in
+            // from the texture edge).
+            float rectHalf = center - pad;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    // Signed distance from the pixel to the rounded rect's edge
+                    // (negative inside). Standard rounded-box SDF.
+                    float dx = Mathf.Abs(x + 0.5f - center) - (rectHalf - r);
+                    float dy = Mathf.Abs(y + 0.5f - center) - (rectHalf - r);
+                    float outside = Mathf.Sqrt(Mathf.Max(dx, 0f) * Mathf.Max(dx, 0f)
+                                             + Mathf.Max(dy, 0f) * Mathf.Max(dy, 0f));
+                    float inside = Mathf.Min(Mathf.Max(dx, dy), 0f);
+                    float sdist = outside + inside - r;
+
+                    // 1 inside → 0 outside, easing across ±blur/2 of the edge.
+                    float t = Mathf.Clamp01((sdist + halfBlur) / blurPx);
+                    float alpha = 1f - (t * t * (3f - 2f * t));   // smoothstep
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
+                }
+            }
+            tex.SetPixels(pixels);
+            tex.Apply();
+
+            Sprite spr = Sprite.Create(
+                tex,
+                new Rect(0, 0, size, size),
+                new Vector2(0.5f, 0.5f),
+                100f,
+                0,
+                SpriteMeshType.FullRect,
+                new Vector4(border, border, border, border));
+            spr.name = $"RoundedRectShadow_{cornerRadiusPx}_{blurPx}";
+            s_ShadowCache[(cornerRadiusPx, blurPx)] = spr;
             return spr;
         }
 

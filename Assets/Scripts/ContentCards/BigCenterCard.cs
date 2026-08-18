@@ -66,8 +66,10 @@ public class BigCenterCard : ContentCard
         // 1. Fullscreen overlay panel (first child → drawn behind the headline).
         //    Uses the same preset-aware background as every other card, but
         //    forced to full alpha — BigCenter takes over the whole screen and
-        //    the character behind should be fully masked.
-        Image panelImg = ContentCardUIBuilder.CreateBackground(rectTransform);
+        //    the character behind should be fully masked. No drop shadow: the
+        //    panel slides independently of the card root, and a fullscreen
+        //    cover has no elevation to express anyway.
+        Image panelImg = ContentCardUIBuilder.CreateBackground(rectTransform, withShadow: false);
         panelImg.gameObject.name = "OverlayPanel";
         Color panelColor = panelImg.color;
         panelColor.a = 1f;
