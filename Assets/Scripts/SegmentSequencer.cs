@@ -596,10 +596,23 @@ public class SegmentSequencer : MonoBehaviour
         return timing;
     }
 
+    // Segment audio is mp3 by default, but the chunked TTS pipeline writes WAV
+    // when ffmpeg isn't available to encode. The manifest names the file, so
+    // just believe its extension.
+    public static AudioType AudioTypeFor(string path)
+    {
+        switch (Path.GetExtension(path ?? "").ToLowerInvariant())
+        {
+            case ".wav":  return AudioType.WAV;
+            case ".ogg":  return AudioType.OGGVORBIS;
+            default:      return AudioType.MPEG;
+        }
+    }
+
     IEnumerator LoadAudioClip(string path, Action<AudioClip> onLoaded)
     {
         string uri = new Uri(path).AbsoluteUri;
-        using (UnityWebRequest req = UnityWebRequestMultimedia.GetAudioClip(uri, AudioType.MPEG))
+        using (UnityWebRequest req = UnityWebRequestMultimedia.GetAudioClip(uri, AudioTypeFor(path)))
         {
             // GetData() requires the full clip in memory. Streaming defeats that,
             // and produces a decoded-on-demand clip whose samples aren't readable.

@@ -1,0 +1,60 @@
+## COLD OPEN
+{Timestamp:"Cold Open"}
+{Position:Center,Cut} {Neutral}
+[hushed] Somewhere in a data centre right now, a model is watching somebody shop. They put a thing in the cart. They didn't buy it. They sorted the list cheapest first, went back, sorted it again, and closed the tab.
+{Frowned}
+[grave] All of that is data. And the Federal Trade Commission has said, in writing, that behaviour that small can be used to work out what a person will pay — and then to charge them exactly that.
+{Neutral}
+[brisk] This week, Congress asked eight airlines whether they are doing it to your plane ticket. Nobody has proved that they are. So let's do this properly, and keep what's known separate from what's alleged.
+
+## SETUP
+{Timestamp:"Who Is Asking And What They Want"}
+{Transition:Wipe} {Position:Right,Smooth} {Neutral} {Mood:Minimal}
+[crisp] The letters went out on Tuesday, from Frank Pallone, the ranking Democrat on the House Energy and Commerce Committee. It's the second round of an inquiry he opened in May, which started with twenty-five companies across the wider economy.
+{Stat:"8","Airlines Asked","Answers requested by August 25 2026",6,Left}
+Eight carriers got one this week. American, Delta, United, Southwest, and four more. Their answers are due back on the twenty-fifth of August.
+{Frowned}
+[incredulous] And the questions are unusually specific for a letter like this. Does the airline use a customer's income when it sets a fare? Their spending history, their location, their browsing? How often does the algorithm move the number?
+{Quote:"manipulate the prices they pay or experiment with algorithms","Frank Pallone Jr.","Ranking Member — House Energy and Commerce",6,Left}
+[pointed] Manipulate is the word in the letter, not mine. Pallone wrote that people deserve to know when their own information is being used to move the price they see.
+{EyebrowRaised}
+[wry] There's one more question in there, and it's the one I'd have put first. Does a human being ever look at the number before you get charged it?
+
+## BREAKDOWN
+{Timestamp:"What Is Actually Known"}
+{Transition:Shutter} {Position:Left,Smooth} {Neutral} {Mood:Tense}
+[casual] The airlines are getting this letter because of Delta. Last July, on its earnings call, Delta told investors it was testing an AI pricing system on about three percent of its domestic flights.
+{Stat:"20%","Delta's Stated Target","Up from about 3% in testing — July 2025 earnings call",6,Right}
+Twenty percent was the number it wanted to reach. The system comes from an Israeli company called Fetcherr, which builds generative AI for pricing and inventory.
+{Smirk}
+[sarcastic] It's a recommendation engine. Pointed the other way.
+{Neutral}
+[cold] The industry term for the whole practice is revenue management. Translation: software whose entire job is to find the highest number you will still say yes to.
+{Concerned}
+[measured] Delta says that is not what it's doing. In writing, to senators, the company said it has never used, is not testing, and does not plan to use any fare product that prices individual customers off their personal data. That denial is on the record, and it matters.
+{Video:SurveilanceCamera,Right}
+[mock-innocent] Also on the record: on that July call, Delta told investors the test was going well. In completely unrelated news, three weeks later the company published a post responding to misinformation about its AI pricing.
+{Video:End}
+{Neutral}
+[serious] Now the part that isn't about one airline. The Federal Trade Commission studied this across the economy and published what it found in January of twenty twenty-five.
+{Video:ScrollingOnPhone,Right}
+It looked at the middlemen — the software firms that sell pricing systems to shops — and at what those systems take in. Not just what you bought. How you moved the mouse on the page. What you put in the cart and abandoned. Which way you sorted the list.
+{Video:End}
+{Excerpt:"a shopper's emotional state, purchase intent, or financial sensitivity","financial sensitivity","FTC surveillance pricing study — staff perspective",7,Right}
+[slow and deliberate] Emotional state. Purchase intent. Financial sensitivity. Those are the FTC's own words for what a system can infer from signals that small.
+{Position:Center,Cut}
+{LookingAtViewer}
+{Zoom:ExtremeIn}
+[whispers] You already know what that's for.
+{Zoom:ExtremeOut}
+{Position:Right,Cut}
+{Stat:"250+","Companies Using It","FTC study — none of them named",6,Left}
+[incredulous] Two hundred and fifty companies, at least, from grocers to clothing shops. The study didn't name a single one.
+{HeadScratch}
+[sighs] [genuinely baffled] Which I have been sitting with, because I can't work it out. Why would you count them and then not say who they are? What's the thinking? I keep landing somewhere generous — maybe it's a privacy thing.
+{Neutral}
+[brightening] Anyway. One case did get named, by somebody else.
+{Stat:"5","Prices For One Item","Same store same day — Consumer Reports and Groundwork Collaborative",6,Left}
+Five different prices for the same item, in the same store, on the same day. That's what a joint investigation by Consumer Reports and the Groundwork Collaborative found Instacart's pricing experiments producing, back in December.
+{Smirk}
+[sardonic] Instacart stopped using the tool. After the report came out. Remarkable. Somebody frame that.

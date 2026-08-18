@@ -105,6 +105,7 @@ A delivery cue for the narration (pacing, tone). It is **not** spoken and produc
 [deadpan] A company did a thing. It was bad.
 [slowing down, serious] Here's what the policy actually says.
 ```
+These are **eleven_v3 audio tags** — they are sent to the model verbatim and consumed rather than voiced, which is why they read like directions to a performer (`[whispers]`, `[sighs]`, `[laughing]`) rather than like notes to an editor. Plain descriptive moods work well; the further a cue drifts from something a voice can *do*, the likelier v3 is to read it aloud instead. If a take ever speaks one, turn **Send [stage directions]** off in *MugsTech ▸ TTS ▸ Chunked Pipeline* (or `Chunked.Chunking.KeepStageDirections`) and they go back to being stripped before the request — everything else, including their `T=` timestamps, is unaffected.
 
 ### Emotions — `{Neutral}` `{Excited}` `{Serious}` `{Sad}` `{Concerned}`
 Sets the avatar's facial expression. These five are the default set. Place on its own line just before the line it should color (may also appear inline, but own-line is preferred for clarity).

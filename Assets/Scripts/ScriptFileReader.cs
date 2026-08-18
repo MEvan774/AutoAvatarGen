@@ -208,11 +208,11 @@ public class ScriptFileReader : MonoBehaviour
         {
             slug = segmentSlugOverride.Trim();
             scriptPath = Path.Combine(folder, slug + "_timed.txt");
-            audioPath = Path.Combine(folder, slug + ".mp3");
-            if (File.Exists(scriptPath) && File.Exists(audioPath)) return true;
+            audioPath = FindSegmentAudio(folder, slug);
+            if (File.Exists(scriptPath) && audioPath != null) return true;
 
             Debug.LogWarning($"[ScriptFileReader] Segment override '{slug}' not found " +
-                             $"(looked for {scriptPath} + {audioPath}).");
+                             $"(looked for {scriptPath} + {slug}.mp3/.wav).");
             return false;
         }
 
@@ -223,8 +223,8 @@ public class ScriptFileReader : MonoBehaviour
             string baseName = Path.GetFileNameWithoutExtension(candidate);
             if (!baseName.EndsWith("_timed")) continue;
             string candidateSlug = baseName.Substring(0, baseName.Length - "_timed".Length);
-            string candidateAudio = Path.Combine(folder, candidateSlug + ".mp3");
-            if (!File.Exists(candidateAudio)) continue;
+            string candidateAudio = FindSegmentAudio(folder, candidateSlug);
+            if (candidateAudio == null) continue;
 
             scriptPath = candidate;
             audioPath = candidateAudio;
@@ -234,6 +234,20 @@ public class ScriptFileReader : MonoBehaviour
 
         Debug.LogWarning($"[ScriptFileReader] No '<SLUG>_timed.txt' + '<SLUG>.mp3' pair found in {folder}");
         return false;
+    }
+
+    // mp3 is what the TTS pipeline normally writes; wav is what it falls back
+    // to when ffmpeg isn't available to encode. Either plays.
+    static readonly string[] SegmentAudioExtensions = { ".mp3", ".wav" };
+
+    static string FindSegmentAudio(string folder, string slug)
+    {
+        foreach (string ext in SegmentAudioExtensions)
+        {
+            string path = Path.Combine(folder, slug + ext);
+            if (File.Exists(path)) return path;
+        }
+        return null;
     }
 
     IEnumerator AutoLoadAndProcess(string scriptPath, string audioPath, string slug)
@@ -262,7 +276,8 @@ public class ScriptFileReader : MonoBehaviour
         // System.Uri produces the correct 'file:///C:/...' form on Windows —
         // a plain "file://" + path would put the drive letter in the authority.
         string uri = new System.Uri(path).AbsoluteUri;
-        using (UnityWebRequest req = UnityWebRequestMultimedia.GetAudioClip(uri, AudioType.MPEG))
+        using (UnityWebRequest req = UnityWebRequestMultimedia.GetAudioClip(
+                   uri, SegmentSequencer.AudioTypeFor(path)))
         {
             yield return req.SendWebRequest();
 

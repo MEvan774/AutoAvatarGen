@@ -35,6 +35,50 @@ namespace MugsTech.Tts
             // so a straight retry of the same text usually comes back clean — but
             // each one costs characters, hence a small cap.
             public int MaxStallRetries = 2;
+
+            // Measure word times against the rendered audio instead of trusting
+            // the synthesis alignment. Needs the key's forced_alignment
+            // permission; falls back automatically when it isn't granted.
+            public bool UseForcedAlignment = true;
+
+            /// <summary>Settings for the chunked pipeline (the default path).</summary>
+            public ChunkedOptions Chunked = new ChunkedOptions();
+        }
+
+        /// <summary>
+        /// The chunked pipeline: render a couple of long takes and slice them
+        /// into the per-section files, instead of one API call per section.
+        /// See <see cref="ChunkedTtsGenerationJob"/> for why.
+        /// </summary>
+        public class ChunkedOptions
+        {
+            /// <summary>Off = the original one-request-per-section path, kept as
+            /// a fallback.</summary>
+            public bool Enabled = true;
+
+            public TtsChunkAssembler.Options Chunking = new TtsChunkAssembler.Options();
+            public AudioSlicer.Options       Slicing  = new AudioSlicer.Options();
+
+            /// <summary>One seed per video, sent on every chunk. Null generates
+            /// one and records it in render_manifest.json.</summary>
+            public int? Seed;
+
+            /// <summary>v3 takes three discrete values; Creative keeps the
+            /// performance the show is written for.</summary>
+            public float Stability = ElevenLabsClient.StabilityCreative;
+
+            /// <summary>Raw PCM is lossless and needs no decoder, but is
+            /// plan-gated — the client falls back to mp3 by itself.</summary>
+            public string PreferredOutputFormat = ElevenLabsClient.OutputFormatPcm44100;
+
+            public bool  UseFfmpeg  = true;
+            public float TargetLufs = -16f;
+            public int   Mp3Kbps    = 128;
+
+            /// <summary>Folder of a previous run's <c>chunks/</c> output. When a
+            /// dry run points at one, the whole slice runs off the cached audio
+            /// and alignment with no API call.</summary>
+            public string DryRunCacheFolder;
         }
 
         public class Result
@@ -71,6 +115,23 @@ namespace MugsTech.Tts
         /// </summary>
         public IEnumerator Run()
         {
+            // The chunked pipeline is the default: it renders the voice as a
+            // couple of long takes and slices them back into the same
+            // per-section files this method used to write one request at a
+            // time. Flipping Chunked.Enabled off falls back to that older path.
+            if (cfg.Chunked != null && cfg.Chunked.Enabled)
+                return new ChunkedTtsGenerationJob(cfg, onProgress, onStatus, onComplete).Run();
+
+            return RunPerSection();
+        }
+
+        /// <summary>
+        /// The original path: one ElevenLabs request per <c>## SECTION</c>.
+        /// Kept as a fallback — it is what the chunked pipeline replaced
+        /// because v3 re-rolls the voice on every generation.
+        /// </summary>
+        IEnumerator RunPerSection()
+        {
             // ---- validate ------------------------------------------------
             if (string.IsNullOrWhiteSpace(cfg.ScriptText))
             {
@@ -99,23 +160,7 @@ namespace MugsTech.Tts
                 yield break;
             }
 
-            // Multi-segment runs get an order-prefixed slug so Unity can pick
-            // them up in playback order. Single-segment keeps the bare slug
-            // (back-compat with Python behaviour).
-            if (segments.Count > 1)
-            {
-                int width = Math.Max(2, segments.Count.ToString().Length);
-                for (int i = 0; i < segments.Count; i++)
-                {
-                    segments[i].Order = i + 1;
-                    segments[i].Slug  = (i + 1).ToString("D" + width)
-                                      + "_" + segments[i].Slug;
-                }
-            }
-            else
-            {
-                segments[0].Order = 1;
-            }
+            AssignOrderAndSlugs(segments);
 
             Report(0f, $"Parsed {segments.Count} segment(s) from script.");
 
@@ -331,6 +376,26 @@ namespace MugsTech.Tts
 
         // ---- helpers -----------------------------------------------------
 
+        /// <summary>
+        /// Multi-segment runs get an order-prefixed slug so Unity can pick them
+        /// up in playback order. Single-segment keeps the bare slug (back-compat
+        /// with Python behaviour). These slugs become the output filenames, so
+        /// both pipelines assign them the same way.
+        /// </summary>
+        public static void AssignOrderAndSlugs(List<TtsScriptProcessor.Segment> segments)
+        {
+            if (segments == null || segments.Count == 0) return;
+
+            if (segments.Count == 1) { segments[0].Order = 1; return; }
+
+            int width = Math.Max(2, segments.Count.ToString().Length);
+            for (int i = 0; i < segments.Count; i++)
+            {
+                segments[i].Order = i + 1;
+                segments[i].Slug  = (i + 1).ToString("D" + width) + "_" + segments[i].Slug;
+            }
+        }
+
         // A spoken word is never this long. When one is, ElevenLabs stalled
         // mid-render: the audio keeps going (it is NOT silence — the stretch
         // measures the same loudness as speech) but the alignment attributes the
@@ -370,7 +435,7 @@ namespace MugsTech.Tts
                    "Markers after the drift point will not match the narration. Re-rendering.";
         }
 
-        static string DescribeAlignmentStall(List<TtsScriptProcessor.WordTimestamp> words)
+        public static string DescribeAlignmentStall(List<TtsScriptProcessor.WordTimestamp> words)
         {
             if (words == null) return null;
 
@@ -431,7 +496,7 @@ namespace MugsTech.Tts
         // output byte-for-byte-ish (indent=2 style), so existing consumers
         // (manifest readers, debugging tools) stay compatible.
 
-        [Serializable] class ManifestEntry
+        [Serializable] public class ManifestEntry
         {
             public int    order;
             public string slug;
@@ -443,7 +508,7 @@ namespace MugsTech.Tts
             public float  speech_end;
         }
 
-        static string BuildManifestJson(List<ManifestEntry> entries)
+        public static string BuildManifestJson(List<ManifestEntry> entries)
         {
             var sb = new StringBuilder();
             sb.Append("{\n  \"segments\": [\n");
@@ -465,7 +530,7 @@ namespace MugsTech.Tts
             return sb.ToString();
         }
 
-        static string WordsJson(List<TtsScriptProcessor.WordTimestamp> words)
+        public static string WordsJson(List<TtsScriptProcessor.WordTimestamp> words)
         {
             var sb = new StringBuilder();
             sb.Append("[\n");
@@ -482,7 +547,7 @@ namespace MugsTech.Tts
             return sb.ToString();
         }
 
-        static string JsonString(string s)
+        public static string JsonString(string s)
         {
             if (s == null) return "null";
             var sb = new StringBuilder(s.Length + 8).Append('"');

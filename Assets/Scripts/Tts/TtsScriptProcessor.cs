@@ -198,6 +198,24 @@ namespace MugsTech.Tts
         /// the first word had already been spoken.
         /// </summary>
         public static (List<Marker> markers, string cleanText) ExtractMarkers(string rawSegment)
+            => ExtractMarkers(rawSegment, keepStageDirections: false);
+
+        /// <summary>
+        /// As above, but <paramref name="keepStageDirections"/> leaves
+        /// <c>[bracketed]</c> cues IN the text sent to ElevenLabs — eleven_v3
+        /// reads them as audio tags that shape the delivery and consumes them
+        /// rather than voicing them (SCRIPT_TAG_GUIDE §4). They are still
+        /// recorded as markers, so the rebuilt _timed.txt keeps carrying
+        /// <c>[deadpan,T=1.234]</c> and the runtime strip in
+        /// MediaPresentationSystem still removes them at playback.
+        ///
+        /// Kept behind a flag because ElevenLabs' own v3 guide warns the model
+        /// sometimes speaks delivery guides aloud — if that shows up in a take,
+        /// flip the flag off and the text goes back to today's stripped form
+        /// with no other change.
+        /// </summary>
+        public static (List<Marker> markers, string cleanText) ExtractMarkers(
+            string rawSegment, bool keepStageDirections)
         {
             rawSegment = rawSegment ?? "";
 
@@ -213,12 +231,23 @@ namespace MugsTech.Tts
                     CharIndex  = m.Index,
                     CleanIndex = rawClean.Length,   // remapped by NormaliseCleanText
                 });
+
+                // A kept stage direction stays in the clean text at exactly the
+                // position its marker points at, so the marker's CleanIndex is
+                // the '[' itself — the moment the cue applies.
+                if (keepStageDirections && IsStageDirection(m.Value))
+                    rawClean.Append(m.Value);
+
                 cursor = m.Index + m.Length;
             }
             rawClean.Append(rawSegment, cursor, rawSegment.Length - cursor);
 
             return (markers, NormaliseCleanText(rawClean.ToString(), markers));
         }
+
+        /// <summary>A <c>[bracketed]</c> cue, as opposed to a <c>{curly}</c> tag.</summary>
+        public static bool IsStageDirection(string markerText)
+            => !string.IsNullOrEmpty(markerText) && markerText[0] == '[';
 
         /// <summary>
         /// Collapses runs of 2+ spaces to one and trims the ends — the exact
