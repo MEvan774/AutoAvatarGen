@@ -65,6 +65,9 @@ public class BigTextCard : ContentCard
     private readonly List<RectTransform> lineContainers = new List<RectTransform>(MAX_LINES);
     private readonly List<TextMeshProUGUI> lineTexts = new List<TextMeshProUGUI>(MAX_LINES);
     private readonly List<Image> lineBackgrounds = new List<Image>(MAX_LINES);
+    // Per-line CanvasGroups so 'Ease in + fade' can dissolve each line on its
+    // own stagger (the card root stays fully visible during the entrance).
+    private readonly List<CanvasGroup> lineGroups = new List<CanvasGroup>(MAX_LINES);
 
     private int activeLineCount;
 
@@ -118,6 +121,7 @@ public class BigTextCard : ContentCard
 
             lineContainers.Add(containerRT);
             lineTexts.Add(tmp);
+            lineGroups.Add(EnsureGroup(containerRT));
         }
     }
 
@@ -176,7 +180,6 @@ public class BigTextCard : ContentCard
         Vector2 offset = LineEntryOffset(ResolvedEntryDirection, cfg.lineTravelBase, SlideDistanceFactor);
         float dur = SlideDuration;
         float stagger = cfg.staggerDelay;
-        AnimationCurve curve = OvershootCurve;
 
         // The offset alone measures the start from each line's RESTING slot,
         // but the slots form a stack — on a vertical entry the stack's leading
@@ -207,15 +210,28 @@ public class BigTextCard : ContentCard
             // to the sequence. Sequence.Insert with an AnimationCurve ease has
             // been observed to silently drop the curve in some DOTween builds;
             // Join + SetDelay applies the curve reliably.
-            Tween lineTween = rt
-                .DOAnchorPos(endPos, dur)
-                .SetEase(curve)
+            Tween lineTween = ApplyEntryEase(rt.DOAnchorPos(endPos, dur))
                 .SetDelay(stagger * i);
 
             seq.Join(lineTween);
+            JoinLineFade(seq, i, stagger * i);
         }
 
         currentSequence = seq;
+    }
+
+    // 'Ease in + fade': the line starts invisible and dissolves in on the same
+    // delay as its slide. Overshoot: the line is simply opaque, as before.
+    private void JoinLineFade(Sequence seq, int lineIndex, float delay)
+    {
+        CanvasGroup g = lineGroups[lineIndex];
+        if (UseOvershootEntry)
+        {
+            g.alpha = 1f;
+            return;
+        }
+        g.alpha = 0f;
+        seq.Join(g.DOFade(1f, EntryFadeDuration).SetEase(EntryFadeEase).SetDelay(delay));
     }
 
     /// <summary>
@@ -256,7 +272,6 @@ public class BigTextCard : ContentCard
         float minRestY = topCenter - (activeLineCount - 1) * (LINE_HEIGHT + LINE_GAP);
         float maxRestY = topCenter;
         float dur = SlideDuration;
-        AnimationCurve curve = OvershootCurve;
 
         // Killing a still-running entrance leaves lines mid-flight; the shift
         // tween below picks each one up from wherever it is.
@@ -271,16 +286,19 @@ public class BigTextCard : ContentCard
 
             if (i < firstNew)
             {
-                // Already on screen — glide to the re-centered slot.
+                // Already on screen — glide to the re-centered slot. A line
+                // whose fade-in was cut short by the kill above finishes it
+                // during the glide.
                 seq.Join(rt.DOAnchorPos(endPos, LINE_SHIFT_DURATION).SetEase(Ease.OutQuad));
+                if (lineGroups[i].alpha < 1f)
+                    seq.Join(lineGroups[i].DOFade(1f, LINE_SHIFT_DURATION).SetEase(Ease.OutQuad));
             }
             else
             {
                 rt.anchoredPosition = EntryStartFor(endPos, offset, minRestY, maxRestY);
-                seq.Join(rt
-                    .DOAnchorPos(endPos, dur)
-                    .SetEase(curve)
-                    .SetDelay(cfg.staggerDelay * (i - firstNew)));
+                float delay = cfg.staggerDelay * (i - firstNew);
+                seq.Join(ApplyEntryEase(rt.DOAnchorPos(endPos, dur)).SetDelay(delay));
+                JoinLineFade(seq, i, delay);
             }
         }
 

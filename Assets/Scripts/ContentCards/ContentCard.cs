@@ -61,6 +61,26 @@ public abstract class ContentCard : MonoBehaviour
     protected EntryDirection ResolvedEntryDirection
         => eventDirectionOverride ?? CardEntryAnimator.Instance.ResolveDirection(CardType, runtimeDirection);
 
+    // ---- Entry style (Overshoot vs Ease in + fade, picked in the main menu) --
+    // Route every entry slide/pop through ApplyEntryEase and every entry fade
+    // through EntryFadeDuration/EntryFadeEase so the menu switch covers them.
+    protected bool  UseOvershootEntry => CardEntryAnimator.Instance.UseOvershoot;
+    protected float EntryFadeDuration => CardEntryAnimator.Instance.GetEntryFadeDuration(CardType);
+    protected Ease  EntryFadeEase     => CardEntryAnimator.Instance.EntryFadeEase;
+    protected T ApplyEntryEase<T>(T tween) where T : Tween
+        => CardEntryAnimator.Instance.ApplyEntryEase(tween);
+
+    /// <summary>
+    /// CanvasGroup on a child container so it can fade independently of the
+    /// card root (Big* cards force the root visible and animate children).
+    /// </summary>
+    protected static CanvasGroup EnsureGroup(Component child)
+    {
+        var g = child.GetComponent<CanvasGroup>();
+        if (g == null) g = child.gameObject.AddComponent<CanvasGroup>();
+        return g;
+    }
+
     protected virtual void Awake()
     {
         canvasGroup = GetComponent<CanvasGroup>();
@@ -159,9 +179,12 @@ public abstract class ContentCard : MonoBehaviour
             rectTransform.localEulerAngles = new Vector3(0f, 0f, rotationZ);
         }
 
+        // Ease + fade durations follow the menu's entry style: Overshoot keeps
+        // the short OutQuad fade under the curve; Ease in + fade stretches the
+        // fade over the whole slide and eases both with the same smooth curve.
         Sequence seq = DOTween.Sequence()
-            .Join(canvasGroup.DOFade(1f, FadeInDuration).SetEase(Ease.OutQuad))
-            .Join(rectTransform.DOAnchorPos(endPos, SlideDuration).SetEase(OvershootCurve));
+            .Join(canvasGroup.DOFade(1f, EntryFadeDuration).SetEase(EntryFadeEase))
+            .Join(ApplyEntryEase(rectTransform.DOAnchorPos(endPos, SlideDuration)));
 
         if (preset != null && preset.wobbleIntensity > 0.001f)
         {

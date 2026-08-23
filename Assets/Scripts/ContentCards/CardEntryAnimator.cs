@@ -65,6 +65,19 @@ public class CardEntryAnimator : MonoBehaviour
         public float slideDistanceFactor = 1.0f;
     }
 
+    [Header("Entry Style")]
+    [Tooltip("Overshoot = the curve below (card snaps past its rest position and settles back). " +
+             "Ease in + fade = a smooth decelerating ease with no overshoot, and the fade-in " +
+             "stretched over the whole slide. This inspector value is only the FALLBACK: the main " +
+             "menu's 'Card entry animation' row saves a choice to PlayerPrefs " +
+             "(AutoAvatarGen.CardEntryStyle) which overrides it at scene load.")]
+    public CardEntrySettings.Style entryStyle = CardEntrySettings.Style.Overshoot;
+
+    [Tooltip("Ease used for the slide / pop when the style is 'Ease in + fade'. Smooth " +
+             "NON-overshoot eases look right here (OutCubic / OutQuad / OutExpo / OutSine). " +
+             "The fade-in uses the same ease.")]
+    public Ease easeFadeEase = Ease.OutCubic;
+
     [Header("Overshoot Curve (used by every card entry)")]
     [Tooltip("Master overshoot curve. Time goes 0→1 over the slide duration; value 1.0 = card " +
              "at its final resting position. The default peaks ~10% past the rest position " +
@@ -151,6 +164,10 @@ public class CardEntryAnimator : MonoBehaviour
         _instance = this;
         EnsureCurveValid();
         EnsureAllCardTypesPresent();
+
+        // The menu's saved choice wins over the inspector value; the inspector
+        // value is the fallback until the user has picked something.
+        entryStyle = CardEntrySettings.LoadStyle(entryStyle);
     }
 
     void Reset()
@@ -216,6 +233,45 @@ public class CardEntryAnimator : MonoBehaviour
     }
 
     public AnimationCurve Curve => overshootCurve;
+
+    // ---- Entry style (Overshoot vs Ease in + fade) -------------------------
+    //
+    // Every entry goes through these three so the menu switch covers all of
+    // them: ApplyEntryEase for the slide/pop tween, and the fade pair for the
+    // CanvasGroup fade that runs alongside it. In Overshoot mode they reproduce
+    // the original behaviour exactly (curve ease + short OutQuad fade); in
+    // EaseFade mode the slide uses easeFadeEase and the fade is stretched to
+    // the slide's full duration so the dissolve is actually visible.
+
+    public bool UseOvershoot => entryStyle == CardEntrySettings.Style.Overshoot;
+
+    /// <summary>
+    /// Applies the active entry ease to a slide / scale tween: the overshoot
+    /// curve, or the smooth <see cref="easeFadeEase"/>. Returns the tween so it
+    /// chains (e.g. <c>ApplyEntryEase(rt.DOAnchorPos(...)).SetDelay(...)</c>).
+    /// </summary>
+    public T ApplyEntryEase<T>(T tween) where T : Tween
+    {
+        if (tween == null) return null;
+        return UseOvershoot ? tween.SetEase(overshootCurve) : tween.SetEase(easeFadeEase);
+    }
+
+    /// <summary>Ease for the fade-in that accompanies an entry.</summary>
+    public Ease EntryFadeEase => UseOvershoot ? Ease.OutQuad : easeFadeEase;
+
+    /// <summary>
+    /// Fade-in duration for the given card type under the active style: the
+    /// per-card fade-in (Overshoot) or the full slide duration (EaseFade).
+    /// </summary>
+    public float GetEntryFadeDuration(ContentCardType type)
+        => UseOvershoot ? GetFadeInDuration(type) : GetSlideDuration(type);
+
+    /// <summary>
+    /// Fade-in duration for entries that use the global defaults (the
+    /// {Image:}/{Video:} media display) under the active style.
+    /// </summary>
+    public float DefaultEntryFadeDuration
+        => UseOvershoot ? defaultFadeInDuration : defaultSlideDuration;
 
     public float GetSlideDuration(ContentCardType type)
     {

@@ -151,7 +151,7 @@ public class BigImageCard : ContentCard
 
         // This card owns its entry — flatten any preset rotation, force the
         // CanvasGroup visible as the slide begins, then ease the image in from the
-        // resolved direction (defaults to FromTop) with the shared overshoot curve.
+        // resolved direction (defaults to FromTop) with the shared entry ease.
         rectTransform.localEulerAngles = Vector3.zero;
         imageRect.localEulerAngles = Vector3.zero;
         canvasGroup.alpha = 0f;
@@ -159,9 +159,10 @@ public class BigImageCard : ContentCard
         Vector2 offset = EntryOffset(ResolvedEntryDirection, SLIDE_TRAVEL_BASE * SlideDistanceFactor);
         imageRect.anchoredPosition = restPos + offset;
 
+        // Ease + fade follow the menu's entry style (see ContentCard.Show).
         currentSequence = DOTween.Sequence()
-            .Join(canvasGroup.DOFade(1f, FadeInDuration).SetEase(Ease.OutQuad))
-            .Join(imageRect.DOAnchorPos(restPos, SlideDuration).SetEase(OvershootCurve));
+            .Join(canvasGroup.DOFade(1f, EntryFadeDuration).SetEase(EntryFadeEase))
+            .Join(ApplyEntryEase(imageRect.DOAnchorPos(restPos, SlideDuration)));
     }
 
     public override void Hide(bool fast = false)

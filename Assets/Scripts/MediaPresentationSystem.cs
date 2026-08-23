@@ -205,6 +205,27 @@ public class MediaPresentationSystem : MonoBehaviour
     public bool IsShowingMedia => isShowingMedia;
 
     /// <summary>
+    /// True when a {Zoom:ExtremeIn} or {Zoom:ExtremeOut} marker fires within
+    /// <paramref name="window"/> seconds of <paramref name="time"/>. Both are
+    /// hard camera cuts, so HybridAvatarSystem uses this to jump-cut any emotion
+    /// change that lands on the same beat instead of animating it (a shrink /
+    /// grow / crossfade playing under a camera snap reads as a glitch — the cut
+    /// itself is the transition). Zoom markers are parsed before the avatar
+    /// receives the script, so the list is complete by the time emotions fire.
+    /// </summary>
+    public bool HasExtremeZoomCutNear(float time, float window)
+    {
+        if (zoomMarkers == null) return false;
+        for (int i = 0; i < zoomMarkers.Count; i++)
+        {
+            var z = zoomMarkers[i];
+            if (z.zoomType != ZoomType.ExtremeIn && z.zoomType != ZoomType.ExtremeOut) continue;
+            if (Mathf.Abs(z.triggerTime - time) <= window) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// True while ANY trailing visual is still on screen — media, a content
     /// card, or the black panel. The recorder polls this after the narration
     /// ends so an end-of-script tag (a closing {Logo:...,D=8} end-card, a final
@@ -408,7 +429,8 @@ public class MediaPresentationSystem : MonoBehaviour
     }
 
     // Slide + fade the media in, matching the content-card entry: the central
-    // overshoot curve and default timings from CardEntryAnimator, and the same
+    // entry ease (overshoot curve, or the menu's 'Ease in + fade' style) and
+    // default timings from CardEntryAnimator, and the same
     // parent-mirror correction the cards need — the recorded canvas renders
     // horizontally mirrored, so a horizontal slide's offset must be flipped or
     // the media eases in from the wrong side (see ContentCard.Show and
@@ -440,10 +462,13 @@ public class MediaPresentationSystem : MonoBehaviour
         rt.anchoredPosition = endPos + startOffset;
         if (mediaDisplayGroup != null) mediaDisplayGroup.alpha = 0f;
 
+        // Ease + fade follow the menu's 'Card entry animation' choice exactly
+        // like the cards do: the overshoot curve with a short fade, or the
+        // smooth ease with the fade stretched over the whole slide.
         Sequence seq = DOTween.Sequence()
-            .Join(rt.DOAnchorPos(endPos, anim.defaultSlideDuration).SetEase(anim.Curve));
+            .Join(anim.ApplyEntryEase(rt.DOAnchorPos(endPos, anim.defaultSlideDuration)));
         if (mediaDisplayGroup != null)
-            seq.Join(mediaDisplayGroup.DOFade(1f, anim.defaultFadeInDuration).SetEase(Ease.OutQuad));
+            seq.Join(mediaDisplayGroup.DOFade(1f, anim.DefaultEntryFadeDuration).SetEase(anim.EntryFadeEase));
 
         mediaEntrySequence = seq;
     }

@@ -53,6 +53,19 @@ public class HybridAvatarSystem : MonoBehaviour
     [Tooltip("Peak scale multiplier the presenter reaches at the middle of the " +
              "'Grow' transition before returning to the original size.")]
     public float growAmount = 1.15f;
+    [Range(0.1f, 2f)]
+    [Tooltip("Total duration of the 'Shrink' transition: the expression swaps " +
+             "instantly, the presenter dips to Shrink Amount, then springs back " +
+             "to the original size. 0.2s reads snappy.")]
+    public float shrinkDuration = 0.2f;
+    [Range(0.5f, 0.99f)]
+    [Tooltip("Smallest scale multiplier the presenter dips to during the 'Shrink' " +
+             "transition (0.93 = 7% smaller).")]
+    public float shrinkAmount = 0.93f;
+    [Range(0.1f, 0.9f)]
+    [Tooltip("Share of Shrink Duration spent dipping down; the rest is the spring " +
+             "back up. Below 0.5 = a quick dip and a softer recovery (snappier).")]
+    public float shrinkDipFraction = 0.375f;
     [Tooltip("Optional MugsShake driven by the 'Shake' transition style. If left " +
              "empty, one is added to the pivot at runtime with default settings. " +
              "Assign your own (on the pivot, or a child that holds only the visual) " +
@@ -63,6 +76,11 @@ public class HybridAvatarSystem : MonoBehaviour
              "blink plays in the first moment of a recording. Set to 0 to animate " +
              "from the very first marker.")]
     public float instantCutStartWindow = 1f;
+    [Tooltip("Emotion changes scheduled within this many seconds of a " +
+             "{Zoom:ExtremeIn} / {Zoom:ExtremeOut} jump-cut instead of animating: " +
+             "the camera snap IS the transition, and a shrink / grow / crossfade " +
+             "playing under it reads as a glitch. Set to 0 to always animate.")]
+    public float extremeZoomCutWindow = 0.4f;
     [Tooltip("Optional MugsEmotionTransition driving the 'Blink' / 'Blink (Heavy)' " +
              "styles. If left empty, one is added to the pivot at runtime. Attach " +
              "your own on the centred visual holder to tune the blink timings.")]
@@ -82,8 +100,11 @@ public class HybridAvatarSystem : MonoBehaviour
 
     private Coroutine currentAnimation;
 
-    // Rest scale of the pivot while a Grow transition is mid-swell. Restored when
-    // the grow is interrupted so the next animation never inherits the enlarged pose.
+    // Rest scale of the pivot while a Grow / Shrink transition is mid-scale.
+    // Restored when the animation is interrupted so the next one never inherits
+    // the enlarged / shrunken pose. growRunning also tells Update that the
+    // running transition is SCALE-ONLY: Grow / Shrink never touch the pivot's
+    // position or rotation, so idle sway keeps composing with them (see Update).
     private Vector3 growRestScale;
     private bool growRunning;
 
@@ -211,7 +232,14 @@ public class HybridAvatarSystem : MonoBehaviour
 
     void Update()
     {
-        if (enableIdleSway && pivot != null && currentAnimation == null)
+        // Idle sway pauses for transitions that write the pivot's position /
+        // rotation themselves (squash, shake) — but NOT for the scale-only ones
+        // (Grow / Shrink). Pausing it there froze the presenter for the
+        // transition's length and then, because the sway samples Perlin noise at
+        // the CURRENT time, snapped it to wherever the sway had drifted to
+        // meanwhile. Letting the sway run underneath the scale change keeps the
+        // motion continuous through and after the transition.
+        if (enableIdleSway && pivot != null && (currentAnimation == null || growRunning))
         {
             ApplyIdleSway();
         }
@@ -399,6 +427,17 @@ public class HybridAvatarSystem : MonoBehaviour
     private MediaPresentationSystem mediaPresentation;
 
     // SIMPLIFIED: Pure time-based tracking
+    // True when an extreme-zoom jump-cut ({Zoom:ExtremeIn} / {Zoom:ExtremeOut})
+    // fires within extremeZoomCutWindow of the given marker time — those
+    // emotion changes swap instantly instead of animating. See
+    // MediaPresentationSystem.HasExtremeZoomCutNear.
+    bool OnExtremeZoomCut(float markerTime)
+    {
+        return extremeZoomCutWindow > 0f
+            && mediaPresentation != null
+            && mediaPresentation.HasExtremeZoomCutNear(markerTime, extremeZoomCutWindow);
+    }
+
     IEnumerator TrackEmotionsByTime()
     {
         lastTriggeredMarker = -1;
@@ -435,10 +474,12 @@ public class HybridAvatarSystem : MonoBehaviour
                     // Precedence: an explicit per-tag override ({Emotion,Style})
                     // wins; otherwise markers inside the start window jump-cut
                     // (Cut) so nothing animates in the first moment of the
-                    // recording; otherwise the global style from the main menu.
+                    // recording; otherwise markers riding an extreme-zoom camera
+                    // cut jump-cut too (the snap is the transition); otherwise
+                    // the global style from the main menu.
                     PresenterTransitionSettings.Style style =
                         marker.transitionOverride
-                        ?? (marker.triggerTime < instantCutStartWindow
+                        ?? (marker.triggerTime < instantCutStartWindow || OnExtremeZoomCut(marker.triggerTime)
                                 ? PresenterTransitionSettings.Style.Cut
                                 : activeTransition);
 
@@ -500,6 +541,9 @@ public class HybridAvatarSystem : MonoBehaviour
                         break;
                     case PresenterTransitionSettings.Style.Grow:
                         currentAnimation = StartCoroutine(GrowAnimation(sprite));
+                        break;
+                    case PresenterTransitionSettings.Style.Shrink:
+                        currentAnimation = StartCoroutine(ShrinkAnimation(sprite));
                         break;
                     case PresenterTransitionSettings.Style.Shake:
                         currentAnimation = StartCoroutine(ShakeTransition(sprite));
@@ -681,6 +725,58 @@ public class HybridAvatarSystem : MonoBehaviour
         currentAnimation = null;
     }
 
+    // 'Shrink' style — the mirror of Grow, with the swap up front: the new
+    // expression lands instantly, then the presenter dips uniformly to
+    // shrinkAmount over the first shrinkDipFraction of shrinkDuration and springs
+    // back to the original size over the rest. Ease-out on both legs — the dip
+    // launches quickly and the recovery lands softly — so a 0.2s run reads as a
+    // snappy "recoil" rather than a bounce. Shares Grow's rest-scale bookkeeping
+    // so an interruption restores the pivot exactly like Grow does, and — like
+    // Grow — only ever writes localScale, so idle sway keeps running underneath
+    // (growRunning lets Update know; see there).
+    IEnumerator ShrinkAnimation(Sprite newSprite)
+    {
+        avatarRenderer.sprite = newSprite;
+        NormalizeSpriteSize(avatarRenderer);
+
+        Transform avatarTransform = pivot.transform;
+        growRestScale = avatarTransform.localScale;
+        growRunning = true;
+
+        float dipDuration    = shrinkDuration * shrinkDipFraction;
+        float returnDuration = shrinkDuration - dipDuration;
+        float elapsed = 0f;
+
+        // Phase 1: dip down to the smallest size
+        while (elapsed < dipDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / dipDuration);
+            t = 1f - (1f - t) * (1f - t);
+
+            avatarTransform.localScale = growRestScale * Mathf.Lerp(1f, shrinkAmount, t);
+            yield return null;
+        }
+
+        elapsed = 0f;
+
+        // Phase 2: spring back to the original size
+        while (elapsed < returnDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / returnDuration);
+            t = 1f - (1f - t) * (1f - t);
+
+            avatarTransform.localScale = growRestScale * Mathf.Lerp(shrinkAmount, 1f, t);
+            yield return null;
+        }
+
+        avatarTransform.localScale = growRestScale;
+        growRunning = false;
+
+        currentAnimation = null;
+    }
+
     IEnumerator CrossfadeAnimation(Sprite newSprite)
     {
         // Place the new sprite on the overlay renderer and fade it in
@@ -766,12 +862,12 @@ public class HybridAvatarSystem : MonoBehaviour
 
         // {Emotion}, {Emotion,T=X.XXX}, or with a per-tag transition override:
         // {Emotion,Style} where Style is one of Cut / Blink / BlinkHeavy /
-        // SquashStretch / Crossfade / Shake / Grow (BlinkHeavy is listed before
-        // Blink so the longer keyword wins). The Style modifier is accepted either before
+        // SquashStretch / Crossfade / Shake / Grow / Shrink (BlinkHeavy is listed
+        // before Blink so the longer keyword wins). The Style modifier is accepted either before
         // (group 2) or after (group 4) the pre-processor's appended ,T= so all of
         // {Emotion,Style}, {Emotion,Style,T=X} and {Emotion,T=X,Style} parse.
         // Position/Zoom/Media markers carry a ':' and are stripped before this runs.
-        const string styleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow";
+        const string styleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow|Shrink";
         Regex regex = new Regex(
             @"\{(\w+)(?:,(" + styleAlt + @"))?(?:,T=(\d+(?:\.\d+)?))?(?:,(" + styleAlt + @"))?\}");
         MatchCollection matches = regex.Matches(script);

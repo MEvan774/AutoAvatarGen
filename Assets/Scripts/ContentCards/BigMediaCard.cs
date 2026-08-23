@@ -63,6 +63,9 @@ public class BigMediaCard : ContentCard
     private static readonly float[] BAND_WIDTHS = { 0.70f, 0.80f, 0.88f, 0.92f };
 
     private readonly List<RectTransform> slotContainers = new List<RectTransform>(MAX_LOGOS);
+    // Per-slot CanvasGroups so 'Ease in + fade' can dissolve each logo on its
+    // own stagger (the card root stays fully visible during the entrance).
+    private readonly List<CanvasGroup> slotGroups = new List<CanvasGroup>(MAX_LOGOS);
     private readonly List<Image> slotImages = new List<Image>(MAX_LOGOS);
     private readonly List<TextMeshProUGUI> slotFallbacks = new List<TextMeshProUGUI>(MAX_LOGOS);
 
@@ -105,6 +108,7 @@ public class BigMediaCard : ContentCard
             slotGO.SetActive(false);
 
             slotContainers.Add(slotRT);
+            slotGroups.Add(EnsureGroup(slotRT));
             slotImages.Add(img);
             slotFallbacks.Add(fallback);
         }
@@ -239,7 +243,6 @@ public class BigMediaCard : ContentCard
         Sequence seq = DOTween.Sequence();
         float dur = SlideDuration;
         float stagger = BigMediaCfg.staggerDelay;
-        AnimationCurve curve = OvershootCurve;
 
         for (int i = 0; i < activeSlotCount; i++)
         {
@@ -251,12 +254,23 @@ public class BigMediaCard : ContentCard
             // it to the sequence. Sequence.Insert with an AnimationCurve ease
             // has been observed to silently drop the curve in some DOTween
             // builds; Join + SetDelay applies the curve reliably.
-            Tween popTween = rt
-                .DOScale(Vector3.one, dur)
-                .SetEase(curve)
+            Tween popTween = ApplyEntryEase(rt.DOScale(Vector3.one, dur))
                 .SetDelay(stagger * i);
 
             seq.Join(popTween);
+
+            // 'Ease in + fade': the logo dissolves in while it grows, on the
+            // same stagger. Overshoot: opaque from the first frame, as before.
+            CanvasGroup g = slotGroups[i];
+            if (UseOvershootEntry)
+            {
+                g.alpha = 1f;
+            }
+            else
+            {
+                g.alpha = 0f;
+                seq.Join(g.DOFade(1f, EntryFadeDuration).SetEase(EntryFadeEase).SetDelay(stagger * i));
+            }
         }
 
         currentSequence = seq;

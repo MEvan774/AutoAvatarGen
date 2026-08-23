@@ -144,6 +144,8 @@ public class MainMenuController : MonoBehaviour
         WireBackgroundModeRow();
         EnsurePresenterTransitionControls();
         WirePresenterTransitionRow();
+        EnsureCardEntryControls();
+        WireCardEntryRow();
         EnsureOutputLibrary();
         EnsureOpenFolderButton();
         EnsureTimestampsPanel();
@@ -187,6 +189,15 @@ public class MainMenuController : MonoBehaviour
     [SerializeField] Button   presenterTransitionNextButton;
     [Tooltip("Text that shows the current presenter-transition style label.")]
     [SerializeField] TMP_Text presenterTransitionLabel;
+
+    [Header("Card Entry Animation Cycle Row")]
+    [Tooltip("Auto-created at runtime if left null (no scene edit needed). " +
+             "Cycle button — previous card entry style.")]
+    [SerializeField] Button   cardEntryPrevButton;
+    [Tooltip("Cycle button — next card entry style.")]
+    [SerializeField] Button   cardEntryNextButton;
+    [Tooltip("Text that shows the current card entry style label (Overshoot / Ease in + fade).")]
+    [SerializeField] TMP_Text cardEntryLabel;
 
     void WireBackgroundModeRow()
     {
@@ -265,21 +276,42 @@ public class MainMenuController : MonoBehaviour
         presenterTransitionLabel.text = PresenterTransitionSettings.Label(style);
     }
 
+    // The two runtime cycle rows (presenter transition, card entry animation)
+    // share the free band between the Quit button and the result panel, as a
+    // symmetric pair either side of the bottom-center: each row's controls span
+    // ±250 px around its own x, so ±300 keeps them clear of each other and of
+    // the 560 px-wide Start/Quit buttons above.
+    const float RuntimeCycleRowY      = 240f;
+    const float RuntimeCycleRowSpread = 300f;
+
     // Builds the presenter-transition cycle row at runtime if it wasn't authored
     // in the scene. Mirrors EnsureMediaRootControls / the background mode row:
-    // bottom-center, stacked just above where the Background Mode Row sits.
+    // bottom-center band, left half (the card entry row takes the right half).
     void EnsurePresenterTransitionControls()
     {
         if (presenterTransitionLabel != null) return; // already wired in the inspector
 
+        BuildRuntimeCycleRow("PresenterTransition", "Presenter transition",
+            new Vector2(-RuntimeCycleRowSpread, RuntimeCycleRowY),
+            out presenterTransitionPrevButton, out presenterTransitionLabel, out presenterTransitionNextButton);
+    }
+
+    // Builds a "< [value] >" cycle row (header above, controls below) on the
+    // main canvas at a bottom-anchored position. Returns the three things the
+    // callers wire: prev button, value label, next button.
+    void BuildRuntimeCycleRow(string namePrefix, string headerText, Vector2 bottomAnchoredPos,
+                              out Button prevButton, out TMP_Text valueLabel, out Button nextButton)
+    {
+        prevButton = null; valueLabel = null; nextButton = null;
+
         Canvas canvas = GetComponentInChildren<Canvas>();
         if (canvas == null) return;
 
-        var row = new GameObject("PresenterTransitionRow", typeof(RectTransform));
+        var row = new GameObject(namePrefix + "Row", typeof(RectTransform));
         row.transform.SetParent(canvas.transform, false);
         var rowRT = (RectTransform)row.transform;
         rowRT.anchorMin = rowRT.anchorMax = rowRT.pivot = new Vector2(0.5f, 0f);
-        rowRT.anchoredPosition = new Vector2(0f, 240f);
+        rowRT.anchoredPosition = bottomAnchoredPos;
         rowRT.sizeDelta        = new Vector2(900f, 100f);
 
         // Header
@@ -292,7 +324,7 @@ public class MainMenuController : MonoBehaviour
         headerRT.anchoredPosition = new Vector2(0f, -10f);
         headerRT.sizeDelta        = new Vector2(-20f, 28f);
         var header = headerGO.AddComponent<TextMeshProUGUI>();
-        header.text      = "Presenter transition";
+        header.text      = headerText;
         header.fontSize  = 22;
         header.fontStyle = FontStyles.Bold;
         header.alignment = TextAlignmentOptions.Center;
@@ -301,10 +333,10 @@ public class MainMenuController : MonoBehaviour
 
         const float controlsY = -56f;
 
-        presenterTransitionPrevButton = BuildTransitionCycleButton(row.transform, "PresenterTransitionPrev", "<", -220f, controlsY);
+        prevButton = BuildTransitionCycleButton(row.transform, namePrefix + "Prev", "<", -220f, controlsY);
 
         // Value display
-        var valueGO = new GameObject("PresenterTransitionValue", typeof(RectTransform));
+        var valueGO = new GameObject(namePrefix + "Value", typeof(RectTransform));
         valueGO.transform.SetParent(row.transform, false);
         valueGO.AddComponent<Image>().color = new Color(0.15f, 0.17f, 0.21f, 1f);
         var valueRT = (RectTransform)valueGO.transform;
@@ -323,9 +355,55 @@ public class MainMenuController : MonoBehaviour
         label.alignment = TextAlignmentOptions.Center;
         label.color     = Color.white;
         label.raycastTarget = false;
-        presenterTransitionLabel = label;
+        valueLabel = label;
 
-        presenterTransitionNextButton = BuildTransitionCycleButton(row.transform, "PresenterTransitionNext", ">", 220f, controlsY);
+        nextButton = BuildTransitionCycleButton(row.transform, namePrefix + "Next", ">", 220f, controlsY);
+    }
+
+    // -----------------------------------------------------------------------
+    // Card entry animation (Overshoot / Ease in + fade)
+    //
+    // Same cycle-row pattern, persisted via CardEntrySettings. CardEntryAnimator
+    // reads the pref when the recording scene loads, and every content card
+    // (Headline, Quote, Stat, Big*) plus the {Image:}/{Video:} media display
+    // enters with the chosen style. Always built at runtime — no scene edit.
+    // -----------------------------------------------------------------------
+
+    // Display default when no choice is saved yet — matches the recording
+    // scene's shipped default (CardEntryAnimator.entryStyle = Overshoot).
+    const CardEntrySettings.Style DefaultCardEntryStyle = CardEntrySettings.Style.Overshoot;
+
+    void EnsureCardEntryControls()
+    {
+        if (cardEntryLabel != null) return; // already wired in the inspector
+
+        BuildRuntimeCycleRow("CardEntry", "Card entry animation",
+            new Vector2(RuntimeCycleRowSpread, RuntimeCycleRowY),
+            out cardEntryPrevButton, out cardEntryLabel, out cardEntryNextButton);
+    }
+
+    void WireCardEntryRow()
+    {
+        if (cardEntryPrevButton != null)
+            cardEntryPrevButton.onClick.AddListener(() => CycleCardEntryStyle(-1));
+        if (cardEntryNextButton != null)
+            cardEntryNextButton.onClick.AddListener(() => CycleCardEntryStyle(+1));
+        UpdateCardEntryLabel();
+    }
+
+    void CycleCardEntryStyle(int direction)
+    {
+        var current = CardEntrySettings.LoadStyle(DefaultCardEntryStyle);
+        var next    = CardEntrySettings.Cycle(current, direction);
+        CardEntrySettings.SaveStyle(next);
+        UpdateCardEntryLabel();
+    }
+
+    void UpdateCardEntryLabel()
+    {
+        if (cardEntryLabel == null) return;
+        var style = CardEntrySettings.LoadStyle(DefaultCardEntryStyle);
+        cardEntryLabel.text = CardEntrySettings.Label(style);
     }
 
     static Button BuildTransitionCycleButton(Transform parent, string name, string glyph, float x, float y)

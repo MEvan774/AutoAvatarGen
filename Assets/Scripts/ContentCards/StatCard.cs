@@ -158,7 +158,10 @@ public class StatCard : ContentCard
         {
             Vector3 targetScale = arrowRect.localScale; // may be (1,-1,1) for up
             arrowRect.localScale = targetScale * 0.9f;
-            arrowRect.DOScale(targetScale, FadeInDuration).SetEase(Ease.OutBack);
+            // OutBack is a mini-overshoot; drop it with the rest when the menu
+            // picks the smooth 'Ease in + fade' entry style.
+            arrowRect.DOScale(targetScale, EntryFadeDuration)
+                .SetEase(UseOvershootEntry ? Ease.OutBack : EntryFadeEase);
         }
 
         if (useCountUp && isNumeric)

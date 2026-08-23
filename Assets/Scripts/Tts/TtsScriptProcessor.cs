@@ -55,7 +55,7 @@ namespace MugsTech.Tts
         // Transition-style modifier an emotion tag may carry: {Smirk,Blink}.
         // BlinkHeavy before Blink so the longer keyword wins the alternation.
         // Kept in lockstep with HybridAvatarSystem.ParseScriptWithTimeMarkers.
-        private const string StyleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow";
+        private const string StyleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow|Shrink";
 
         // An emotion tag is ANY bare one-word curly tag — {Neutral}, {Smirk},
         // {Sip}, {SmugSip}, whatever the avatar's emotion array holds. Matching

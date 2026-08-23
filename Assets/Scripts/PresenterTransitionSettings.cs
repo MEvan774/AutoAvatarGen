@@ -16,6 +16,8 @@ using UnityEngine;
 ///   • Cut           — instant swap, no animation.
 ///   • Grow          — the presenter swells up, swaps at the peak, and settles
 ///                     back to the original size (0.9s total).
+///   • Shrink        — swap instantly, then the presenter dips ~7% smaller and
+///                     springs back to the original size (0.2s total, snappy).
 ///
 /// A single emotion change can also override the global choice for that one swap
 /// via the {Emotion,Style} tag (e.g. {Serious,Cut}); see HybridAvatarSystem's
@@ -35,6 +37,7 @@ public static class PresenterTransitionSettings
         BlinkHeavy    = 4,
         Cut           = 5,
         Grow          = 6,
+        Shrink        = 7,
     }
 
     public const string StylePrefKey = "AutoAvatarGen.PresenterTransitionStyle";
@@ -68,6 +71,7 @@ public static class PresenterTransitionSettings
             case Style.BlinkHeavy:    return "Blink (Heavy)";
             case Style.Cut:           return "Cut (instant)";
             case Style.Grow:          return "Grow";
+            case Style.Shrink:        return "Shrink";
             default:                  return s.ToString();
         }
     }
@@ -102,6 +106,8 @@ public static class PresenterTransitionSettings
             case "instant":  style = Style.Cut;           return true;
             case "grow":
             case "pop":      style = Style.Grow;          return true;
+            case "shrink":
+            case "dip":      style = Style.Shrink;        return true;
             default:         return false;
         }
     }

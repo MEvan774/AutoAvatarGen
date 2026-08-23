@@ -86,7 +86,7 @@ VOICE_CONFIG = {
 # Transition-style modifier an emotion tag may carry: {Smirk,Blink}.
 # BlinkHeavy comes before Blink so the longer keyword wins the alternation.
 # Kept in lockstep with HybridAvatarSystem.ParseScriptWithTimeMarkers.
-_STYLE_ALT = r'Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow'
+_STYLE_ALT = r'Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow|Shrink'
 
 # An emotion tag is ANY bare one-word curly tag — {Neutral}, {Smirk}, {Sip},
 # {SmugSip}, whatever the avatar's emotion array happens to hold. Matching the

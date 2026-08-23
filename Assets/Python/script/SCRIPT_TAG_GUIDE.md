@@ -116,7 +116,7 @@ Sets the avatar's facial expression. These five are the default set. Place on it
 
 **Emotion names are open-ended — there is no list to update anywhere.** Every tool in the chain recognises an emotion by its *shape*: a single bare word in curly braces, no colon. `{Smirk}`, `{Sip}`, `{SmugSip}`, `{BothEyebrowRaised}` all work the moment a sprite of that name exists in the avatar's emotion array. Nothing else has to change — the TTS pre-processor strips the tag automatically (so ElevenLabs never reads it aloud) and stamps it with a `T=` timestamp so the expression lands on the exact word.
 
-Optionally add a per-tag transition style — `Cut`, `Blink`, `BlinkHeavy`, `SquashStretch`, `Crossfade`, `Shake`, `Grow` — to override the global one for that swap (`Grow` swells the presenter up and back to its original size over 0.9s, swapping at the peak):
+Optionally add a per-tag transition style — `Cut`, `Blink`, `BlinkHeavy`, `SquashStretch`, `Crossfade`, `Shake`, `Grow`, `Shrink` — to override the global one for that swap (`Grow` swells the presenter up and back to its original size over 0.9s, swapping at the peak; `Shrink` swaps instantly, then dips the presenter ~7% smaller and springs back over 0.2s):
 ```
 {Sip}
 Let me be precise, because the lazy version of this story is wrong.
@@ -159,6 +159,7 @@ A hard punch-in to a **close-up on Mugs's face**, used to punctuate a punchline.
 - **No duration value.** `,D=` is ignored on both tags; so is `,Cut` (they're always cuts).
 - The camera **finds his face wherever he's standing** — `Left`, `Right` or `Center` all work, no position change needed.
 - `ExtremeOut` restores **the exact framing that was on screen before the punch**, so a close-up inside a `{Zoom:In}` section drops back into that zoom rather than undoing it. You never need a `{Zoom:Reset}` after one.
+- An emotion tag placed on the same beat as `ExtremeIn` / `ExtremeOut` (e.g. `{Shocked}` right next to the in tag) **swaps instantly** — the camera snap is the transition, so the global presenter animation (shrink / grow / crossfade…) is skipped for that swap. Write an explicit style (`{Shocked,Shrink}`) if you really want one there.
 - Silent by default — the missing sound is usually the joke.
 - **Forget the out tag and the close-up stays up for the rest of the video.** This is the one way to really break the effect.
 

@@ -28,6 +28,11 @@ public class BigCenterCard : ContentCard
     // AnimationCurve ease (which kills the headline overshoot).
     private Tween panelTween;
     private Tween headlineTween;
+    private Tween headlineFadeTween;
+
+    // Fades the headline independently of the card root (which BigCenter
+    // forces fully visible so the screen-covering panel is never dimmed).
+    private CanvasGroup headlineGroup;
 
     // =====================================================================
     // ALL TIMING / DISTANCE / EASE KNOBS LIVE IN THE INSPECTOR
@@ -92,6 +97,7 @@ public class BigCenterCard : ContentCard
         headlineContainer.pivot = new Vector2(0.5f, 0.5f);
         headlineContainer.anchoredPosition = Vector2.zero;
         headlineContainer.sizeDelta = new Vector2(1600f, 640f);
+        headlineGroup = EnsureGroup(headlineContainer);
 
         // Big headline — auto-sizes between 72 and 200 px.
         headlineText = ContentCardUIBuilder.CreateText(
@@ -164,17 +170,30 @@ public class BigCenterCard : ContentCard
             .DOAnchorPosY(0f, cfg.panelSlideDuration)
             .SetEase(cfg.panelSlideEase);
 
-        headlineTween = headlineContainer
-            .DOAnchorPos(Vector2.zero, SlideDuration)
-            .SetEase(OvershootCurve);
+        headlineTween = ApplyEntryEase(headlineContainer
+            .DOAnchorPos(Vector2.zero, SlideDuration));
+
+        // 'Ease in + fade' dissolves the headline in over the slide; Overshoot
+        // keeps it fully opaque from the first frame, as before.
+        if (UseOvershootEntry)
+        {
+            headlineGroup.alpha = 1f;
+        }
+        else
+        {
+            headlineGroup.alpha = 0f;
+            headlineFadeTween = headlineGroup.DOFade(1f, EntryFadeDuration).SetEase(EntryFadeEase);
+        }
     }
 
     private void KillSlideTweens()
     {
-        if (panelTween    != null && panelTween.IsActive())    panelTween.Kill();
-        if (headlineTween != null && headlineTween.IsActive()) headlineTween.Kill();
+        if (panelTween        != null && panelTween.IsActive())        panelTween.Kill();
+        if (headlineTween     != null && headlineTween.IsActive())     headlineTween.Kill();
+        if (headlineFadeTween != null && headlineFadeTween.IsActive()) headlineFadeTween.Kill();
         panelTween = null;
         headlineTween = null;
+        headlineFadeTween = null;
     }
 
     // Resolves the headline's off-screen start offset. Uses the configured
