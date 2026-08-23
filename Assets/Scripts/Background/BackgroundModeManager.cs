@@ -246,6 +246,14 @@ namespace MugsTech.Background
             GameObject target = FindInActiveScene(SynthwaveObjectName);
             if (target == null) return false;
 
+            // The vignette overlay rides the synthwave object, so the chroma
+            // and alpha modes strip it together with the backdrop — a vignette
+            // over a green/transparent plate would contaminate the key.
+            // Auto-added like the presenter's shadow; add the component to the
+            // prefab in the Inspector to override its knobs.
+            if (shouldBeActive && target.GetComponent<BackgroundVignette>() == null)
+                target.AddComponent<BackgroundVignette>();
+
             if (target.activeSelf != shouldBeActive)
                 target.SetActive(shouldBeActive);
             return true;

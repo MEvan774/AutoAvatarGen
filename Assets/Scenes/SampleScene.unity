@@ -475,6 +475,20 @@ MonoBehaviour:
     sprite: {fileID: 890482241241327942, guid: 44677baf4d96ca44f8eced87bceb5e33, type: 3}
   - emotionName: SmugSip
     sprite: {fileID: -5571912170658656440, guid: 85a25094e05a8d24fa42bcc97a115fb7, type: 3}
+  - emotionName: Shrug
+    sprite: {fileID: 2871896592639135034, guid: 33e2974ad24581d45a14ff99db0efb71, type: 3}
+  - emotionName: FacePalm
+    sprite: {fileID: -4133786554254647184, guid: 1608df10e6fac2142b13ac113593cdda, type: 3}
+  - emotionName: NarrowedEyes
+    sprite: {fileID: -7608138174864395662, guid: dcec75e7c0c7d1940924a05dddd775a5, type: 3}
+  - emotionName: LooseningTie
+    sprite: {fileID: -8708333958550373310, guid: 0aa745a7b276e5740b21f22b6f977999, type: 3}
+  - emotionName: Toast
+    sprite: {fileID: -6154995364696669364, guid: 9ec3089ce6f0de948ab16da259f21356, type: 3}
+  - emotionName: Shrug
+    sprite: {fileID: 2871896592639135034, guid: 33e2974ad24581d45a14ff99db0efb71, type: 3}
+  - emotionName: Popcorn
+    sprite: {fileID: 5071577593679855946, guid: 6cf667b32c2a5b64bb915efc4045be0d, type: 3}
   timingOffset: 0
   useCrossfade: 1
   crossfadeDuration: 0.8
