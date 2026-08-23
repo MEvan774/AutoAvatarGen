@@ -171,7 +171,8 @@ public class BigCenterCard : ContentCard
             .SetEase(cfg.panelSlideEase);
 
         headlineTween = ApplyEntryEase(headlineContainer
-            .DOAnchorPos(Vector2.zero, SlideDuration));
+            .DOAnchorPos(Vector2.zero, SlideDuration))
+            .OnComplete(() => StartIdleFloat(headlineContainer));   // the panel covers the screen — only the headline drifts
 
         // 'Ease in + fade' dissolves the headline in over the slide; Overshoot
         // keeps it fully opaque from the first frame, as before.
@@ -265,6 +266,7 @@ public class BigCenterCard : ContentCard
 
         KillCurrentSequence();
         KillSlideTweens();
+        StopIdleFloat();
 
         var cfg = BigCenterCfg;
         float fadeDur = FadeOutDuration;

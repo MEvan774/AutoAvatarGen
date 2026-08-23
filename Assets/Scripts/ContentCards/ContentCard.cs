@@ -70,6 +70,30 @@ public abstract class ContentCard : MonoBehaviour
     protected T ApplyEntryEase<T>(T tween) where T : Tween
         => CardEntryAnimator.Instance.ApplyEntryEase(tween);
 
+    // Idle float running on this card (root, or a child container for cards
+    // that animate children — BigCenter floats its headline, not the
+    // screen-covering panel). Started from the entry tween's OnComplete so it
+    // never fights the slide; frozen at the top of Hide.
+    private CardIdleFloat floatMotion;
+
+    /// <summary>
+    /// Starts the slow idle drift on <paramref name="target"/> (the card root
+    /// when null) if the animator's entry style calls for it. Safe to call more
+    /// than once — an already-running float is left alone.
+    /// </summary>
+    protected void StartIdleFloat(RectTransform target = null)
+    {
+        CardEntryAnimator anim = CardEntryAnimator.Instance;
+        if (!anim.IdleFloatActive) return;
+        floatMotion = CardIdleFloat.Begin(target != null ? target : rectTransform, anim.idleFloat);
+    }
+
+    /// <summary>Freezes the idle drift where it is (the hide animates from there).</summary>
+    protected void StopIdleFloat()
+    {
+        if (floatMotion != null) floatMotion.Stop();
+    }
+
     /// <summary>
     /// CanvasGroup on a child container so it can fade independently of the
     /// card root (Big* cards force the root visible and animate children).
@@ -184,7 +208,8 @@ public abstract class ContentCard : MonoBehaviour
         // fade over the whole slide and eases both with the same smooth curve.
         Sequence seq = DOTween.Sequence()
             .Join(canvasGroup.DOFade(1f, EntryFadeDuration).SetEase(EntryFadeEase))
-            .Join(ApplyEntryEase(rectTransform.DOAnchorPos(endPos, SlideDuration)));
+            .Join(ApplyEntryEase(rectTransform.DOAnchorPos(endPos, SlideDuration)))
+            .OnComplete(() => StartIdleFloat());
 
         if (preset != null && preset.wobbleIntensity > 0.001f)
         {
@@ -203,6 +228,7 @@ public abstract class ContentCard : MonoBehaviour
     public virtual void Hide(bool fast = false)
     {
         KillCurrentSequence();
+        StopIdleFloat();
 
         float duration = fast ? FastFadeDuration : FadeOutDuration;
 

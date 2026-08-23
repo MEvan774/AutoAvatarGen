@@ -470,6 +470,10 @@ public class MediaPresentationSystem : MonoBehaviour
         if (mediaDisplayGroup != null)
             seq.Join(mediaDisplayGroup.DOFade(1f, anim.DefaultEntryFadeDuration).SetEase(anim.EntryFadeEase));
 
+        // Once landed, drift slowly like the cards do (Ease in + fade style only).
+        if (anim.IdleFloatActive)
+            seq.OnComplete(() => CardIdleFloat.Begin(rt, CardEntryAnimator.Instance.idleFloat));
+
         mediaEntrySequence = seq;
     }
 
@@ -1811,6 +1815,10 @@ public class MediaPresentationSystem : MonoBehaviour
         if (mediaEntrySequence != null && mediaEntrySequence.IsActive())
             mediaEntrySequence.Kill();
         mediaEntrySequence = null;
+
+        // Stop the idle float too — ApplyMediaSide below re-seats the rect, and
+        // the next entry re-bases the float from wherever it lands.
+        if (mediaDisplay != null) CardIdleFloat.StopOn(mediaDisplay.rectTransform);
 
         // Undo any letterboxing, side mirroring (",Right") and entry fade so the
         // next {Image:} gets the authored slot at full opacity.

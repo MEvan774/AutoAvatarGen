@@ -217,6 +217,7 @@ public class BigTextCard : ContentCard
             JoinLineFade(seq, i, stagger * i);
         }
 
+        seq.OnComplete(() => StartIdleFloat());
         currentSequence = seq;
     }
 
@@ -302,6 +303,9 @@ public class BigTextCard : ContentCard
             }
         }
 
+        // The root float (if already running) is left alone — Begin is
+        // idempotent; this only matters when the first entrance was cut short.
+        seq.OnComplete(() => StartIdleFloat());
         currentSequence = seq;
         return true;
     }
@@ -430,6 +434,7 @@ public class BigTextCard : ContentCard
         }
 
         KillCurrentSequence();
+        StopIdleFloat();
 
         // Mirror the entrance: lines exit in the same direction they came
         // from (using the same fixed travel base × per-card factor).

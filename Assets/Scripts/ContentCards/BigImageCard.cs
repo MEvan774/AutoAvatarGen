@@ -162,7 +162,8 @@ public class BigImageCard : ContentCard
         // Ease + fade follow the menu's entry style (see ContentCard.Show).
         currentSequence = DOTween.Sequence()
             .Join(canvasGroup.DOFade(1f, EntryFadeDuration).SetEase(EntryFadeEase))
-            .Join(ApplyEntryEase(imageRect.DOAnchorPos(restPos, SlideDuration)));
+            .Join(ApplyEntryEase(imageRect.DOAnchorPos(restPos, SlideDuration)))
+            .OnComplete(() => StartIdleFloat());
     }
 
     public override void Hide(bool fast = false)
@@ -174,6 +175,7 @@ public class BigImageCard : ContentCard
         }
 
         KillCurrentSequence();
+        StopIdleFloat();
 
         // Mirror the entrance: slide back out the way it came in, fading as it goes.
         Vector2 offset = EntryOffset(ResolvedEntryDirection, SLIDE_TRAVEL_BASE * SlideDistanceFactor);

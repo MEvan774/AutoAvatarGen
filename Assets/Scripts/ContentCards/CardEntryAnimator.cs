@@ -73,10 +73,41 @@ public class CardEntryAnimator : MonoBehaviour
              "(AutoAvatarGen.CardEntryStyle) which overrides it at scene load.")]
     public CardEntrySettings.Style entryStyle = CardEntrySettings.Style.Overshoot;
 
-    [Tooltip("Ease used for the slide / pop when the style is 'Ease in + fade'. Smooth " +
-             "NON-overshoot eases look right here (OutCubic / OutQuad / OutExpo / OutSine). " +
-             "The fade-in uses the same ease.")]
-    public Ease easeFadeEase = Ease.OutCubic;
+    [Tooltip("Ease for the slide / pop when the style is 'Ease in + fade'. OutQuint: the card " +
+             "covers most of its travel in the first fifth of the slide and glides the rest of " +
+             "the way in. Smooth NON-overshoot eases only (OutQuint / OutCubic / OutExpo).")]
+    public Ease easedSlideEase = Ease.OutQuint;
+
+    [Tooltip("Ease for the fade-in when the style is 'Ease in + fade'. Runs over the full " +
+             "slide duration. Kept gentler than the slide (OutQuad) on purpose — with OutQuint " +
+             "the card would be fully opaque almost instantly and the fade would vanish.")]
+    public Ease easedFadeEase = Ease.OutQuad;
+
+    [Serializable]
+    public class IdleFloatSettings
+    {
+        [Tooltip("Drift the card slowly around its resting spot while it's on screen. " +
+                 "Only applies to the 'Ease in + fade' entry style.")]
+        public bool enabled = true;
+
+        [Tooltip("How fast the drift wanders. 0.3 = a slow, dreamy float; 1 = noticeably restless.")]
+        [Min(0f)] public float speed = 0.3f;
+
+        [Tooltip("Horizontal drift amplitude in canvas pixels (1920×1080 reference).")]
+        [Min(0f)] public float amountX = 8f;
+
+        [Tooltip("Vertical drift amplitude in canvas pixels.")]
+        [Min(0f)] public float amountY = 12f;
+
+        [Tooltip("Rotation wobble in degrees. 0 = none; ~0.5 adds a subtle bobbing tilt.")]
+        [Min(0f)] public float rotation = 0.4f;
+    }
+
+    [Header("Idle Float (Ease in + fade only)")]
+    [Tooltip("Slow Perlin drift applied to every card and the {Image:}/{Video:} media display once " +
+             "its entry finishes — the UI twin of the presenter's idle sway. Ignored for the " +
+             "Overshoot style.")]
+    public IdleFloatSettings idleFloat = new IdleFloatSettings();
 
     [Header("Overshoot Curve (used by every card entry)")]
     [Tooltip("Master overshoot curve. Time goes 0→1 over the slide duration; value 1.0 = card " +
@@ -240,24 +271,31 @@ public class CardEntryAnimator : MonoBehaviour
     // them: ApplyEntryEase for the slide/pop tween, and the fade pair for the
     // CanvasGroup fade that runs alongside it. In Overshoot mode they reproduce
     // the original behaviour exactly (curve ease + short OutQuad fade); in
-    // EaseFade mode the slide uses easeFadeEase and the fade is stretched to
-    // the slide's full duration so the dissolve is actually visible.
+    // EaseFade mode the slide uses easedSlideEase, the fade easedFadeEase, and
+    // the fade is stretched to the slide's full duration so the dissolve is
+    // actually visible.
 
     public bool UseOvershoot => entryStyle == CardEntrySettings.Style.Overshoot;
 
     /// <summary>
     /// Applies the active entry ease to a slide / scale tween: the overshoot
-    /// curve, or the smooth <see cref="easeFadeEase"/>. Returns the tween so it
+    /// curve, or the smooth <see cref="easedSlideEase"/>. Returns the tween so it
     /// chains (e.g. <c>ApplyEntryEase(rt.DOAnchorPos(...)).SetDelay(...)</c>).
     /// </summary>
     public T ApplyEntryEase<T>(T tween) where T : Tween
     {
         if (tween == null) return null;
-        return UseOvershoot ? tween.SetEase(overshootCurve) : tween.SetEase(easeFadeEase);
+        return UseOvershoot ? tween.SetEase(overshootCurve) : tween.SetEase(easedSlideEase);
     }
 
     /// <summary>Ease for the fade-in that accompanies an entry.</summary>
-    public Ease EntryFadeEase => UseOvershoot ? Ease.OutQuad : easeFadeEase;
+    public Ease EntryFadeEase => UseOvershoot ? Ease.OutQuad : easedFadeEase;
+
+    /// <summary>
+    /// Whether resting cards should drift (see <see cref="CardIdleFloat"/>):
+    /// only for the 'Ease in + fade' style, and only when enabled above.
+    /// </summary>
+    public bool IdleFloatActive => !UseOvershoot && idleFloat != null && idleFloat.enabled;
 
     /// <summary>
     /// Fade-in duration for the given card type under the active style: the

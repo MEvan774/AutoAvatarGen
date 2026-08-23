@@ -273,6 +273,7 @@ public class BigMediaCard : ContentCard
             }
         }
 
+        seq.OnComplete(() => StartIdleFloat());
         currentSequence = seq;
     }
 }

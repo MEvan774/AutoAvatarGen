@@ -11,9 +11,9 @@ using UnityEngine;
 ///
 ///   • Overshoot — the shipped CSS-derived curve: the card snaps ~10% past its
 ///                 resting position and settles back (CardEntryAnimator.Curve).
-///   • EaseFade  — a smooth decelerating ease (no overshoot, DOTween OutCubic by
-///                 default) with the fade-in stretched over the whole slide so the
-///                 card visibly dissolves into place instead of just sliding.
+///   • EaseFade  — a smooth decelerating ease (no overshoot, DOTween OutQuint by
+///                 default) with a gentler OutQuad fade-in stretched over the whole
+///                 slide so the card visibly dissolves into place as it glides in.
 ///
 /// When nothing has been saved yet, callers pass a fallback (the recording
 /// scene uses the CardEntryAnimator inspector value), so existing scenes behave
