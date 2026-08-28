@@ -827,12 +827,19 @@ public class HybridAvatarSystem : MonoBehaviour
             float t = Mathf.Clamp01(elapsed / crossfadeDuration);
             float inAlpha = t * t * (3f - 2f * t);
 
-            // The fade-out runs on an eased (squared) clock so it lags the
-            // fade-in: a symmetric blend drops the pair to ~75% combined
-            // opacity mid-fade and flashes the background through the
-            // presenter; lagging keeps combined coverage around 90%+.
-            float ot = t * t;
-            float outAlpha = 1f - ot * ot * (3f - 2f * ot);
+            // Two stacked translucent sprites can only composite to full
+            // opacity while the BOTTOM one is fully opaque — any overlap of
+            // the two fades lets the background bleed through the presenter.
+            // So the outgoing sprite holds alpha 1 until the incoming one is
+            // nearly solid, then releases over the last quarter: worst-case
+            // combined coverage stays ~98% (vs ~89% when the fades overlapped,
+            // a visible translucency flash on bright backdrops).
+            float outAlpha = 1f;
+            if (t > 0.75f)
+            {
+                float u = (t - 0.75f) / 0.25f;
+                outAlpha = 1f - u * u * (3f - 2f * u);
+            }
 
             crossfadeRenderer.color = new Color(1f, 1f, 1f, inAlpha);
             avatarRenderer.color    = new Color(1f, 1f, 1f, outAlpha);

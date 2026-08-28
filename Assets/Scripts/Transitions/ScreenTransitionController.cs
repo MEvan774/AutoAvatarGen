@@ -59,10 +59,13 @@ public class ScreenTransitionController : MonoBehaviour
     public float irisCover = DefaultIrisCover, irisReveal = DefaultIrisReveal;
 
     [Header("Colors")]
-    public Color wipeColor    = new Color(0.9373f, 0.4157f, 0.3020f, 1f); // #ef6a4d
-    public Color shutterColor = new Color(0.0392f, 0.0471f, 0.0588f, 1f); // #0a0c0f
-    public Color accentColor  = new Color(0.9373f, 0.4157f, 0.3020f, 1f); // #ef6a4d
-    public Color irisColor    = new Color(0.0431f, 0.0510f, 0.0667f, 1f); // #0b0d11
+    // All-black cover panels (user call 2026-08-28): the transitions read as
+    // hard editorial blacks on every backdrop, so they are NOT routed through
+    // BackdropPalette — only the cards theme per backdrop.
+    public Color wipeColor    = Color.black;
+    public Color shutterColor = Color.black;
+    public Color accentColor  = Color.black; // shutter edge line — black = invisible
+    public Color irisColor    = Color.black;
 
     static readonly CubicBezier EaseWipe    = new CubicBezier(0.7f, 0f, 0.3f, 1f);
     static readonly CubicBezier EaseShutter = new CubicBezier(0.7f, 0f, 0.3f, 1f);
@@ -305,8 +308,8 @@ public class ScreenTransitionController : MonoBehaviour
         wipe = MakePanel("Wipe", canvasRect, wipeColor);
         wipe.gameObject.AddComponent<UISkew>().angleDeg = -7f;
 
-        shTop = MakeBar("ShutterTop", canvasRect, shutterColor, true);
-        shBot = MakeBar("ShutterBottom", canvasRect, shutterColor, false);
+        shTop = MakeBar("ShutterTop", canvasRect, shutterColor, accentColor, true);
+        shBot = MakeBar("ShutterBottom", canvasRect, shutterColor, accentColor, false);
 
         iris = MakePanel("Iris", canvasRect, irisColor);
         var irisImg = iris.GetComponent<Image>();
@@ -344,7 +347,7 @@ public class ScreenTransitionController : MonoBehaviour
         return rt;
     }
 
-    RectTransform MakeBar(string name, RectTransform parent, Color c, bool top)
+    RectTransform MakeBar(string name, RectTransform parent, Color c, Color accent, bool top)
     {
         var rt = MakePanel(name, parent, c);
         var line = new GameObject("AccentEdge", typeof(Image));
@@ -358,7 +361,7 @@ public class ScreenTransitionController : MonoBehaviour
         var limg = line.GetComponent<Image>();
         limg.sprite = WhiteSprite();
         limg.type = Image.Type.Simple;
-        limg.color = accentColor;
+        limg.color = accent;
         limg.raycastTarget = false;
         return rt;
     }

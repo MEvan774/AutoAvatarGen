@@ -9,11 +9,21 @@ using MugsTech.Style;
 /// </summary>
 public static class ContentCardUIBuilder
 {
-    // Brand / static colors (don't change based on background)
+    // Fallback panel when no style preset is active.
     public static readonly Color BackgroundColor = new Color(15f / 255f, 15f / 255f, 20f / 255f, 0.85f);
-    public static readonly Color AccentColor = new Color(0xE8 / 255f, 0x5D / 255f, 0x4A / 255f, 1f);
-    public static readonly Color AccentColor40 = new Color(0xE8 / 255f, 0x5D / 255f, 0x4A / 255f, 0.4f);
+
+    // Brand coral — the decorative accent on every backdrop that doesn't
+    // define its own palette (see BackdropPalette).
+    private static readonly Color BrandCoral = new Color(0xE8 / 255f, 0x5D / 255f, 0x4A / 255f, 1f);
+
+    /// <summary>Decorative accent, themed per active backdrop.</summary>
+    public static Color AccentColor => BackdropPalette.CardAccent(BrandCoral);
+    public static Color AccentColor40 { get { Color c = AccentColor; c.a = 0.4f; return c; } }
+
+    // Semantic stat colors — NOT themed: up must stay green and down must stay
+    // red-ish no matter which backdrop is active.
     public static readonly Color PositiveGreen = new Color(0x4C / 255f, 0xAF / 255f, 0x50 / 255f, 1f);
+    public static readonly Color NegativeRed   = new Color(0xE8 / 255f, 0x5D / 255f, 0x4A / 255f, 1f);
 
     // Dark text colors for light backgrounds (office-paper look)
     private static readonly Color DarkPrimary   = new Color(0.12f, 0.12f, 0.14f, 1f);    // ~#1F1F24 charcoal
@@ -72,7 +82,9 @@ public static class ContentCardUIBuilder
             ? MugsTech.Style.StyleManager.Instance.ActivePreset
             : null;
         if (preset == null) return false;
-        Color c = preset.cardBackgroundColor;
+        // Judge the EFFECTIVE panel color (the backdrop palette may override
+        // the preset's paper), or text contrast breaks under an override.
+        Color c = BackdropPalette.CardPaper(preset.cardBackgroundColor);
         // Perceived luminance (Rec. 601)
         float lum = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b;
         return lum > 0.5f;
@@ -185,7 +197,7 @@ public static class ContentCardUIBuilder
         {
             img.sprite = StyleSpriteFactory.GetRoundedRect(Mathf.RoundToInt(preset.cornerRadiusPx));
             img.type = Image.Type.Sliced;
-            Color c = preset.cardBackgroundColor;
+            Color c = BackdropPalette.CardPaper(preset.cardBackgroundColor);
             c.a = preset.opacity;
             img.color = c;
         }

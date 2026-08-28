@@ -287,8 +287,8 @@ public class StatCard : ContentCard
         switch (dir)
         {
             case Direction.Up:   return ContentCardUIBuilder.PositiveGreen;
-            case Direction.Down: return ContentCardUIBuilder.AccentColor;
-            default:             return ContentCardUIBuilder.AccentColor;
+            case Direction.Down: return ContentCardUIBuilder.NegativeRed;
+            default:             return ContentCardUIBuilder.NegativeRed;
         }
     }
 }
