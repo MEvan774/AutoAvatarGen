@@ -1,0 +1,28 @@
+## COLD OPEN
+{Timestamp:"Cold Open"}
+{Position:Center,Cut} {Neutral}
+[bright] Transition check. Three doors, six sounds. Let's run them.
+
+## WIPE
+{Timestamp:"Wipe"}
+{Transition:Wipe} {Position:Left} {Neutral}
+[dry] That was the wipe. One sweep in, one sweep out.
+[flat] Listen for both halves.
+
+## SHUTTER
+{Timestamp:"Shutter"}
+{Transition:Shutter} {Position:Right} {Serious}
+[dry] Shutter. The bars close in, then open back out.
+[deadpan] Two movements. Two sounds.
+
+## IRIS
+{Timestamp:"Iris"}
+{Transition:Iris} {Position:Center} {Neutral}
+[dry] And the iris. Closes to a point, then opens the world back up.
+{Transition:Iris,1.4}
+[flat] That one fired mid-section, slowed down a touch.
+
+## CLOSER
+{Timestamp:"Closer"}
+{Transition:Shutter} {Position:Left} {Concerned}
+[dry] If every door made two sounds, we're done here.

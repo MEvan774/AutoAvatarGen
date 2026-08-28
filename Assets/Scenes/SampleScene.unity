@@ -526,9 +526,12 @@ MonoBehaviour:
   moodController: {fileID: 0}
   moodCrossfadeSeconds: 3
   transitionWipeSfx: {fileID: 8300000, guid: cb4682bdcaff5f142aaa34862694363b, type: 3}
-  transitionShutterSfx: {fileID: 0}
-  transitionIrisSfx: {fileID: 0}
-  transitionSfxVolume: 1
+  transitionWipeOutSfx: {fileID: 0}
+  transitionShutterSfx: {fileID: 8300000, guid: a2748ad9ccf04bd4996897edc4e8701b, type: 3}
+  transitionShutterOutSfx: {fileID: 8300000, guid: 22f106b3f3ed3ea44862845694d8cb13, type: 3}
+  transitionIrisSfx: {fileID: 8300000, guid: a2748ad9ccf04bd4996897edc4e8701b, type: 3}
+  transitionIrisOutSfx: {fileID: 8300000, guid: 22f106b3f3ed3ea44862845694d8cb13, type: 3}
+  transitionSfxVolume: 0.9
   mediaFolderPath: Media
   externalMediaRoot: 
   bRollSubfolder: BRoll

@@ -143,15 +143,24 @@ public class MediaPresentationSystem : MonoBehaviour
     public float moodCrossfadeSeconds = 3f;
 
     [Header("Transition Sound Effects")]
-    [Tooltip("Optional sound played as a {Transition:Wipe} starts. Drag an AudioClip here in the " +
-             "Inspector; leave empty for a silent transition.")]
+    // Each transition has two halves: cover ("in", the screen closes) and
+    // reveal ("out", it opens again). Each half has its own optional clip —
+    // any slot left empty is simply silent for that half.
+    [Tooltip("Optional sound played as a {Transition:Wipe} cover (in) starts. Drag an AudioClip " +
+             "here in the Inspector; leave empty for a silent half.")]
     public AudioClip transitionWipeSfx;
-    [Tooltip("Optional sound played as a {Transition:Shutter} starts. Leave empty for silent.")]
+    [Tooltip("Optional sound played as the {Transition:Wipe} reveal (out) starts. Leave empty for silent.")]
+    public AudioClip transitionWipeOutSfx;
+    [Tooltip("Optional sound played as a {Transition:Shutter} cover (in) starts. Leave empty for silent.")]
     public AudioClip transitionShutterSfx;
-    [Tooltip("Optional sound played as a {Transition:Iris} starts. Leave empty for silent.")]
+    [Tooltip("Optional sound played as the {Transition:Shutter} reveal (out) starts. Leave empty for silent.")]
+    public AudioClip transitionShutterOutSfx;
+    [Tooltip("Optional sound played as a {Transition:Iris} cover (in) starts. Leave empty for silent.")]
     public AudioClip transitionIrisSfx;
+    [Tooltip("Optional sound played as the {Transition:Iris} reveal (out) starts. Leave empty for silent.")]
+    public AudioClip transitionIrisOutSfx;
     [Range(0f, 1f)]
-    [Tooltip("Playback volume for the transition sound effects above (0 = silent, 1 = full).")]
+    [Tooltip("Playback volume for all the transition sound effects above (0 = silent, 1 = full).")]
     public float transitionSfxVolume = 1f;
 
     [Header("Media Settings")]
@@ -2425,19 +2434,36 @@ public class MediaPresentationSystem : MonoBehaviour
             PlayTransitionSfx(m.transition);
 
         // Play does nothing if a transition is already running, so two transition
-        // tags can't overlap. The mutation runs at the cover midpoint.
-        controller.Play(m.transition, () => ApplyTransitionCover(m), null, m.durationScale);
+        // tags can't overlap. The mutation runs at the cover midpoint, and the
+        // reveal (out) sound rides the same callback: it fires the instant the
+        // screen is fully covered — which is when the reveal half begins. Because
+        // onCovered only runs when the transition actually played, the out sound
+        // inherits the same no-double-trigger gating as the transition itself.
+        controller.Play(m.transition,
+            () =>
+            {
+                ApplyTransitionCover(m);
+                PlayTransitionSfx(m.transition, reveal: true);
+            },
+            null, m.durationScale);
     }
 
-    // Plays the Inspector-assigned clip for this transition (if any) on a dedicated
-    // 2D AudioSource (created on first use), so it layers over the narration and is
-    // captured by the recorder. Silent when the matching clip slot is left empty.
-    void PlayTransitionSfx(ScreenTransition type)
+    // Plays the Inspector-assigned clip for this transition half (if any) on a
+    // dedicated 2D AudioSource (created on first use), so it layers over the
+    // narration and is captured by the recorder. Silent when the matching clip
+    // slot is left empty. reveal=false → the cover (in) clip; true → the
+    // reveal (out) clip.
+    void PlayTransitionSfx(ScreenTransition type, bool reveal = false)
     {
-        AudioClip clip =
-            type == ScreenTransition.Wipe    ? transitionWipeSfx :
-            type == ScreenTransition.Shutter ? transitionShutterSfx :
-                                               transitionIrisSfx;
+        AudioClip clip;
+        if (reveal)
+            clip = type == ScreenTransition.Wipe    ? transitionWipeOutSfx :
+                   type == ScreenTransition.Shutter ? transitionShutterOutSfx :
+                                                      transitionIrisOutSfx;
+        else
+            clip = type == ScreenTransition.Wipe    ? transitionWipeSfx :
+                   type == ScreenTransition.Shutter ? transitionShutterSfx :
+                                                      transitionIrisSfx;
         if (clip == null) return;
 
         if (transitionSfxSource == null)

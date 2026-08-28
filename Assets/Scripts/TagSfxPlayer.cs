@@ -189,9 +189,10 @@ public class TagSfxPlayer : MonoBehaviour
     }
 
     // NOTE: Whole-screen transition SFX are NOT handled here — they live on
-    // ScreenTransitionController (its Wipe/Shutter/Iris clip slots) so the clip
-    // plays exactly as the cover starts. Keeping them off this shared list avoids
-    // a second place that could double-trigger the same sound.
+    // MediaPresentationSystem (its per-transition cover/in and reveal/out clip
+    // slots) so each clip plays exactly as its half starts. Keeping them off
+    // this shared list avoids a second place that could double-trigger the
+    // same sound.
 
     public void Play(ContentCardType c)
     {
