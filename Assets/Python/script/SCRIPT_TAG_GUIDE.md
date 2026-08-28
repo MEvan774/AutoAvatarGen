@@ -1,6 +1,6 @@
 # AutoAvatarGen — Script Tag Reference & Authoring Guide
 
-**Audience:** the AI (Claude / Opus 4.8) that writes `Script.txt`.
+**Audience:** the AI (Claude / Opus 5) that writes `Script.txt`.
 **Goal:** produce a script whose tags are formatted *exactly* the way the pipeline expects, so nothing breaks and every visual fires on time.
 
 Paste this whole file to the model before asking it to write a script, or keep it as the system instruction for script generation.

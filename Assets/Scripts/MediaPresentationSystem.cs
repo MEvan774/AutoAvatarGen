@@ -75,15 +75,10 @@ public class MediaPresentationSystem : MonoBehaviour
     [Header("Camera Zoom")]
     [Tooltip("Main camera — used for zoom in/out.")]
     public Camera mainCamera;
-    float zoomDuration = 0.8f;
+    float zoomDuration = 0.6f;
     [Tooltip("How much to zoom in (1.12 = 112% zoom, blueprint says 110-115%).")]
     [Range(1.01f, 1.25f)]
     public float zoomInMultiplier = 1.12f;
-
-    [Tooltip("Easing for {Zoom:In}. Default is a snappy overshoot (the project's CSS linear() " +
-             "curve, shared with content-card entries) that pushes ~11% past the target zoom " +
-             "before settling back. {Zoom:Out}, {Zoom:Reset} and the auto-reset stay smooth.")]
-    public AnimationCurve zoomInOvershootCurve = CardEntryAnimator.BuildDefaultOvershootCurve();
 
     [Header("Extreme Zoom ({Zoom:ExtremeIn} / {Zoom:ExtremeOut})")]
     [Tooltip("How far in the extreme zoom punches (2 = 200%). Much harder than {Zoom:In} — " +
@@ -1028,7 +1023,7 @@ public class MediaPresentationSystem : MonoBehaviour
         if (cut)
             mainCamera.orthographicSize = targetSize;
         else
-            zoomCoroutine = StartCoroutine(AnimateZoom(targetSize, overshoot: type == ZoomType.In));
+            zoomCoroutine = StartCoroutine(AnimateZoom(targetSize));
 
         // Auto-reset timer — only meaningful when we've actually changed away
         // from default (i.e. zoomed In). For Out we're already at default.
@@ -1088,22 +1083,22 @@ public class MediaPresentationSystem : MonoBehaviour
         pendingResetCoroutine = null;
     }
 
-    // overshoot=true uses the snappy overshoot curve (zoom-in only). That curve
-    // rises above 1.0 mid-flight, so the lerp MUST be unclamped or the overshoot is
-    // silently flattened. EaseInOutQuart stays within [0,1], so unclamped is a no-op
-    // for the smooth path (Out / Reset / auto-reset).
-    IEnumerator AnimateZoom(float targetSize, bool overshoot = false)
+    // Snappy ease-out glide shared by every animated zoom (In, Out and the
+    // auto-reset): the camera starts moving at full speed and decelerates into
+    // the target, so the push reads as one deliberate motion. (This replaced
+    // the card-entry overshoot curve, which packed ~95% of the travel into the
+    // first sixth of the timeline and read as a jump cut on camera.)
+    IEnumerator AnimateZoom(float targetSize)
     {
         float startSize = mainCamera.orthographicSize;
-        bool useCurve = overshoot && zoomInOvershootCurve != null && zoomInOvershootCurve.length >= 2;
         float elapsed = 0f;
 
         while (elapsed < zoomDuration)
         {
             elapsed += Time.deltaTime;
             float p = Mathf.Clamp01(elapsed / zoomDuration);
-            float t = useCurve ? zoomInOvershootCurve.Evaluate(p) : EaseInOutQuart(p);
-            mainCamera.orthographicSize = Mathf.LerpUnclamped(startSize, targetSize, t);
+            float t = 1f - Mathf.Pow(1f - p, 3f);   // ease-out cubic
+            mainCamera.orthographicSize = Mathf.Lerp(startSize, targetSize, t);
             yield return null;
         }
 
