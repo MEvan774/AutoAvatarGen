@@ -184,7 +184,13 @@ namespace Evereal.VideoCapture
       {
         if (captureMode == CaptureMode.REGULAR)
         {
-          regularCamera.Render();
+          // PROJECT FIX (AutoAvatarGen): same double-render fix as
+          // FFmpegEncoder.CaptureFrame — SampleScene keeps regularCamera
+          // ENABLED, so the normal camera pass has already rendered it into
+          // its targetTexture by the time WaitForEndOfFrame resumes us.
+          // Render manually only when the camera is disabled.
+          if (!regularCamera.isActiveAndEnabled)
+            regularCamera.Render();
           if (stereoMode == StereoMode.NONE)
           {
             Encode(outputTexture);

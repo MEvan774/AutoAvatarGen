@@ -155,6 +155,40 @@ namespace Evereal.VideoCapture
     // The frame encode queue.
     private Queue<FrameData> frameQueue;
 
+    // PROJECT FIX (AutoAvatarGen): pooled managed buffers for the async-GPU-
+    // readback path. GetData().ToArray() allocated a fresh width*height*4
+    // array (8.3 MB at 1080p) for EVERY captured frame — ~250 MB/s of garbage
+    // at 30fps, paid for in GC time on every frame plus occasional spikes big
+    // enough to drop frames. SyncFrameQueue caps the queue at 4, so a handful
+    // of buffers covers steady state; a buffer of the wrong size (resolution
+    // change between takes) is simply dropped for the GC. Rented on the main
+    // thread, returned on the encode thread — hence the lock.
+    private readonly Stack<byte[]> frameBufferPool = new Stack<byte[]>();
+    private const int MaxPooledFrameBuffers = 8;
+
+    private byte[] RentFrameBuffer(int length)
+    {
+      lock (frameBufferPool)
+      {
+        while (frameBufferPool.Count > 0)
+        {
+          byte[] pooled = frameBufferPool.Pop();
+          if (pooled.Length == length) return pooled;
+        }
+      }
+      return new byte[length];
+    }
+
+    private void ReturnFrameBuffer(byte[] buffer)
+    {
+      if (buffer == null) return;
+      lock (frameBufferPool)
+      {
+        if (frameBufferPool.Count < MaxPooledFrameBuffers)
+          frameBufferPool.Push(buffer);
+      }
+    }
+
     private bool supportsAsyncGPUReadback;
 #if UNITY_2018_2_OR_NEWER
     /// <summary>
@@ -611,7 +645,16 @@ namespace Evereal.VideoCapture
       {
         if (captureMode == CaptureMode.REGULAR)
         {
-          regularCamera.Render();
+          // PROJECT FIX (AutoAvatarGen): SampleScene keeps regularCamera
+          // ENABLED (the prefab ships it disabled), so Unity has already
+          // rendered it into its targetTexture this frame during the normal
+          // camera pass — the WaitForEndOfFrame above guarantees that pass is
+          // finished. Calling Render() here on top of that drew the whole
+          // scene a SECOND time for every captured frame. Only render
+          // manually when the camera is disabled (the stock Evereal
+          // arrangement this loop was written for).
+          if (!regularCamera.isActiveAndEnabled)
+            regularCamera.Render();
           if (stereoMode != StereoMode.NONE)
           {
             stereoCamera.Render();
@@ -884,7 +927,12 @@ namespace Evereal.VideoCapture
         }
         else
         {
-          byte[] buffer = request.GetData<byte>().ToArray();
+          // PROJECT FIX (AutoAvatarGen): copy into a pooled buffer instead of
+          // ToArray()'s per-frame allocation; FrameEncodeProcess returns the
+          // buffer to the pool right after the native encoder consumes it.
+          var requestPixels = request.GetData<byte>();
+          byte[] buffer = RentFrameBuffer(requestPixels.Length);
+          requestPixels.CopyTo(buffer);
           lock (frameQueue)
           {
             // Enqueue frame buffer data
@@ -956,6 +1004,12 @@ namespace Evereal.VideoCapture
               FFmpegEncoder_CaptureLiveFrames(nativeAPI, frame.pixels, frame.count);
             }
           }
+          // PROJECT FIX (AutoAvatarGen): the native call has fully consumed
+          // the pixels by the time it returns (the pointer is only pinned for
+          // the call — retaining it would already be a use-after-free with the
+          // old GC-owned arrays), so the buffer can be recycled for a later
+          // frame.
+          ReturnFrameBuffer(frame.pixels);
           encodedFrameCount += frame.count;
           // Slice video into different files for live stream
           if (captureStarted && captureType == CaptureType.LIVE)

@@ -676,6 +676,12 @@ public class MediaPresentationSystem : MonoBehaviour
         // baked in by the ElevenLabs pre-processor as narrative cues only.
         cleanScript = Regex.Replace(cleanScript, @"\[[^\]]*\]", "");
 
+        // PROJECT FIX (AutoAvatarGen): decode every disk image the script
+        // references NOW — the recorder hasn't started yet (it starts inside
+        // BeginPlaybackWhenBackgroundReady below), so this time is free
+        // instead of a mid-take dropped-frame hitch.
+        PreloadReferencedImages(cardResult.Item2);
+
         StartCoroutine(BeginPlaybackWhenBackgroundReady(cleanScript, audio));
     }
 
@@ -1596,16 +1602,28 @@ public class MediaPresentationSystem : MonoBehaviour
 
         if (marker.mediaType == MediaType.IMAGE)
         {
-            string diskPath = ResolveImagePath(marker.mediaName);
             Texture2D image = null;
 
-            if (diskPath != null)
+            // PROJECT FIX (AutoAvatarGen): cache first — the image was decoded
+            // before the take started. Cache hits belong to the cache:
+            // loadedDiskTexture stays null so the teardown below never
+            // destroys them (the same image can show again later).
+            if (marker.mediaName != null &&
+                preloadedImages.TryGetValue(marker.mediaName, out Texture2D preloaded) && preloaded != null)
             {
-                image = LoadTextureFromDisk(diskPath);
-                if (image != null)
+                image = preloaded;
+            }
+            else
+            {
+                string diskPath = ResolveImagePath(marker.mediaName);
+                if (diskPath != null)
                 {
-                    loadedDiskTexture = image;
-                    Debug.Log($"Loaded image from disk: {diskPath}");
+                    image = LoadTextureFromDisk(diskPath);
+                    if (image != null)
+                    {
+                        loadedDiskTexture = image;
+                        Debug.Log($"Loaded image from disk: {diskPath}");
+                    }
                 }
             }
 
@@ -1839,6 +1857,91 @@ public class MediaPresentationSystem : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
+    // PROJECT FIX (AutoAvatarGen): pre-take image cache. Decoding a PNG/JPG
+    // with File.ReadAllBytes + LoadImage takes 50-300 ms ON THE MAIN THREAD,
+    // and it used to happen the moment an {Image:} marker or {BigImage:} card
+    // fired — a guaranteed dropped-frame hitch in the recording, exactly
+    // during the card's entry animation. PreloadReferencedImages decodes every
+    // disk image the script references right after parsing, BEFORE the
+    // recorder starts, and the show-time paths serve from this cache.
+    // Cached textures are owned by this system (destroyed in OnDestroy);
+    // callers must never Destroy() a cache hit — LoadImageTexture reports
+    // them as ownedByCaller=false.
+    // -----------------------------------------------------------------------
+
+    readonly Dictionary<string, Texture2D> preloadedImages =
+        new Dictionary<string, Texture2D>(System.StringComparer.OrdinalIgnoreCase);
+
+    public void PreloadImage(string mediaName)
+    {
+        if (string.IsNullOrWhiteSpace(mediaName) || preloadedImages.ContainsKey(mediaName))
+            return;
+
+        // Only external-folder files need pre-decoding; Resources fallbacks
+        // and missing names keep today's show-time behavior (incl. warnings).
+        string diskPath = ResolveImagePath(mediaName);
+        if (diskPath == null) return;
+
+        Texture2D tex = LoadTextureFromDisk(diskPath);
+        if (tex != null)
+            preloadedImages[mediaName] = tex;
+    }
+
+    void PreloadCardImages(List<ContentCardEvent> events)
+    {
+        if (events == null) return;
+        foreach (ContentCardEvent e in events)
+        {
+            if (e != null && e.cardType == ContentCardType.BigImage && !e.dismissesCard)
+                PreloadImage(e.primaryText);
+        }
+    }
+
+    // Walks everything the parsers produced — the main media timeline, the
+    // media/cards claimed by {Transition:} lines, and the content-card
+    // timeline — and pre-decodes each referenced disk image once.
+    void PreloadReferencedImages(List<ContentCardEvent> cardEvents)
+    {
+        float started = Time.realtimeSinceStartup;
+        int before = preloadedImages.Count;
+
+        if (mediaMarkers != null)
+        {
+            foreach (MediaMarkerData m in mediaMarkers)
+                if (m.mediaType == MediaType.IMAGE && !m.endsMedia)
+                    PreloadImage(m.mediaName);
+        }
+
+        if (transitionMarkers != null)
+        {
+            foreach (TransitionMarkerData t in transitionMarkers)
+            {
+                if (t.mediaMarkers != null)
+                    foreach (MediaMarkerData m in t.mediaMarkers)
+                        if (m.mediaType == MediaType.IMAGE && !m.endsMedia)
+                            PreloadImage(m.mediaName);
+                PreloadCardImages(t.contentCards);
+            }
+        }
+
+        PreloadCardImages(cardEvents);
+
+        int loaded = preloadedImages.Count - before;
+        if (loaded > 0)
+            Debug.Log($"[MediaPresentation] Preloaded {loaded} image(s) in " +
+                      $"{(Time.realtimeSinceStartup - started) * 1000f:F0} ms (before the take starts).");
+    }
+
+    void OnDestroy()
+    {
+        // The preload cache owns its textures — release them with the scene so
+        // repeated takes can't leak decoded images.
+        foreach (var kv in preloadedImages)
+            if (kv.Value != null) Destroy(kv.Value);
+        preloadedImages.Clear();
+    }
+
+    // -----------------------------------------------------------------------
     // External-folder resolution. {Image:name} searches Images then Logos;
     // {Video:name} searches BRoll. Names may include or omit an extension —
     // if omitted, common extensions are tried. Returns null if not found or
@@ -1868,6 +1971,13 @@ public class MediaPresentationSystem : MonoBehaviour
     public Texture2D LoadImageTexture(string mediaName, out bool ownedByCaller)
     {
         ownedByCaller = false;
+
+        // PROJECT FIX (AutoAvatarGen): serve the pre-take cache first. Cache
+        // hits are owned by this system — the caller must NOT Destroy() them,
+        // hence ownedByCaller stays false (same contract as Resources hits).
+        if (mediaName != null &&
+            preloadedImages.TryGetValue(mediaName, out Texture2D cached) && cached != null)
+            return cached;
 
         string diskPath = ResolveImagePath(mediaName);
         if (diskPath != null)
