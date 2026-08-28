@@ -44,7 +44,7 @@ public class HybridAvatarSystem : MonoBehaviour
     public bool useCrossfade = false;
     [Range(0.1f, 1.5f)]
     [Tooltip("Duration of the crossfade transition in seconds")]
-    public float crossfadeDuration = 0.3f;
+    public float crossfadeDuration = 0.4f;
     [Range(0.1f, 2f)]
     [Tooltip("Total duration of the 'Grow' transition: the presenter swells to " +
              "the peak size, swaps at the peak, and settles back to the original size.")]
@@ -93,6 +93,10 @@ public class HybridAvatarSystem : MonoBehaviour
     private float animationDuration = 0.15f;
     private float squashAmount = 1.6f;
     private SpriteRenderer crossfadeRenderer;
+    // Target of a crossfade that is still blending; ChangeEmotion commits it
+    // instantly if the fade is interrupted, so the presenter is never left
+    // semi-transparent or snapped back to the pre-fade expression.
+    private Sprite pendingCrossfadeSprite;
 
     // Captured at Awake — used as the reference size for all emotion swaps.
     private Vector3 initialAvatarScale;
@@ -526,6 +530,22 @@ public class HybridAvatarSystem : MonoBehaviour
                 if (currentAnimation != null)
                 {
                     StopCoroutine(currentAnimation);
+                    currentAnimation = null;
+                }
+                // A stopped crossfade leaves both renderers mid-blend: land it
+                // on its target and restore full opacity before the next
+                // transition starts from a clean frame.
+                if (pendingCrossfadeSprite != null)
+                {
+                    avatarRenderer.sprite = pendingCrossfadeSprite;
+                    NormalizeSpriteSize(avatarRenderer);
+                    pendingCrossfadeSprite = null;
+                }
+                avatarRenderer.color = Color.white;
+                if (crossfadeRenderer != null)
+                {
+                    crossfadeRenderer.color  = new Color(1f, 1f, 1f, 0f);
+                    crossfadeRenderer.sprite = null;
                 }
                 if (growRunning)
                 {
@@ -779,29 +799,41 @@ public class HybridAvatarSystem : MonoBehaviour
 
     IEnumerator CrossfadeAnimation(Sprite newSprite)
     {
-        // Place the new sprite on the overlay renderer and fade it in
-        // while the old sprite remains fully visible underneath
+        // True crossfade: the incoming sprite fades in on the overlay renderer
+        // while the outgoing one fades away underneath it, so parts of the old
+        // silhouette that stick out past the new one dissolve instead of
+        // popping off on the final frame.
         crossfadeRenderer.sprite = newSprite;
         crossfadeRenderer.flipX = avatarRenderer.flipX;
         NormalizeSpriteSize(crossfadeRenderer);
+        pendingCrossfadeSprite = newSprite;
 
         float elapsed = 0f;
         while (elapsed < crossfadeDuration)
         {
             elapsed += Time.deltaTime;
             float t = Mathf.Clamp01(elapsed / crossfadeDuration);
-            // Smooth step for a nicer blend
-            t = t * t * (3f - 2f * t);
+            float inAlpha = t * t * (3f - 2f * t);
 
-            crossfadeRenderer.color = new Color(1f, 1f, 1f, t);
+            // The fade-out runs on an eased (squared) clock so it lags the
+            // fade-in: a symmetric blend drops the pair to ~75% combined
+            // opacity mid-fade and flashes the background through the
+            // presenter; lagging keeps combined coverage around 90%+.
+            float ot = t * t;
+            float outAlpha = 1f - ot * ot * (3f - 2f * ot);
+
+            crossfadeRenderer.color = new Color(1f, 1f, 1f, inAlpha);
+            avatarRenderer.color    = new Color(1f, 1f, 1f, outAlpha);
             yield return null;
         }
 
         // Swap: the main renderer takes over the new sprite, overlay goes invisible
         avatarRenderer.sprite = newSprite;
         NormalizeSpriteSize(avatarRenderer);
+        avatarRenderer.color = Color.white;
         crossfadeRenderer.color = new Color(1f, 1f, 1f, 0f);
         crossfadeRenderer.sprite = null;
+        pendingCrossfadeSprite = null;
 
         currentAnimation = null;
     }

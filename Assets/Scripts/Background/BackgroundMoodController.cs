@@ -14,7 +14,7 @@ namespace MugsTech.Background
     ///   2. Edit mood preset values in the Inspector if you want to tweak.
     ///   3. Call SetMood(MoodType.Tense, 3.0f) from anywhere in your pipeline.
     /// </summary>
-    public class BackgroundMoodController : MonoBehaviour
+    public class BackgroundMoodController : MonoBehaviour, IAnimatedBackground
     {
         public enum MoodType
         {
@@ -141,6 +141,17 @@ namespace MugsTech.Background
         /// </summary>
         public void ApplyMoodInstant(MoodType mood)
         {
+            // An instant apply must WIN: kill any in-flight crossfade so the
+            // zombie lerp can't keep mutating the material a frame later
+            // (matters when BackgroundStyleManager parks rigs on a style
+            // switch). Safe when called from TransitionTo's own final snap —
+            // stopping the currently-executing coroutine just prevents any
+            // further resumption, and there are no yields after this call.
+            if (transitionCoroutine != null)
+            {
+                StopCoroutine(transitionCoroutine);
+                transitionCoroutine = null;
+            }
             var preset = GetPreset(mood);
             if (preset == null) return;
             currentMood = mood;
@@ -212,6 +223,52 @@ namespace MugsTech.Background
         }
 
         // -------------------------------------------------------------------
+        // Test hooks (same ContextMenu pattern as LateNightDeskBackground /
+        // ScrollingShapeController) — cycle the 5 moods from the Inspector to
+        // eyeball the crossfades.
+        // -------------------------------------------------------------------
+
+        [ContextMenu("Test: Cycle All 5 Moods (play mode)")]
+        private void TestCycleAllMoods()
+        {
+            if (!Application.isPlaying)
+            {
+                Debug.LogWarning("[BackgroundMoodController] Mood cycle test needs play mode.");
+                return;
+            }
+            StartCoroutine(CycleAllMoodsRoutine());
+        }
+
+        [ContextMenu("Test: Next Mood (3s crossfade, play mode)")]
+        private void TestNextMood()
+        {
+            if (!Application.isPlaying)
+            {
+                Debug.LogWarning("[BackgroundMoodController] Mood test needs play mode.");
+                return;
+            }
+            var next = (MoodType)(((int)currentMood + 1) % 5);
+            Debug.Log($"[BackgroundMoodController] Crossfading {currentMood} → {next} over 3s.");
+            SetMood(next, 3f);
+        }
+
+        private IEnumerator CycleAllMoodsRoutine()
+        {
+            var order = new[]
+            {
+                MoodType.CalmNeutral, MoodType.Energetic, MoodType.TenseDramatic,
+                MoodType.PlayfulLight, MoodType.MinimalFocus, MoodType.CalmNeutral,
+            };
+            foreach (var mood in order)
+            {
+                Debug.Log($"[BackgroundMoodController] Crossfading to {mood} over 3s.");
+                SetMood(mood, 3f);
+                yield return new WaitForSeconds(6f); // 3s fade + 3s hold
+            }
+            Debug.Log("[BackgroundMoodController] Mood cycle complete.");
+        }
+
+        // -------------------------------------------------------------------
 
         private static Color Hex(string hex)
         {
@@ -220,5 +277,8 @@ namespace MugsTech.Background
 
         /// <summary>Current mood (last one applied or transitioned to).</summary>
         public MoodType CurrentMood => currentMood;
+
+        /// <summary>IAnimatedBackground: show/hide the whole background rig.</summary>
+        public void SetActive(bool active) => gameObject.SetActive(active);
     }
 }

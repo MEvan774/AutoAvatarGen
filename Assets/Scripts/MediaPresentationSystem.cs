@@ -137,8 +137,11 @@ public class MediaPresentationSystem : MonoBehaviour
              "'TransitionDirector' GameObject is created at runtime if none exists. The overlay is " +
              "hosted under mediaCanvas so it's captured by the recorder.")]
     public ScreenTransitionController screenTransitionController;
-    [Tooltip("Background mood controller — crossfaded by {Mood:Calm/Energetic/Tense/Playful/Minimal} " +
-             "(and by {Mood:...} bundled onto a transition line). Optional: {Mood:} is a no-op if absent.")]
+    [Tooltip("Synthwave-style mood target for {Mood:Calm/Energetic/Tense/Playful/Minimal} (and for " +
+             "{Mood:...} bundled onto a transition line). Mood calls are ROUTED by " +
+             "BackgroundStyleManager to whichever background style is active; this reference just " +
+             "pins the synthwave instance. Optional: auto-found, and {Mood:} is a no-op if the " +
+             "scene hosts no matching background.")]
     public MugsTech.Background.BackgroundMoodController moodController;
     [Tooltip("Seconds the background mood crossfade takes when a {Mood:...} fires. Independent of the " +
              "~0.7s transition; may finish slightly after the reveal (per the blueprint's 2-4s guidance).")]
@@ -2355,8 +2358,9 @@ public class MediaPresentationSystem : MonoBehaviour
         if (!string.IsNullOrEmpty(m.emotion) && avatarSystem != null)
             avatarSystem.SetEmotionImmediate(m.emotion);
 
-        if (m.hasMood && moodController != null)
-            moodController.SetMood(m.mood, moodCrossfadeSeconds);
+        if (m.hasMood)
+            MugsTech.Background.BackgroundStyleManager.RouteMood(
+                m.mood, moodCrossfadeSeconds, moodController);
 
         if (contentZoneController != null)
         {
@@ -2409,8 +2413,8 @@ public class MediaPresentationSystem : MonoBehaviour
             {
                 if (currentTime >= moodMarkers[i].triggerTime)
                 {
-                    if (moodController != null)
-                        moodController.SetMood(moodMarkers[i].mood, moodCrossfadeSeconds);
+                    MugsTech.Background.BackgroundStyleManager.RouteMood(
+                        moodMarkers[i].mood, moodCrossfadeSeconds, moodController);
                     lastTriggeredMoodMarker = i;
                 }
                 else

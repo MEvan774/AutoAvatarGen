@@ -146,6 +146,8 @@ public class MainMenuController : MonoBehaviour
         WirePresenterTransitionRow();
         EnsureCardEntryControls();
         WireCardEntryRow();
+        EnsureBackgroundStyleControls();
+        WireBackgroundStyleRow();
         EnsureOutputLibrary();
         EnsureOpenFolderButton();
         EnsureTimestampsPanel();
@@ -198,6 +200,16 @@ public class MainMenuController : MonoBehaviour
     [SerializeField] Button   cardEntryNextButton;
     [Tooltip("Text that shows the current card entry style label (Overshoot / Ease in + fade).")]
     [SerializeField] TMP_Text cardEntryLabel;
+
+    [Header("Background Style Cycle Row")]
+    [Tooltip("Auto-created at runtime if left null (no scene edit needed). " +
+             "Cycle button — previous background style.")]
+    [SerializeField] Button   backgroundStylePrevButton;
+    [Tooltip("Cycle button — next background style.")]
+    [SerializeField] Button   backgroundStyleNextButton;
+    [Tooltip("Text that shows the current background style label (Synthwave / Late Night Desk / " +
+             "Night City / Violet Doodles).")]
+    [SerializeField] TMP_Text backgroundStyleLabel;
 
     void WireBackgroundModeRow()
     {
@@ -404,6 +416,53 @@ public class MainMenuController : MonoBehaviour
         if (cardEntryLabel == null) return;
         var style = CardEntrySettings.LoadStyle(DefaultCardEntryStyle);
         cardEntryLabel.text = CardEntrySettings.Label(style);
+    }
+
+    // -----------------------------------------------------------------------
+    // Background style (Synthwave / Late Night Desk)
+    //
+    // Same cycle-row pattern, persisted via BackgroundStyleManager. The choice
+    // picks WHICH animated backdrop the recording scene shows in Normal mode
+    // (BackgroundModeManager activates exactly one at scene load) and where
+    // {Mood:...} crossfades are routed. Centered below the presenter/card
+    // rows, in the bottom strip the authored BackgroundModeRow vacated when it
+    // moved to the top band (clear of the ResultPanel, which tops out ~105).
+    // Always built at runtime — no scene edit.
+    // -----------------------------------------------------------------------
+
+    const float BackgroundStyleRowY = 130f;
+
+    void EnsureBackgroundStyleControls()
+    {
+        if (backgroundStyleLabel != null) return; // already wired in the inspector
+
+        BuildRuntimeCycleRow("BackgroundStyle", "Background style",
+            new Vector2(0f, BackgroundStyleRowY),
+            out backgroundStylePrevButton, out backgroundStyleLabel, out backgroundStyleNextButton);
+    }
+
+    void WireBackgroundStyleRow()
+    {
+        if (backgroundStylePrevButton != null)
+            backgroundStylePrevButton.onClick.AddListener(() => CycleBackgroundStyle(-1));
+        if (backgroundStyleNextButton != null)
+            backgroundStyleNextButton.onClick.AddListener(() => CycleBackgroundStyle(+1));
+        UpdateBackgroundStyleLabel();
+    }
+
+    void CycleBackgroundStyle(int direction)
+    {
+        var current = MugsTech.Background.BackgroundStyleManager.LoadStyle();
+        var next    = MugsTech.Background.BackgroundStyleManager.Cycle(current, direction);
+        MugsTech.Background.BackgroundStyleManager.SaveStyle(next); // also re-applies live
+        UpdateBackgroundStyleLabel();
+    }
+
+    void UpdateBackgroundStyleLabel()
+    {
+        if (backgroundStyleLabel == null) return;
+        var style = MugsTech.Background.BackgroundStyleManager.LoadStyle();
+        backgroundStyleLabel.text = MugsTech.Background.BackgroundStyleManager.Label(style);
     }
 
     static Button BuildTransitionCycleButton(Transform parent, string name, string glyph, float x, float y)

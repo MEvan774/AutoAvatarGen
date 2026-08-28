@@ -122,10 +122,27 @@ namespace MugsTech.Background
             // it BEHIND every foreground layer so it no longer occludes cards.
             bool gsToggled = ToggleGreenScreenBackground(mode == Mode.GreenScreen);
 
-            // Same deal for the synthwave backdrop, mirrored: ON in Normal,
-            // OFF in GreenScreen/Transparent where its opaque quads would
-            // pollute the chroma plate / alpha channel.
-            bool swPresent = ToggleSynthwaveBackground(mode == Mode.Normal);
+            // Same deal for the two Normal-mode backdrops, mirrored: only the
+            // SELECTED style shows in Normal, and everything is OFF in
+            // GreenScreen/Transparent where opaque quads would pollute the
+            // chroma plate / alpha channel. Which style is selected lives in
+            // BackgroundStyleManager (default Synthwave — original behavior).
+            var style = BackgroundStyleManager.LoadStyle();
+            bool swPresent = ToggleSynthwaveBackground(
+                mode == Mode.Normal && style == BackgroundStyleManager.Style.Synthwave);
+
+            // The LateNightDesk / NightCityBokeh rigs ship in no scene —
+            // they're created on demand, but only in backdrop-swapping scenes
+            // (those hosting the synthwave object), so the main menu keeps
+            // its own decorations.
+            ToggleLateNightDeskBackground(
+                mode == Mode.Normal && style == BackgroundStyleManager.Style.LateNightDesk,
+                allowCreate: swPresent);
+            ToggleNightCityBokehBackground(
+                mode == Mode.Normal && style == BackgroundStyleManager.Style.NightCityBokeh,
+                allowCreate: swPresent);
+            ToggleVioletDoodlesBackground(
+                mode == Mode.Normal && style == BackgroundStyleManager.Style.VioletDoodles);
 
             // Scenes without a SynthwaveBackground object (the main menu) keep
             // their own decorations in Normal mode — only the recording scene
@@ -147,9 +164,13 @@ namespace MugsTech.Background
 
             // Content-side sparkle (floating shapes, UI bloom) stays on in
             // Normal mode — it belongs to the foreground look. Chroma/alpha
-            // modes still disable it to reclaim GPU for the encoder.
+            // modes disable it to reclaim GPU for the encoder, but ONLY in
+            // the recording scene (the one hosting the synthwave backdrop):
+            // the encoder isn't running anywhere else, and stripping every
+            // scene silently froze decorative shapes in the menu and in
+            // background-sandbox scenes whenever a chroma mode was saved.
             int floating = 0, blooms = 0;
-            if (mode != Mode.Normal)
+            if (mode != Mode.Normal && swPresent)
             {
                 floating = DisableComponentsOfType<FloatingShape>();
                 blooms   = DisableComponentsOfType<UIBloom>();
@@ -163,7 +184,7 @@ namespace MugsTech.Background
                       $"{floating} floating-shape(s), " +
                       $"{blooms} UI bloom(s), " +
                       $"greenscreen-bg={(mode == Mode.GreenScreen ? "ON" : "OFF")}, " +
-                      $"synthwave-bg={(mode == Mode.Normal ? "ON" : "OFF")}.");
+                      $"style={style}.");
 
             // Second pass on the next frame — VisualsRuntimeApplier and
             // BackgroundVideoOverride also subscribe to sceneLoaded; if one of
@@ -186,10 +207,20 @@ namespace MugsTech.Background
 
             Mode mode = LoadMode();
 
-            // Re-assert both backdrop states in case anything toggled them
+            // Re-assert every backdrop state in case anything toggled them
             // between our first pass and now.
             ToggleGreenScreenBackground(mode == Mode.GreenScreen);
-            bool swPresent = ToggleSynthwaveBackground(mode == Mode.Normal);
+            var style = BackgroundStyleManager.LoadStyle();
+            bool swPresent = ToggleSynthwaveBackground(
+                mode == Mode.Normal && style == BackgroundStyleManager.Style.Synthwave);
+            ToggleLateNightDeskBackground(
+                mode == Mode.Normal && style == BackgroundStyleManager.Style.LateNightDesk,
+                allowCreate: swPresent);
+            ToggleNightCityBokehBackground(
+                mode == Mode.Normal && style == BackgroundStyleManager.Style.NightCityBokeh,
+                allowCreate: swPresent);
+            ToggleVioletDoodlesBackground(
+                mode == Mode.Normal && style == BackgroundStyleManager.Style.VioletDoodles);
 
             // Mirror ApplyToActiveScene: in Normal mode only scenes hosting
             // the synthwave object retire the mp4 backdrop.
@@ -251,6 +282,76 @@ namespace MugsTech.Background
             // over a green/transparent plate would contaminate the key.
             // Auto-added like the presenter's shadow; add the component to the
             // prefab in the Inspector to override its knobs.
+            if (shouldBeActive && target.GetComponent<BackgroundVignette>() == null)
+                target.AddComponent<BackgroundVignette>();
+
+            if (target.activeSelf != shouldBeActive)
+                target.SetActive(shouldBeActive);
+            return true;
+        }
+
+        // LateNightDesk twin of ToggleSynthwaveBackground. The rig is not
+        // authored in any scene: when it should show and the scene is a
+        // backdrop-swapping one (allowCreate — i.e. a SynthwaveBackground
+        // object exists there), an empty root is created and the component
+        // builds the whole rig itself in Start. Deactivating it also kills
+        // any in-flight mood-crossfade coroutine on it — that's what makes
+        // style switches clean. Same vignette auto-add as the synthwave path
+        // so both backdrops get the identical frame treatment.
+        // Returns true if the rig exists (or was just created).
+        static bool ToggleLateNightDeskBackground(bool shouldBeActive, bool allowCreate)
+        {
+            GameObject target = FindInActiveScene(LateNightDeskBackground.RootObjectName);
+            if (target == null)
+            {
+                if (!shouldBeActive || !allowCreate) return false;
+                target = new GameObject(LateNightDeskBackground.RootObjectName);
+                target.AddComponent<LateNightDeskBackground>();
+            }
+
+            if (shouldBeActive && target.GetComponent<BackgroundVignette>() == null)
+                target.AddComponent<BackgroundVignette>();
+
+            if (target.activeSelf != shouldBeActive)
+                target.SetActive(shouldBeActive);
+            return true;
+        }
+
+        /// <summary>
+        /// Name of the scene GameObject holding the Violet Doodles backdrop —
+        /// an instance of the user-authored prefab
+        /// Assets/Art/BackgroundEffects/NewBackGround.prefab, authored into
+        /// SampleScene under this name (deliberately DIFFERENT from the
+        /// prefab's own root name so sandbox scenes hosting the prefab under
+        /// its default name are never toggled by recording modes).
+        /// </summary>
+        public const string VioletDoodlesObjectName = "VioletDoodlesBackground";
+
+        // Violet Doodles twin — find-and-toggle only: the rig is a regular
+        // prefab authored into the scene (no on-demand creation), and it
+        // carries its own BackgroundVignette child, so no auto-add here.
+        static bool ToggleVioletDoodlesBackground(bool shouldBeActive)
+        {
+            GameObject target = FindInActiveScene(VioletDoodlesObjectName);
+            if (target == null) return false;
+
+            if (target.activeSelf != shouldBeActive)
+                target.SetActive(shouldBeActive);
+            return true;
+        }
+
+        // NightCityBokeh twin of ToggleLateNightDeskBackground — identical
+        // on-demand creation, vignette auto-add and clean-switch semantics.
+        static bool ToggleNightCityBokehBackground(bool shouldBeActive, bool allowCreate)
+        {
+            GameObject target = FindInActiveScene(NightCityBokehBackground.RootObjectName);
+            if (target == null)
+            {
+                if (!shouldBeActive || !allowCreate) return false;
+                target = new GameObject(NightCityBokehBackground.RootObjectName);
+                target.AddComponent<NightCityBokehBackground>();
+            }
+
             if (shouldBeActive && target.GetComponent<BackgroundVignette>() == null)
                 target.AddComponent<BackgroundVignette>();
 
