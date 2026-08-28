@@ -1859,10 +1859,6 @@ PrefabInstance:
       propertyPath: m_ConstrainProportionsScale
       value: 1
       objectReference: {fileID: 0}
-    - target: {fileID: 3194555490902279587, guid: a90c56db808b9bb4c8f5d35f444bafeb, type: 3}
-      propertyPath: m_Sprite
-      value: 
-      objectReference: {fileID: -1610980606220848320, guid: 663cc3535f1866449a656f49ad761372, type: 3}
     - target: {fileID: 6902077565747023275, guid: a90c56db808b9bb4c8f5d35f444bafeb, type: 3}
       propertyPath: m_Name
       value: VioletDoodlesBackground

@@ -42,6 +42,13 @@ public class PresenterShadow : MonoBehaviour
 
     const float ReferencePixelHeight = 1080f;
 
+    // The crossfade overlay HybridAvatarSystem blends the incoming emotion
+    // sprite on (wired by it at scene load). Mid-fade the source renderer's
+    // alpha drops while the overlay's rises; the shadow tracks the COMPOSITED
+    // opacity of the pair so it holds steady instead of pulsing out and
+    // popping back on every crossfade.
+    [HideInInspector] public SpriteRenderer crossfadeOverlay;
+
     private SpriteRenderer source;   // the avatar renderer on this GameObject
     private SpriteRenderer shadow;
     private Material shadowMaterial; // instance of MugsTech/SpriteShadowBlur
@@ -125,7 +132,16 @@ public class PresenterShadow : MonoBehaviour
             + new Vector3(0f, -offsetYPx * worldPerPx, 0f)
             + CameraForward() * 0.05f;
 
-        float alpha = opacity * source.color.a;
+        // On-screen presence of the presenter: normally the source alpha, but
+        // mid-crossfade the incoming sprite on the overlay covers what the
+        // fading source gives up — composite the pair (overlay over source).
+        float presence = source.color.a;
+        if (crossfadeOverlay != null && crossfadeOverlay.enabled && crossfadeOverlay.sprite != null)
+        {
+            float over = crossfadeOverlay.color.a;
+            presence = Mathf.Clamp01(over + presence * (1f - over));
+        }
+        float alpha = opacity * presence;
         if (blurSupported)
         {
             // Blur radius in texels: half the CSS blur size, converted from

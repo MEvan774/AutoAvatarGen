@@ -112,6 +112,11 @@ public class HybridAvatarSystem : MonoBehaviour
     private Vector3 growRestScale;
     private bool growRunning;
 
+    // Like growRunning, but for Crossfade: it only writes renderer colors /
+    // sprites, never the pivot transform, so idle sway keeps composing with it
+    // (see Update). Reset in ChangeEmotion when the fade is interrupted.
+    private bool crossfadeRunning;
+
     // Resolved in Awake from PresenterTransitionSettings (the main-menu choice),
     // falling back to the useCrossfade toggle when the user hasn't picked one.
     private PresenterTransitionSettings.Style activeTransition;
@@ -194,9 +199,13 @@ public class HybridAvatarSystem : MonoBehaviour
 
         // Soft drop shadow behind the presenter — the same CSS-style elevation
         // the content cards carry. Auto-added like MugsShake below; add the
-        // component in the Inspector to override its knobs.
-        if (avatarRenderer.GetComponent<PresenterShadow>() == null)
-            avatarRenderer.gameObject.AddComponent<PresenterShadow>();
+        // component in the Inspector to override its knobs. It gets the
+        // crossfade overlay so its opacity tracks the composited pair during
+        // a crossfade instead of pulsing with the fading main renderer.
+        PresenterShadow presenterShadow = avatarRenderer.GetComponent<PresenterShadow>();
+        if (presenterShadow == null)
+            presenterShadow = avatarRenderer.gameObject.AddComponent<PresenterShadow>();
+        presenterShadow.crossfadeOverlay = crossfadeRenderer;
 
         if (pivot != null)
         {
@@ -237,13 +246,14 @@ public class HybridAvatarSystem : MonoBehaviour
     void Update()
     {
         // Idle sway pauses for transitions that write the pivot's position /
-        // rotation themselves (squash, shake) — but NOT for the scale-only ones
-        // (Grow / Shrink). Pausing it there froze the presenter for the
-        // transition's length and then, because the sway samples Perlin noise at
-        // the CURRENT time, snapped it to wherever the sway had drifted to
-        // meanwhile. Letting the sway run underneath the scale change keeps the
-        // motion continuous through and after the transition.
-        if (enableIdleSway && pivot != null && (currentAnimation == null || growRunning))
+        // rotation themselves (squash, shake) — but NOT for the ones that never
+        // touch it (Grow / Shrink are scale-only, Crossfade is color-only).
+        // Pausing it there froze the presenter for the transition's length and
+        // then, because the sway samples Perlin noise at the CURRENT time,
+        // snapped it to wherever the sway had drifted to meanwhile. Letting the
+        // sway run underneath keeps the motion continuous through and after the
+        // transition.
+        if (enableIdleSway && pivot != null && (currentAnimation == null || growRunning || crossfadeRunning))
         {
             ApplyIdleSway();
         }
@@ -541,6 +551,7 @@ public class HybridAvatarSystem : MonoBehaviour
                     NormalizeSpriteSize(avatarRenderer);
                     pendingCrossfadeSprite = null;
                 }
+                crossfadeRunning = false;
                 avatarRenderer.color = Color.white;
                 if (crossfadeRenderer != null)
                 {
@@ -807,6 +818,7 @@ public class HybridAvatarSystem : MonoBehaviour
         crossfadeRenderer.flipX = avatarRenderer.flipX;
         NormalizeSpriteSize(crossfadeRenderer);
         pendingCrossfadeSprite = newSprite;
+        crossfadeRunning = true;
 
         float elapsed = 0f;
         while (elapsed < crossfadeDuration)
@@ -834,6 +846,7 @@ public class HybridAvatarSystem : MonoBehaviour
         crossfadeRenderer.color = new Color(1f, 1f, 1f, 0f);
         crossfadeRenderer.sprite = null;
         pendingCrossfadeSprite = null;
+        crossfadeRunning = false;
 
         currentAnimation = null;
     }
