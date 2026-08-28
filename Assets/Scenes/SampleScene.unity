@@ -372,53 +372,53 @@ MonoBehaviour:
   voiceAudio: {fileID: 1116897572}
   avatarRenderer: {fileID: 1481339985}
   pivot: {fileID: 1078715358}
-  neutralSprite: {fileID: 1842682034655958876, guid: 88063c379c26d40458f0e02bd880f35b, type: 3}
+  neutralSprite: {fileID: 21300000, guid: 88063c379c26d40458f0e02bd880f35b, type: 3}
   excitedSprite: {fileID: -5284022904802639043, guid: 4ac5c707e6a97b780abe724740352d67, type: 3}
-  seriousSprite: {fileID: -3519708057069351890, guid: bc77cd597806fe34fb8423ab389767d4, type: 3}
+  seriousSprite: {fileID: 21300000, guid: bc77cd597806fe34fb8423ab389767d4, type: 3}
   sadSprite: {fileID: 3740009398500155495, guid: 912c1aedbd9eb7c9e957b377f115bd46, type: 3}
-  concernedSprite: {fileID: 1441014668894981902, guid: 26e970b545bc6b84ea7b3fbc761710b9, type: 3}
+  concernedSprite: {fileID: 21300000, guid: 26e970b545bc6b84ea7b3fbc761710b9, type: 3}
   useEmotionArrayOverride: 1
   emotionImageOverrides:
   - emotionName: BothEyebrowRaised
-    sprite: {fileID: 1441014668894981902, guid: 26e970b545bc6b84ea7b3fbc761710b9, type: 3}
+    sprite: {fileID: 21300000, guid: 26e970b545bc6b84ea7b3fbc761710b9, type: 3}
   - emotionName: Concerned
-    sprite: {fileID: 1843607367612804287, guid: 4dcefbf14e21a6145a21c92b02c29119, type: 3}
+    sprite: {fileID: 21300000, guid: 4dcefbf14e21a6145a21c92b02c29119, type: 3}
   - emotionName: Disgusted
-    sprite: {fileID: 7515164792107045663, guid: 4236799967a81f84d81c81f04c8753c1, type: 3}
+    sprite: {fileID: 21300000, guid: 4236799967a81f84d81c81f04c8753c1, type: 3}
   - emotionName: EyebrowRaised
-    sprite: {fileID: 7060088537365879882, guid: 05026ae2efc6a00439542e68d793546c, type: 3}
+    sprite: {fileID: 21300000, guid: 05026ae2efc6a00439542e68d793546c, type: 3}
   - emotionName: Frowned
-    sprite: {fileID: -3519708057069351890, guid: bc77cd597806fe34fb8423ab389767d4, type: 3}
+    sprite: {fileID: 21300000, guid: bc77cd597806fe34fb8423ab389767d4, type: 3}
   - emotionName: HeadScratch
-    sprite: {fileID: -6497132872900401583, guid: c2bc7626c1685f644b67f3a49388673a, type: 3}
+    sprite: {fileID: 21300000, guid: c2bc7626c1685f644b67f3a49388673a, type: 3}
   - emotionName: LookingAtViewer
-    sprite: {fileID: 2633085204934290687, guid: 1b6a9cb1d7c0dc64f957831c9a36638d, type: 3}
+    sprite: {fileID: 21300000, guid: 1b6a9cb1d7c0dc64f957831c9a36638d, type: 3}
   - emotionName: Nervous
-    sprite: {fileID: 8220280090341609966, guid: ac15de58a4f35054f94126005bad4f99, type: 3}
+    sprite: {fileID: 21300000, guid: ac15de58a4f35054f94126005bad4f99, type: 3}
   - emotionName: Neutral
-    sprite: {fileID: 1842682034655958876, guid: 88063c379c26d40458f0e02bd880f35b, type: 3}
+    sprite: {fileID: 21300000, guid: 88063c379c26d40458f0e02bd880f35b, type: 3}
   - emotionName: Shocked
-    sprite: {fileID: 3206290436328397628, guid: af410f432c53a7e4e8063cc9eae015ad, type: 3}
+    sprite: {fileID: 21300000, guid: af410f432c53a7e4e8063cc9eae015ad, type: 3}
   - emotionName: Sip
-    sprite: {fileID: -115610766228609354, guid: 3d25ef34b1ec92840a8bd4e69562edfe, type: 3}
+    sprite: {fileID: 21300000, guid: 3d25ef34b1ec92840a8bd4e69562edfe, type: 3}
   - emotionName: Smirk
-    sprite: {fileID: 890482241241327942, guid: 44677baf4d96ca44f8eced87bceb5e33, type: 3}
+    sprite: {fileID: 21300000, guid: 44677baf4d96ca44f8eced87bceb5e33, type: 3}
   - emotionName: SmugSip
-    sprite: {fileID: -5571912170658656440, guid: 85a25094e05a8d24fa42bcc97a115fb7, type: 3}
+    sprite: {fileID: 21300000, guid: 85a25094e05a8d24fa42bcc97a115fb7, type: 3}
   - emotionName: Shrug
-    sprite: {fileID: 2871896592639135034, guid: 33e2974ad24581d45a14ff99db0efb71, type: 3}
+    sprite: {fileID: 21300000, guid: 33e2974ad24581d45a14ff99db0efb71, type: 3}
   - emotionName: FacePalm
-    sprite: {fileID: -4133786554254647184, guid: 1608df10e6fac2142b13ac113593cdda, type: 3}
+    sprite: {fileID: 21300000, guid: 1608df10e6fac2142b13ac113593cdda, type: 3}
   - emotionName: NarrowedEyes
-    sprite: {fileID: -7608138174864395662, guid: dcec75e7c0c7d1940924a05dddd775a5, type: 3}
+    sprite: {fileID: 21300000, guid: dcec75e7c0c7d1940924a05dddd775a5, type: 3}
   - emotionName: LooseningTie
-    sprite: {fileID: -8708333958550373310, guid: 0aa745a7b276e5740b21f22b6f977999, type: 3}
+    sprite: {fileID: 21300000, guid: 0aa745a7b276e5740b21f22b6f977999, type: 3}
   - emotionName: Toast
-    sprite: {fileID: -6154995364696669364, guid: 9ec3089ce6f0de948ab16da259f21356, type: 3}
+    sprite: {fileID: 21300000, guid: 9ec3089ce6f0de948ab16da259f21356, type: 3}
   - emotionName: Shrug
-    sprite: {fileID: 2871896592639135034, guid: 33e2974ad24581d45a14ff99db0efb71, type: 3}
+    sprite: {fileID: 21300000, guid: 33e2974ad24581d45a14ff99db0efb71, type: 3}
   - emotionName: Popcorn
-    sprite: {fileID: 5071577593679855946, guid: 6cf667b32c2a5b64bb915efc4045be0d, type: 3}
+    sprite: {fileID: 21300000, guid: 6cf667b32c2a5b64bb915efc4045be0d, type: 3}
   timingOffset: 0
   useCrossfade: 1
   crossfadeDuration: 0.4
