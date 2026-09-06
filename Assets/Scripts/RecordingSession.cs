@@ -255,9 +255,12 @@ public class RecordingSession : MonoBehaviour
 
     IEnumerator WatchdogReturnToMenu()
     {
-        // Wait up to 30 s for capture to actually start.
+        // Wait up to 90 s for capture to actually start. (The folder-music
+        // preload may legitimately hold the take for up to ~30 s on top of
+        // audio/script loading, so the old 30 s window could give up on a
+        // take that was about to begin.)
         float startWait = 0f;
-        while (!handedOff && startWait < 30f)
+        while (!handedOff && startWait < 90f)
         {
             if (capture != null && capture.status == CaptureStatus.STARTED) break;
             startWait += Time.unscaledDeltaTime;
@@ -453,6 +456,10 @@ public class RecordingSession : MonoBehaviour
         if (ok)
         {
             Debug.Log($"[RecordingSession] Recovery produced '{savePath}'.");
+            // Folder-music credits sidecar — written on EVERY saved take
+            // (manual GUI and --auto-script alike), so it lives here on the
+            // completion path, not in AutomationRunner. Never throws.
+            MugsTech.Background.MusicTakeLog.WriteCreditsSidecar(savePath);
             LastResult = new RecordingResult
             {
                 State = RecordingResult.Status.Saved,
@@ -572,6 +579,9 @@ public class RecordingSession : MonoBehaviour
 
         if (finished) yield break;
         finished = true;
+        // Folder-music credits sidecar — see FinishRecovery for why it lives
+        // on the completion paths. Never throws.
+        MugsTech.Background.MusicTakeLog.WriteCreditsSidecar(videoPath);
         LastResult = new RecordingResult
         {
             State = RecordingResult.Status.Saved,

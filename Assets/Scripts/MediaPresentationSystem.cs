@@ -625,6 +625,13 @@ public class MediaPresentationSystem : MonoBehaviour
         Debug.Log($"[MediaPresentation] Loaded script ({scriptWithMarkers.Length} chars). " +
                   $"Contains '{{Black': {scriptWithMarkers.Contains("{Black")}\n---\n{preview}\n---");
 
+        // Folder-mode background music: the assembled voice length is known
+        // right here, so kick off the playlist planning + preload NOW — it
+        // decodes and loudness-measures tracks while the parsers and image
+        // preloader below do their work. BeginPlaybackWhenBackgroundReady
+        // waits for it before the take starts (no-op when folder mode is off).
+        MugsTech.Background.BackgroundMusicPlayer.BeginFolderPreload(audio.length);
+
         // Parse {Timestamp:"..."} chapter markers FIRST and strip them. They are
         // pure timeline markers — never voiced, never shown, and they drive nothing
         // visual — so removing them up front keeps them out of every other parser
@@ -706,6 +713,23 @@ public class MediaPresentationSystem : MonoBehaviour
         }
         if (elapsed >= timeout)
             Debug.LogWarning($"[MediaPresentation] Background video(s) not ready after {timeout}s — starting anyway.");
+
+        // Also wait for the folder-mode music preload (kicked off at the top
+        // of ProcessScriptWithMedia). This must finish BEFORE the trackers
+        // below start: they bound their wait-for-playback at 10s, so gating
+        // inside ProcessWithExistingAudio alone would strand them if the
+        // preload ran long. The preloader self-caps at 30s and flags failures
+        // via MusicTakeLog — a music hiccup never wastes a render.
+        const float musicTimeout = 35f;
+        float musicWaited = 0f;
+        while (musicWaited < musicTimeout &&
+               MugsTech.Background.BackgroundMusicPlayer.FolderPreloadPending)
+        {
+            musicWaited += Time.unscaledDeltaTime;
+            yield return null;
+        }
+        if (musicWaited > 0f)
+            Debug.Log($"[MediaPresentation] Waited {musicWaited:F1}s for background music preload.");
 
         // Forward to avatar system for emotion processing (unchanged)
         avatarSystem.ProcessWithExistingAudio(cleanScript, audio);

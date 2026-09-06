@@ -118,6 +118,17 @@ public class MainMenuController : MonoBehaviour
         if (mediaRootBrowseButton != null)
             mediaRootBrowseButton.onClick.AddListener(OnMediaRootBrowseClicked);
 
+        EnsureMusicFolderControls();
+        if (musicFolderInput != null)
+        {
+            musicFolderInput.onEndEdit.AddListener(OnMusicFolderChanged);
+            musicFolderInput.text = PlayerPrefs.GetString(
+                MugsTech.Background.BackgroundMusicPlayer.FolderPrefKey, "");
+            UpdateMusicFolderValidity(musicFolderInput.text);
+        }
+        if (musicFolderBrowseButton != null)
+            musicFolderBrowseButton.onClick.AddListener(OnMusicFolderBrowseClicked);
+
         if (useBundledTtsOutputToggle != null)
         {
             useBundledTtsOutputToggle.SetIsOnWithoutNotify(
@@ -808,9 +819,24 @@ public class MainMenuController : MonoBehaviour
                 break;
 
             case RecordingSession.RecordingResult.Status.Saved:
-                statusText.text  = "✓  Video saved";
-                statusText.color = new Color(0.35f, 0.85f, 0.45f, 1f);
-                pathText.text    = string.IsNullOrEmpty(r.SavePath) ? "(no path returned)" : r.SavePath;
+                // The video is fine either way, but a folder-music failure must
+                // be flagged LOUDLY — a silent bed on an uploaded video is only
+                // noticed after publishing. The take itself is never aborted
+                // over music (see BackgroundMusicPlayer / MusicTakeLog).
+                string musicError = MugsTech.Background.MusicTakeLog.Error;
+                if (!string.IsNullOrEmpty(musicError))
+                {
+                    statusText.text  = "✓  Video saved   ⚠  MUSIC FAILED";
+                    statusText.color = new Color(0.98f, 0.80f, 0.30f, 1f);
+                    pathText.text    = (string.IsNullOrEmpty(r.SavePath) ? "(no path returned)" : r.SavePath)
+                                       + "\n⚠ Music: " + musicError;
+                }
+                else
+                {
+                    statusText.text  = "✓  Video saved";
+                    statusText.color = new Color(0.35f, 0.85f, 0.45f, 1f);
+                    pathText.text    = string.IsNullOrEmpty(r.SavePath) ? "(no path returned)" : r.SavePath;
+                }
                 // Offer to reveal the finished file only when we actually have a path.
                 lastSavedVideoPath = r.SavePath;
                 SetOpenFolderButtonVisible(!string.IsNullOrEmpty(r.SavePath));
@@ -832,6 +858,7 @@ public class MainMenuController : MonoBehaviour
         OnPathChanged(pathInput.text);
         if (mediaRootInput != null) OnMediaRootChanged(mediaRootInput.text);
         if (recordingOutputInput != null) OnRecordingOutputChanged(recordingOutputInput.text);
+        if (musicFolderInput != null) OnMusicFolderChanged(musicFolderInput.text);
         RecordingSession.Begin();
     }
 
@@ -1068,6 +1095,189 @@ public class MainMenuController : MonoBehaviour
         btnLabel.color      = Color.white;
 
         mediaRootBrowseButton = btn;
+    }
+
+    // -----------------------------------------------------------------------
+    // Background music folder (folder mode)
+    //
+    // Mirrors the media-root pattern: typing a path or picking one via Browse
+    // auto-saves to PlayerPrefs. BackgroundMusicPlayer reads the same key when
+    // the recording scene loads: a non-empty folder switches it to folder mode
+    // (random LUFS-equalized playlist baked into the take, replacing the
+    // Python post-mux mixer), empty falls back to the old override / preset
+    // behavior. Always built at runtime — no scene rebuild. Positioned
+    // center-anchored in the free band above the recording-output row.
+    // -----------------------------------------------------------------------
+
+    [Header("Background Music Folder")]
+    [Tooltip("Optional. If left null, the controller spawns its own row at runtime. " +
+             "A non-empty folder enables folder-mode background music: random tracks " +
+             "from the folder are equalized to -16 LUFS, ducked to 10%, and recorded " +
+             "under the voice, with a credits sidecar next to each video.")]
+    [SerializeField] TMP_InputField musicFolderInput;
+    [SerializeField] Button         musicFolderBrowseButton;
+
+    // The center stack is packed (rows every ~50 units, hand-tweaked scene),
+    // so this is a single-line row — inline label, input, Browse — in the one
+    // free band: between StartButton (bottom −143) and QuitButton (top −184).
+    // x-metrics mirror the authored path rows exactly (input −90/920 wide,
+    // browse 450/160) so it reads as part of the same family. Everything here
+    // is center-anchored like its neighbors, so the fit holds at any window
+    // size.
+    void EnsureMusicFolderControls()
+    {
+        if (musicFolderInput != null) return; // already wired in the inspector
+
+        Canvas canvas = GetComponentInChildren<Canvas>();
+        if (canvas == null) return;
+
+        const float rowY = -163.5f;
+        const float rowH = 32f;
+
+        var row = new GameObject("MusicFolderRow", typeof(RectTransform));
+        row.transform.SetParent(canvas.transform, false);
+        var rowRT = (RectTransform)row.transform;
+        rowRT.anchorMin = rowRT.anchorMax = rowRT.pivot = new Vector2(0.5f, 0.5f);
+        rowRT.anchoredPosition = Vector2.zero;
+        rowRT.sizeDelta        = Vector2.zero;
+
+        // Inline label, right-aligned against the input's left edge.
+        var labelGO = new GameObject("Label", typeof(RectTransform));
+        labelGO.transform.SetParent(row.transform, false);
+        var labelRT = (RectTransform)labelGO.transform;
+        labelRT.anchorMin = labelRT.anchorMax = labelRT.pivot = new Vector2(0.5f, 0.5f);
+        labelRT.anchoredPosition = new Vector2(-665f, rowY);
+        labelRT.sizeDelta        = new Vector2(220f, rowH);
+        var label = labelGO.AddComponent<TextMeshProUGUI>();
+        label.text      = "Music folder:";
+        label.fontSize  = 22;
+        label.alignment = TextAlignmentOptions.MidlineRight;
+        label.color     = new Color(0.82f, 0.85f, 0.9f, 1f);
+        label.raycastTarget = false;
+
+        // Input field
+        var inputGO = new GameObject("MusicFolderInput", typeof(RectTransform));
+        inputGO.transform.SetParent(row.transform, false);
+        var inputRT = (RectTransform)inputGO.transform;
+        inputRT.anchorMin = inputRT.anchorMax = inputRT.pivot = new Vector2(0.5f, 0.5f);
+        inputRT.anchoredPosition = new Vector2(-90f, rowY);
+        inputRT.sizeDelta        = new Vector2(920f, rowH);
+
+        var bg = inputGO.AddComponent<Image>();
+        bg.color = new Color(0.15f, 0.17f, 0.21f, 1f);
+
+        var input = inputGO.AddComponent<TMP_InputField>();
+
+        var textArea = new GameObject("Text Area", typeof(RectTransform));
+        textArea.transform.SetParent(inputGO.transform, false);
+        var taRT = (RectTransform)textArea.transform;
+        taRT.anchorMin = Vector2.zero;
+        taRT.anchorMax = Vector2.one;
+        taRT.offsetMin = new Vector2(14f, 2f);
+        taRT.offsetMax = new Vector2(-14f, -2f);
+        textArea.AddComponent<RectMask2D>();
+
+        var textGO = new GameObject("Text", typeof(RectTransform));
+        textGO.transform.SetParent(textArea.transform, false);
+        var textRT = (RectTransform)textGO.transform;
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.offsetMin = Vector2.zero;
+        textRT.offsetMax = Vector2.zero;
+        var text = textGO.AddComponent<TextMeshProUGUI>();
+        text.text      = "";
+        text.fontSize  = 20;
+        text.alignment = TextAlignmentOptions.Left;
+        text.color     = Color.white;
+        text.richText  = false;
+
+        var phGO = new GameObject("Placeholder", typeof(RectTransform));
+        phGO.transform.SetParent(textArea.transform, false);
+        var phRT = (RectTransform)phGO.transform;
+        phRT.anchorMin = Vector2.zero;
+        phRT.anchorMax = Vector2.one;
+        phRT.offsetMin = Vector2.zero;
+        phRT.offsetMax = Vector2.zero;
+        var ph = phGO.AddComponent<TextMeshProUGUI>();
+        ph.text      = "C:\\...\\Background Music  (blank = no music baked into the take)";
+        ph.fontSize  = 20;
+        ph.fontStyle = FontStyles.Italic;
+        ph.alignment = TextAlignmentOptions.Left;
+        ph.color     = new Color(0.55f, 0.58f, 0.64f, 1f);
+
+        input.textViewport  = taRT;
+        input.textComponent = text;
+        input.placeholder   = ph;
+        input.targetGraphic = bg;
+
+        musicFolderInput = input;
+
+        // Browse button
+        var btnGO = new GameObject("MusicFolderBrowseButton", typeof(RectTransform));
+        btnGO.transform.SetParent(row.transform, false);
+        var btnRT = (RectTransform)btnGO.transform;
+        btnRT.anchorMin = btnRT.anchorMax = btnRT.pivot = new Vector2(0.5f, 0.5f);
+        btnRT.anchoredPosition = new Vector2(450f, rowY);
+        btnRT.sizeDelta        = new Vector2(160f, rowH);
+        var btnImg = btnGO.AddComponent<Image>();
+        btnImg.color = new Color(0.20f, 0.45f, 0.65f, 1f);
+        var btn = btnGO.AddComponent<Button>();
+        btn.targetGraphic = btnImg;
+
+        var btnLabelGO = new GameObject("Label", typeof(RectTransform));
+        btnLabelGO.transform.SetParent(btnGO.transform, false);
+        var btnLabelRT = (RectTransform)btnLabelGO.transform;
+        btnLabelRT.anchorMin = Vector2.zero;
+        btnLabelRT.anchorMax = Vector2.one;
+        btnLabelRT.offsetMin = Vector2.zero;
+        btnLabelRT.offsetMax = Vector2.zero;
+        var btnLabel = btnLabelGO.AddComponent<TextMeshProUGUI>();
+        btnLabel.text      = "Browse…";
+        btnLabel.fontSize  = 20;
+        btnLabel.fontStyle = FontStyles.Bold;
+        btnLabel.alignment = TextAlignmentOptions.Center;
+        btnLabel.color     = Color.white;
+
+        musicFolderBrowseButton = btn;
+    }
+
+    void OnMusicFolderChanged(string value)
+    {
+        // Empty / whitespace = folder mode off (override/preset behavior
+        // returns, untouched).
+        string trimmed = string.IsNullOrWhiteSpace(value) ? "" : value.Trim();
+        PlayerPrefs.SetString(MugsTech.Background.BackgroundMusicPlayer.FolderPrefKey, trimmed);
+        PlayerPrefs.Save();
+        Debug.Log($"[MainMenu] Music folder pref saved: " +
+                  $"key='{MugsTech.Background.BackgroundMusicPlayer.FolderPrefKey}' value='{trimmed}'");
+        if (musicFolderInput != null && musicFolderInput.text != trimmed)
+            musicFolderInput.text = trimmed;
+        UpdateMusicFolderValidity(trimmed);
+    }
+
+    // Tints the music-folder input red when it points at a folder that isn't
+    // on disk. A stale path (folder moved/deleted since it was saved) would
+    // otherwise only surface AFTER a take has already spent its credits and
+    // render time — this makes it visible the moment the menu opens.
+    void UpdateMusicFolderValidity(string path)
+    {
+        if (musicFolderInput == null) return;
+        var bg = musicFolderInput.targetGraphic as Image;
+        if (bg == null) return;
+        bool missing = !string.IsNullOrWhiteSpace(path) && !Directory.Exists(path.Trim());
+        bg.color = missing ? new Color(0.38f, 0.13f, 0.15f, 1f)   // folder gone — take would record silent
+                           : new Color(0.15f, 0.17f, 0.21f, 1f);  // normal field background
+    }
+
+    void OnMusicFolderBrowseClicked()
+    {
+        string current = musicFolderInput != null ? musicFolderInput.text : "";
+        string startDir = !string.IsNullOrWhiteSpace(current) && Directory.Exists(current)
+            ? current
+            : "";
+        string picked = TryPickFolderPath("Pick background music folder", startDir);
+        if (string.IsNullOrEmpty(picked)) return;
+        OnMusicFolderChanged(picked);
     }
 
     // -----------------------------------------------------------------------

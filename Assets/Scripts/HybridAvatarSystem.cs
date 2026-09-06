@@ -415,6 +415,39 @@ public class HybridAvatarSystem : MonoBehaviour
     // NEW: Time-based processing
     public void ProcessWithExistingAudio(string scriptWithMarkers, AudioClip audio)
     {
+        // Folder-mode background music plans its playlist against the
+        // assembled voice length, which is first known right here — and the
+        // recorder must not start until the bed is decoded and measured, or
+        // the music would join the take late. When the media path already ran
+        // (MediaPresentationSystem gates before forwarding) or folder mode is
+        // off, the preload reports not-pending and this stays the original
+        // fully synchronous flow.
+        MugsTech.Background.BackgroundMusicPlayer.BeginFolderPreload(audio.length);
+        if (MugsTech.Background.BackgroundMusicPlayer.FolderPreloadPending)
+        {
+            StartCoroutine(BeginPlaybackWhenMusicReady(scriptWithMarkers, audio));
+            return;
+        }
+        BeginPlaybackAndTracking(scriptWithMarkers, audio);
+    }
+
+    // Bounded wait so a music hiccup can never hang a take: the preloader
+    // self-caps at 30s and flags the failure via MusicTakeLog; this cap is
+    // only a belt-and-braces backstop above that.
+    IEnumerator BeginPlaybackWhenMusicReady(string scriptWithMarkers, AudioClip audio)
+    {
+        const float timeout = 35f;
+        float waited = 0f;
+        while (waited < timeout && MugsTech.Background.BackgroundMusicPlayer.FolderPreloadPending)
+        {
+            waited += Time.unscaledDeltaTime;
+            yield return null;
+        }
+        BeginPlaybackAndTracking(scriptWithMarkers, audio);
+    }
+
+    void BeginPlaybackAndTracking(string scriptWithMarkers, AudioClip audio)
+    {
         (cleanScript, timeMarkers) = ParseScriptWithTimeMarkers(scriptWithMarkers, audio.length);
 
         voiceAudio.clip = audio;

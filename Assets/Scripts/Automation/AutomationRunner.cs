@@ -354,6 +354,27 @@ public class AutomationRunner : MonoBehaviour
         sb.Append("  \"videoPath\": ").Append(JsonStr(videoPath)).Append(",\n");
         sb.Append("  \"videoSizeBytes\": ").Append(videoSize).Append(",\n");
 
+        // Folder-mode background music (baked into the take by
+        // BackgroundMusicPlayer): what played, where the credits sidecar is,
+        // and — the loud flag — whether music failed while the take still
+        // recorded. All null/empty when the Music folder pref is unset.
+        sb.Append("  \"musicFolder\": ")
+          .Append(JsonStr(MugsTech.Background.MusicTakeLog.FolderConfigured)).Append(",\n");
+        sb.Append("  \"musicTracks\": [");
+        var musicTracks = MugsTech.Background.MusicTakeLog.PlayedFileNames();
+        for (int i = 0; i < musicTracks.Count; i++)
+        {
+            sb.Append(i == 0 ? "\n" : ",\n");
+            sb.Append("    ").Append(JsonStr(musicTracks[i]));
+        }
+        sb.Append(musicTracks.Count > 0 ? "\n  ],\n" : "],\n");
+        sb.Append("  \"musicCreditsPath\": ")
+          .Append(JsonStr(MugsTech.Background.MusicTakeLog.CreditsPath)).Append(",\n");
+        sb.Append("  \"musicVolume\": ")
+          .Append(F(MugsTech.Background.MusicTakeLog.DuckVolume)).Append(",\n");
+        sb.Append("  \"musicError\": ")
+          .Append(JsonStr(MugsTech.Background.MusicTakeLog.Error)).Append(",\n");
+
         // {Timestamp:"..."} chapter markers captured during the take — handed
         // through so the caller can build YouTube chapters without hunting for
         // the persistentDataPath JSON.
