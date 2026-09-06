@@ -79,6 +79,12 @@ public class CrossPlatformRecorder : MonoBehaviour
     [Tooltip("Kbps. 8000 = broadcast quality, 4000 = YouTube default, 2000 = compact.")]
     public int bitrateKbps = 8000;
 
+    [Tooltip("MSAA sample count for the capture render texture. The content cards carry a " +
+             "random entry tilt plus a constant idle wobble, so without multisampling every " +
+             "rotated card edge staircases in the finished mp4. The scene is a handful of " +
+             "orthographic quads, so 8x costs next to nothing.")]
+    public AntiAliasingSetting captureAntiAliasing = AntiAliasingSetting._8;
+
     [Header("Encoding (Paid Features)")]
     [Tooltip("Use GPU hardware encoding when available. Much faster than CPU encoding.")]
     public bool gpuEncoding = true;
@@ -492,6 +498,17 @@ public class CrossPlatformRecorder : MonoBehaviour
         videoCaptureComponent.frameRate = frameRate;
         videoCaptureComponent.bitrate = bitrateKbps;
 
+        // Anti-aliasing. Evereal's prefab default is _1 (no MSAA), and because
+        // the capture camera renders into its own RenderTexture, the RT's
+        // sample count — not QualitySettings — decides whether anything gets
+        // multisampled. Evereal reads this enum in PrepareCapture(), inside
+        // StartCapture(), so setting it here is early enough. The camera must
+        // also allow MSAA or Unity quietly renders 1-sample regardless (the
+        // scene's Main Camera ships with allowMSAA off).
+        videoCaptureComponent.antiAliasing = captureAntiAliasing;
+        if (videoCaptureComponent.regularCamera != null)
+            videoCaptureComponent.regularCamera.allowMSAA = true;
+
         // Audio
         videoCaptureComponent.captureAudio = captureAudioIntoVideo;
 
@@ -501,7 +518,8 @@ public class CrossPlatformRecorder : MonoBehaviour
         ApplySaveFolderToVideoCapture();
 
         Log($"VideoCapture configured: {frameWidth}x{frameHeight} @ {frameRate}fps, " +
-            $"{bitrateKbps}kbps, transparent={videoCaptureComponent.transparent}, " +
+            $"{bitrateKbps}kbps, msaa={captureAntiAliasing}, " +
+            $"transparent={videoCaptureComponent.transparent}, " +
             $"gpu={allowGpuEncoding}, flipH={horizontalFlip}, flipV={verticalFlip}");
     }
 
