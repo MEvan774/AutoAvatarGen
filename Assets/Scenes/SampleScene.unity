@@ -415,10 +415,28 @@ MonoBehaviour:
     sprite: {fileID: 21300000, guid: 0aa745a7b276e5740b21f22b6f977999, type: 3}
   - emotionName: Toast
     sprite: {fileID: 21300000, guid: 9ec3089ce6f0de948ab16da259f21356, type: 3}
-  - emotionName: Shrug
-    sprite: {fileID: 21300000, guid: 33e2974ad24581d45a14ff99db0efb71, type: 3}
   - emotionName: Popcorn
     sprite: {fileID: 21300000, guid: 6cf667b32c2a5b64bb915efc4045be0d, type: 3}
+  - emotionName: ChinScratching
+    sprite: {fileID: 21300000, guid: 0eaa40baa1db9db4cac3454b7afac1f2, type: 3}
+  - emotionName: Smug
+    sprite: {fileID: 21300000, guid: 70cbe7b704c3fde489e1a3eb871783e5, type: 3}
+  - emotionName: OpenPalmSide
+    sprite: {fileID: 21300000, guid: 1c88fc1fe298e284b99414133774e1ac, type: 3}
+  - emotionName: OpenPalmSideLookingAtViewer
+    sprite: {fileID: 21300000, guid: f5a60abf7c09c444682a40a2be262e16, type: 3}
+  - emotionName: OpenPalmSideLower
+    sprite: {fileID: 21300000, guid: bf669c73420bea94fa75d79bebc6d1c5, type: 3}
+  - emotionName: OpenPalmSideLowerLookingAtViewer
+    sprite: {fileID: 21300000, guid: 36fa2b21368c6c04f82ada4a1cec2ffd, type: 3}
+  - emotionName: PointCard
+    sprite: {fileID: 21300000, guid: 012a6d23b2a2c4a49bbeeb91a31eb17a, type: 3}
+  - emotionName: PointCardLookingAtViewer
+    sprite: {fileID: 21300000, guid: 8f6d8ca5369e41d44916454c4550ed1e, type: 3}
+  - emotionName: PointUp
+    sprite: {fileID: 21300000, guid: 63fd0f4445511de489ecf62975c4e95e, type: 3}
+  - emotionName: PointUpLookingAtViewer
+    sprite: {fileID: 21300000, guid: 47bf9e78a3599884682e7384696435ec, type: 3}
   timingOffset: 0
   useCrossfade: 1
   crossfadeDuration: 0.4
