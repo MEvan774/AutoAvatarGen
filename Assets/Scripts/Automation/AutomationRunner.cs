@@ -54,6 +54,14 @@ public class AutomationRunner : MonoBehaviour
     // always run against the external library.
     const string UseBundledTtsOutputPrefKey = "AutoAvatarGen.UseBundledTtsOutput";
 
+    // Test hook — unset in production. Points at a previous generation's
+    // chunks/ folder: the run then replays those cached takes through the
+    // normal slicing instead of calling ElevenLabs (same audio, same length,
+    // zero credits), so recording/finalize changes can be exercised on a
+    // real-length take. The script must be the exact text that generation
+    // was rendered from, or the cache is rejected and the run fails.
+    const string TtsReplayCacheEnv = "AUTOAVATARGEN_TTS_REPLAY_CACHE";
+
     string scriptPath;
     string resultPath;
     string progressPath;
@@ -164,11 +172,21 @@ public class AutomationRunner : MonoBehaviour
             yield break;
         }
 
+        // ---- setup: cached-take replay (test hook, see TtsReplayCacheEnv) --
+        string replayCache = null;
+        try { replayCache = Environment.GetEnvironmentVariable(TtsReplayCacheEnv); } catch { }
+        bool replaying = !string.IsNullOrWhiteSpace(replayCache) && Directory.Exists(replayCache);
+        if (replaying)
+        {
+            Debug.LogWarning($"[Automation] {TtsReplayCacheEnv} is set — replaying cached takes " +
+                             $"from '{replayCache}'; ElevenLabs will NOT be called.");
+        }
+
         // ---- setup: API key ---------------------------------------------
         string apiKey = TtsApiKeyPopup.LoadKey();
         if (string.IsNullOrWhiteSpace(apiKey))
             apiKey = Environment.GetEnvironmentVariable("ELEVENLABS_API_KEY");
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (string.IsNullOrWhiteSpace(apiKey) && !replaying)
         {
             Finish(false, "setup",
                 "No ElevenLabs API key. Open the app once and save it via the TTS panel's " +
@@ -205,8 +223,9 @@ public class AutomationRunner : MonoBehaviour
             ApiKey       = apiKey,
             OutputFolder = generationFolder,
             ScriptText   = scriptText,
-            DryRun       = false,
+            DryRun       = replaying,   // a dry run over a cache folder replays it
         };
+        cfg.Chunked.DryRunCacheFolder = replaying ? replayCache : null;
         var job = new TtsGenerationJob(cfg,
             progress: p => WriteProgress("tts", $"Rendering — {Mathf.RoundToInt(p * 100f)}%"),
             status:   s => WriteProgress("tts", s),

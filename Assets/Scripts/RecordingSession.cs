@@ -77,6 +77,13 @@ public class RecordingSession : MonoBehaviour
     string pendingWavPath;         // AudioRecorder's wav (null on GPU-native audio path)
     string pendingFinalVideoPath;  // where Evereal's muxer puts the finished file
 
+    // Wall-clock length of the take, measured by the watchdog from the moment
+    // capture reports STARTED to the moment it stops. Everything that has to
+    // work through the whole recording afterwards (Evereal's muxer, the ffmpeg
+    // fallback) is given time in proportion to it — see FinalizeBudgetSec.
+    float takeStartedRealtime = -1f;
+    float recordedSeconds;
+
     GameObject indicatorRoot;
     Image spinnerImage;
     Image recDot;
@@ -99,7 +106,8 @@ public class RecordingSession : MonoBehaviour
         // take can still be alive here if it's finalizing a video in the
         // background, or if it got stuck because Evereal never raised
         // OnComplete/OnError (the watchdog otherwise keeps the session around
-        // for up to 180 s). The Start button only exists on the main menu, so
+        // for its whole finalize budget). The Start button only exists on the
+        // main menu, so
         // reaching this point always means a fresh take is wanted — never let a
         // stale session silently block it. This is what lets the user record
         // repeatedly without restarting the app.
@@ -198,6 +206,8 @@ public class RecordingSession : MonoBehaviour
         pendingVideoTempPath = null;
         pendingWavPath = null;
         pendingFinalVideoPath = null;
+        takeStartedRealtime = -1f;
+        recordedSeconds = 0f;
         voiceAudio = null;
         displayedPercent = 0f;
         if (percentText != null) percentText.text = "0%";
@@ -268,6 +278,7 @@ public class RecordingSession : MonoBehaviour
         }
         if (handedOff) yield break;
         if (capture == null || capture.status != CaptureStatus.STARTED) yield break;
+        takeStartedRealtime = Time.realtimeSinceStartup;
 
         // Capture is running — wait until its status leaves STARTED. Evereal
         // logs "[VideoCapture] Video capture session stopped, generating video..."
@@ -275,6 +286,7 @@ public class RecordingSession : MonoBehaviour
         // that the recording itself is done (file finalisation still follows).
         while (!handedOff && capture != null && capture.status == CaptureStatus.STARTED)
             yield return null;
+        recordedSeconds = Mathf.Max(0f, Time.realtimeSinceStartup - takeStartedRealtime);
         if (handedOff) yield break;
 
         // Hand off to the main menu immediately with a "Generating video..."
@@ -284,11 +296,15 @@ public class RecordingSession : MonoBehaviour
         HandOffAsGenerating();
 
         // With the capture rig preserved across the scene swap, OnComplete
-        // normally arrives within seconds. If it never does (encoder hiccup,
-        // muxer parked, event lost), don't just fail: the finished silent
-        // video and the wav are sitting on disk and ffmpeg is bundled, so mux
-        // them ourselves and still deliver one video WITH sound.
-        const float finalizeTimeout = 60f;
+        // normally arrives within seconds on a short take — but Evereal's muxer
+        // works through the whole recording, so on a long 1080p take it
+        // legitimately runs for minutes. Give it time in proportion to the take
+        // (FinalizeBudgetSec). If it still hasn't reported by then, don't just
+        // fail: SelfMuxRecover first looks for the muxer's own output on disk,
+        // and only muxes the finished silent video + wav itself (ffmpeg is
+        // bundled) when that output is missing or dead — so one video WITH
+        // sound is still delivered either way.
+        float finalizeTimeout = WatchdogBudgetSec();
         float elapsed = 0f;
         while (!finished && !finalizing && elapsed < finalizeTimeout)
         {
@@ -297,13 +313,84 @@ public class RecordingSession : MonoBehaviour
         }
         if (finished || finalizing) yield break;
 
-        Debug.LogWarning("[RecordingSession] No completion event after " + finalizeTimeout +
-                         "s — attempting manual audio/video mux fallback.");
+        Debug.LogWarning("[RecordingSession] No completion event after " + finalizeTimeout.ToString("0") +
+                         "s (take " + recordedSeconds.ToString("0") + "s, capture status " +
+                         (capture != null ? capture.status.ToString() : "n/a") +
+                         ") — checking the muxer's output before falling back.");
         yield return SelfMuxRecover();
+    }
+
+    // -----------------------------------------------------------------------
+    // Finalize budgets
+    // -----------------------------------------------------------------------
+    //
+    // Evereal's muxer and the ffmpeg fallback both work through the whole take,
+    // so the time they legitimately need grows with the recording, and a fixed
+    // constant is always wrong at some length: the old 60 s watchdog + 180 s
+    // ffmpeg cap declared a perfectly healthy 7:39 take lost (2026-09-10).
+    //
+    // Sized against that take (1920x1080 @ 8 Mbps, 453 MB of video): Evereal's
+    // muxer — a stream copy — delivered its file about 6 minutes after capture
+    // stopped, ~0.8x the take's length, while a fallback ffmpeg was competing
+    // for the same disk; that fallback managed 293 MB in the 180 s it was
+    // allowed, i.e. ~1.5 MB/s each. 90 s per recorded minute is roughly twice
+    // that pace. The floor is the old ffmpeg cap, so nothing gets shorter, and
+    // covers short takes where fixed costs dominate. None of this is a hard
+    // cut-off for a muxer that is visibly still writing (WaitForRealMuxerOutput
+    // keeps waiting while its file grows) — it is when we start looking.
+    const float FinalizeBudgetFloorSec     = 180f;
+    const float FinalizeBudgetPerMinuteSec = 90f;
+
+    // An `-i` probe only reads a header; a long cap would just delay a
+    // genuine failure.
+    const float FfmpegProbeTimeoutSec = 60f;
+
+    // Test hooks — unset in production. They shrink the budgets so the race
+    // between the watchdog, the fallback and Evereal's muxer can be forced on
+    // any take without a rebuild.
+    const string FinalizeBudgetEnv = "AUTOAVATARGEN_FINALIZE_BUDGET_SEC";
+    const string MuxTimeoutEnv     = "AUTOAVATARGEN_FFMPEG_MUX_TIMEOUT_SEC";
+    const string RealMuxGraceEnv   = "AUTOAVATARGEN_REALMUX_GRACE_SEC";
+
+    static float FinalizeBudgetSec(float recordedSec)
+        => FinalizeBudgetFloorSec + FinalizeBudgetPerMinuteSec * Mathf.Max(0f, recordedSec) / 60f;
+
+    // How long the watchdog gives Evereal's muxer before looking for itself.
+    float WatchdogBudgetSec() => EnvSecondsOr(FinalizeBudgetEnv, FinalizeBudgetSec(recordedSeconds));
+
+    // How long one ffmpeg mux (the fallback, or the orphan-wav re-attach on
+    // the normal path) may run before RunFfmpeg kills it.
+    float MuxTimeoutSec() => EnvSecondsOr(MuxTimeoutEnv, FinalizeBudgetSec(recordedSeconds));
+
+    // How long a check waits for Evereal's output file to appear at all.
+    float RealMuxGraceSec() => EnvSecondsOr(RealMuxGraceEnv, RealMuxAppearGraceSec, allowZero: true);
+
+    static float EnvSecondsOr(string name, float computed, bool allowZero = false)
+    {
+        string raw = null;
+        try { raw = Environment.GetEnvironmentVariable(name); } catch { }
+        if (string.IsNullOrWhiteSpace(raw)) return computed;
+        if (!float.TryParse(raw, System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out float s) ||
+            s < 0f || (s == 0f && !allowZero))
+        {
+            Debug.LogWarning($"[RecordingSession] Ignoring {name}='{raw}' (not a valid number of seconds).");
+            return computed;
+        }
+        Debug.LogWarning($"[RecordingSession] {name}={s:0.##} overrides the computed {computed:0}s (test hook).");
+        return s;
     }
 
     // Last-resort finalization when Evereal never raises OnComplete: combine
     // the snapshotted video + wav into the intended final file ourselves.
+    //
+    // Getting here does NOT prove the muxer is dead. Evereal's muxer writes
+    // straight into pendingFinalVideoPath and on a long 1080p take legitimately
+    // runs for minutes; and once we unsubscribe below, a successful mux can no
+    // longer be observed through its event. So the file on disk is consulted
+    // at every step — before starting a competing ffmpeg, after the fallback
+    // fails, and after it succeeds — and a take that completes is reported as
+    // completed, whichever muxer delivered it.
     IEnumerator SelfMuxRecover()
     {
         muxRecoveryStarted = true;
@@ -311,12 +398,29 @@ public class RecordingSession : MonoBehaviour
         // over the same files.
         UnsubscribeFromCapture();
 
-        // If Evereal's muxer actually finished and only the completion event
-        // got lost, the final file on disk is the source of truth.
-        if (!string.IsNullOrEmpty(pendingFinalVideoPath) && File.Exists(pendingFinalVideoPath))
+        // How long a wait for Evereal's output may run. Deliberately NOT the
+        // (hookable) ffmpeg cap: a killed fallback must never "prove" the real
+        // muxer dead while its file is visibly still growing.
+        float waitBudget = FinalizeBudgetSec(recordedSeconds);
+        float muxCap     = MuxTimeoutSec();
+        var real = new RealMuxOutput();
+
+        // If Evereal's muxer finished and only the completion event got lost,
+        // its file is complete. If it is still writing, the file keeps growing
+        // and we wait for it rather than launch a second ffmpeg over the same
+        // inputs. Only a missing or dead output goes on to the fallback.
+        yield return WaitForRealMuxerOutput(waitBudget, RealMuxGraceSec(), real);
+        if (real.complete)
         {
-            FinishRecovery(true, pendingFinalVideoPath, null);
+            Debug.Log("[RecordingSession] The real muxer delivered '" + Path.GetFileName(real.path) +
+                      "' (its completion event never arrived) — using it.");
+            yield return AdoptRealMuxerOutput(real.path);
             yield break;
+        }
+        if (real.exists)
+        {
+            Debug.LogWarning("[RecordingSession] '" + Path.GetFileName(real.path) + "' exists but is not a " +
+                             "readable video and has stopped growing — treating the real muxer as dead.");
         }
 
         string video = pendingVideoTempPath;
@@ -329,16 +433,7 @@ public class RecordingSession : MonoBehaviour
 
         // The encoder thread may still be flushing — wait until the file size
         // is stable across two consecutive checks (capped at 30s).
-        long lastSize = -1;
-        for (float waited = 0f; waited < 30f; waited += 1f)
-        {
-            long size;
-            try { size = new FileInfo(video).Length; }
-            catch { size = -1; }
-            if (size > 0 && size == lastSize) break;
-            lastSize = size;
-            yield return new WaitForSecondsRealtime(1f);
-        }
+        yield return WaitForFileSizeToSettle(video, 30f, 1, new FileSettleResult());
 
         string wav = (!string.IsNullOrEmpty(pendingWavPath) && File.Exists(pendingWavPath))
             ? pendingWavPath
@@ -347,8 +442,28 @@ public class RecordingSession : MonoBehaviour
 
         if (wav == null)
         {
-            // No separate audio file — GPU-native paths bake audio straight
-            // into the video. Just give the file its intended final name.
+            // No separate audio file. On GPU-native paths that is normal —
+            // the audio is baked straight into the video — but Evereal's
+            // muxer also deletes its wav when it GIVES UP, and renaming that
+            // silent video to the final name would report a take with no
+            // sound as saved. So when audio was being captured, the video
+            // must actually carry it.
+            if (capture != null && capture.captureAudio)
+            {
+                string ffmpegProbePath = GetBundledFfmpegPath();
+                ProcResult silentProbe = new ProcResult();
+                if (!string.IsNullOrEmpty(ffmpegProbePath) && File.Exists(ffmpegProbePath))
+                    yield return RunFfmpeg(ffmpegProbePath, $"-hide_banner -i \"{video}\"", silentProbe, FfmpegProbeTimeoutSec);
+                if (silentProbe.started && silentProbe.stderr != null && !silentProbe.stderr.Contains("Audio:"))
+                {
+                    FinishRecovery(false, null,
+                        "Recording produced a silent video and its audio file is gone — the muxer " +
+                        $"never delivered a file with sound. Video kept: '{video}'.");
+                    yield break;
+                }
+            }
+
+            // Just give the file its intended final name.
             string dest = finalPath;
             try
             {
@@ -379,7 +494,7 @@ public class RecordingSession : MonoBehaviour
         // audio in directly), the wav we found is stale or belongs to another
         // take — muxing it in would REPLACE the correct audio. Rename only.
         ProcResult probe = new ProcResult();
-        yield return RunFfmpeg(ffmpegPath, $"-hide_banner -i \"{video}\"", probe);
+        yield return RunFfmpeg(ffmpegPath, $"-hide_banner -i \"{video}\"", probe, FfmpegProbeTimeoutSec);
         if (probe.started && probe.stderr != null && probe.stderr.Contains("Audio:"))
         {
             Debug.Log("[RecordingSession] Video already has an audio stream — renaming only.");
@@ -401,6 +516,18 @@ public class RecordingSession : MonoBehaviour
             yield break;
         }
 
+        // Evereal's muxer starts the moment the encoder flush ends, which may
+        // have been during the waits above — look once more before competing
+        // with it over the same source files.
+        yield return WaitForRealMuxerOutput(waitBudget, RealMuxGraceSec(), real);
+        if (real.complete)
+        {
+            Debug.Log("[RecordingSession] The real muxer delivered '" + Path.GetFileName(real.path) +
+                      "' while the fallback was preparing — using it.");
+            yield return AdoptRealMuxerOutput(real.path);
+            yield break;
+        }
+
         string muxedTemp = finalPath + ".muxing.mp4";
         try { if (File.Exists(muxedTemp)) File.Delete(muxedTemp); }
         catch (Exception e)
@@ -414,16 +541,50 @@ public class RecordingSession : MonoBehaviour
             "-map 0:v:0 -map 1:a:0 -c:v copy -c:a aac -shortest \"{2}\"",
             video, wav, muxedTemp);
         Debug.Log($"[RecordingSession] Mux fallback: '{Path.GetFileName(video)}' + " +
-                  $"'{Path.GetFileName(wav)}' -> '{Path.GetFileName(finalPath)}'.");
+                  $"'{Path.GetFileName(wav)}' -> '{Path.GetFileName(finalPath)}' " +
+                  $"(up to {muxCap:0}s).");
 
         ProcResult mux = new ProcResult();
-        yield return RunFfmpeg(ffmpegPath, ffArgs, mux);
+        yield return RunFfmpeg(ffmpegPath, ffArgs, mux, muxCap);
         if (!mux.started || mux.exitCode != 0 || !File.Exists(muxedTemp))
         {
-            try { if (File.Exists(muxedTemp)) File.Delete(muxedTemp); } catch { }
+            // A killed ffmpeg can hold its output open for a moment longer.
+            yield return DeleteFileWithRetry(muxedTemp);
+
+            // Evereal may have finished while the fallback was running — we
+            // stopped listening for its event above, so the file on disk is
+            // the only signal.
+            yield return WaitForRealMuxerOutput(waitBudget, RealMuxGraceSec(), real);
+            if (real.complete)
+            {
+                Debug.LogWarning("[RecordingSession] Fallback mux failed, but the real muxer " +
+                                 "delivered '" + Path.GetFileName(real.path) + "' — using it.");
+                yield return AdoptRealMuxerOutput(real.path);
+                yield break;
+            }
+
+            string why = mux.timedOut
+                ? $"timed out — ffmpeg was killed after {mux.timeoutSec:0}s without finishing; " +
+                  "this is a timeout, not an ffmpeg error"
+                : !mux.started
+                    ? "ffmpeg could not be started"
+                    : $"ffmpeg exit {mux.exitCode}";
             FinishRecovery(false, null,
-                $"Mux fallback failed (ffmpeg exit {mux.exitCode}). stderr: {mux.stderr} " +
+                $"Mux fallback failed ({why}). stderr: {mux.stderr} " +
                 $"Files kept: video '{video}', audio '{wav}'.");
+            yield break;
+        }
+
+        // The fallback produced a file. If Evereal has meanwhile delivered its
+        // own, that one wins: it is the same take, and deleting a file a
+        // still-running muxer holds open would fail anyway.
+        yield return WaitForRealMuxerOutput(waitBudget, RealMuxGraceSec(), real);
+        if (real.complete)
+        {
+            Debug.Log("[RecordingSession] Fallback mux succeeded, but the real muxer also delivered '" +
+                      Path.GetFileName(real.path) + "' — using the real muxer's file.");
+            yield return DeleteFileWithRetry(muxedTemp);
+            yield return AdoptRealMuxerOutput(real.path);
             yield break;
         }
 
@@ -448,6 +609,195 @@ public class RecordingSession : MonoBehaviour
         yield return DeleteFileWithRetry(wav);
 
         FinishRecovery(true, finalPath, null);
+    }
+
+    // -----------------------------------------------------------------------
+    // Watching Evereal's own output
+    // -----------------------------------------------------------------------
+    //
+    // Evereal's muxer writes straight into the final path, so its file exists
+    // and grows for as long as it works, and the moov atom that makes an mp4
+    // readable is written last. The file is accepted as the take once it has
+    // stopped growing AND the bundled ffmpeg reads a video and an audio stream
+    // from it — a half-written file fails that probe ("moov atom not found").
+    // One that stops growing but never becomes readable is a dead partial (the
+    // muxer died mid-write): after RealMuxDeadQuietSec of that it is given up
+    // on, and the size it died at is remembered so later checks don't wait
+    // for it again.
+    const int   RealMuxQuietChecks    = 3;    // seconds without growth before probing
+    const float RealMuxDeadQuietSec   = 90f;  // no growth and unreadable this long = dead
+    const float RealMuxAppearGraceSec = 15f;  // a muxer just handed the video creates
+                                              // its file within a couple of seconds
+    const float EncoderQuietSec       = 10f;  // temp video not growing this long while the
+                                              // status is still STOPPED = encoder parked
+
+    class RealMuxOutput
+    {
+        public string path;          // pendingFinalVideoPath at the time of the check
+        public bool   complete;      // stopped growing AND readable — this is the take
+        public bool   exists;
+        public long   size = -1;
+        public long   deadSize = -1; // size at which it was judged a dead partial
+    }
+
+    IEnumerator WaitForRealMuxerOutput(float maxWaitSec, float appearGraceSec, RealMuxOutput r)
+    {
+        r.path = pendingFinalVideoPath;
+        r.complete = false;
+        r.exists = false;
+        r.size = -1;
+        if (string.IsNullOrEmpty(r.path)) yield break;
+
+        // Not there (yet)? While the encoder is still writing the temp video
+        // (capture status STOPPED, temp still growing) the muxer has not even
+        // been handed the file, so its output cannot exist — keep waiting.
+        // Once the encoder is done, Evereal creates its output within a
+        // couple of seconds; allow appearGraceSec for that, then stop looking.
+        float waited = 0f, graceUsed = 0f, tempQuiet = 0f;
+        long  lastTemp = long.MinValue;
+        while (MeasureFileSize(r.path) < 0)
+        {
+            if (waited >= maxWaitSec) yield break;
+            bool encoderWriting = false;
+            if (capture != null && capture.status == CaptureStatus.STOPPED &&
+                !string.IsNullOrEmpty(pendingVideoTempPath))
+            {
+                long tempSize = MeasureFileSize(pendingVideoTempPath);
+                if (tempSize != lastTemp) { lastTemp = tempSize; tempQuiet = 0f; }
+                else tempQuiet += 1f;
+                encoderWriting = tempQuiet < EncoderQuietSec;
+            }
+            if (!encoderWriting)
+            {
+                if (graceUsed >= appearGraceSec) yield break;
+                graceUsed += 1f;
+            }
+            yield return new WaitForSecondsRealtime(1f);
+            waited += 1f;
+        }
+        r.exists = true;
+
+        string ffmpegPath = GetBundledFfmpegPath();
+        bool canProbe = !string.IsNullOrEmpty(ffmpegPath) && File.Exists(ffmpegPath);
+        var settle = new FileSettleResult();
+        long  unreadableSize = -1;
+        float unreadableFor  = 0f;
+        while (waited < maxWaitSec)
+        {
+            yield return WaitForFileSizeToSettle(r.path, maxWaitSec - waited, RealMuxQuietChecks, settle);
+            waited += settle.waitedSec;
+            r.size = settle.size;
+            if (settle.size < 0) { r.exists = false; yield break; }   // vanished
+            if (!settle.settled) yield break;                         // still growing when the budget ran out
+            if (settle.size == r.deadSize) yield break;               // already judged dead at this size
+
+            if (settle.size != unreadableSize)
+            {
+                // Quiet at a new size — is it a finished video now?
+                if (!canProbe)
+                {
+                    // Nothing to validate with; a settled file is the best
+                    // signal there is (and without ffmpeg no fallback is
+                    // possible anyway).
+                    r.complete = true;
+                    yield break;
+                }
+                ProcResult probe = new ProcResult();
+                yield return RunFfmpeg(ffmpegPath, $"-hide_banner -i \"{r.path}\"", probe, FfmpegProbeTimeoutSec);
+                if (probe.started && probe.stderr != null &&
+                    probe.stderr.Contains("Video:") && probe.stderr.Contains("Audio:"))
+                {
+                    r.complete = true;
+                    yield break;
+                }
+                unreadableSize = settle.size;
+                unreadableFor  = 0f;
+                continue;
+            }
+
+            // Quiet and still unreadable: either the writer paused, or it died.
+            unreadableFor += settle.waitedSec;
+            if (unreadableFor >= RealMuxDeadQuietSec)
+            {
+                r.deadSize = settle.size;
+                yield break;
+            }
+        }
+    }
+
+    // The real muxer's file is the take. Its inputs — the silent temp video and
+    // the wav — are normally deleted by Evereal's own muxer thread moments
+    // after it finishes, but an automation run quits the app as soon as the
+    // result lands and can cut that short, so finish the cleanup here. Never
+    // fails the take.
+    IEnumerator AdoptRealMuxerOutput(string path)
+    {
+        // Let Evereal's thread do its own cleanup first, so two deleters don't
+        // race on the same file (File.Delete on a missing file is a no-op).
+        yield return new WaitForSecondsRealtime(2f);
+        foreach (string input in new[] { pendingVideoTempPath, pendingWavPath })
+        {
+            if (string.IsNullOrEmpty(input)) continue;
+            if (string.Equals(input, path, StringComparison.OrdinalIgnoreCase)) continue;
+            yield return DeleteFileWithRetry(input);
+        }
+        FinishRecovery(true, path, null);
+    }
+
+    class FileSettleResult
+    {
+        public bool  settled;    // size stayed the same for the requested checks
+        public long  size = -1;  // last measured size, -1 if the file is missing
+        public float waitedSec;  // seconds spent in this call
+    }
+
+    // Polls a file once per second until its size has stayed the same for
+    // `stableChecks` consecutive polls (the writer has stopped), or
+    // `maxWaitSec` passes. Returns at once if the file is missing.
+    IEnumerator WaitForFileSizeToSettle(string path, float maxWaitSec, int stableChecks, FileSettleResult result)
+    {
+        result.settled = false;
+        result.waitedSec = 0f;
+        long lastSize = -1;
+        int stable = 0;
+        while (true)
+        {
+            long size = MeasureFileSize(path);
+            result.size = size;
+            if (size < 0) yield break;
+            if (size > 0 && size == lastSize)
+            {
+                if (++stable >= stableChecks) { result.settled = true; yield break; }
+            }
+            else
+            {
+                stable = 0;
+            }
+            lastSize = size;
+            if (result.waitedSec >= maxWaitSec) yield break;
+            yield return new WaitForSecondsRealtime(1f);
+            result.waitedSec += 1f;
+        }
+    }
+
+    // Length of a file another process may still be writing, or -1 if it
+    // doesn't exist. Reading it through an open handle reports the live size
+    // even where the directory entry lags behind the writer.
+    static long MeasureFileSize(string path)
+    {
+        try
+        {
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read,
+                                           FileShare.ReadWrite | FileShare.Delete))
+                return fs.Length;
+        }
+        catch (FileNotFoundException) { return -1; }
+        catch (DirectoryNotFoundException) { return -1; }
+        catch
+        {
+            try { return File.Exists(path) ? new FileInfo(path).Length : -1; }
+            catch { return -1; }
+        }
     }
 
     void FinishRecovery(bool ok, string savePath, string error)
@@ -893,7 +1243,7 @@ public class RecordingSession : MonoBehaviour
         // sound and the leftover wav is just the muxer thread's cleanup still
         // in flight — re-muxing would race that deletion for no benefit.
         ProcResult probe = new ProcResult();
-        yield return RunFfmpeg(ffmpegPath, $"-hide_banner -i \"{videoPath}\"", probe);
+        yield return RunFfmpeg(ffmpegPath, $"-hide_banner -i \"{videoPath}\"", probe, FfmpegProbeTimeoutSec);
         if (probe.started && probe.stderr != null && probe.stderr.Contains("Audio:"))
         {
             Debug.Log("[RecordingSession] Video already has an audio stream — no re-mux needed.");
@@ -920,11 +1270,14 @@ public class RecordingSession : MonoBehaviour
                   $"'{Path.GetFileName(orphanWav)}' into one file.");
 
         ProcResult mux = new ProcResult();
-        yield return RunFfmpeg(ffmpegPath, ffArgs, mux);
+        yield return RunFfmpeg(ffmpegPath, ffArgs, mux, MuxTimeoutSec());
 
         if (!mux.started || mux.exitCode != 0 || !File.Exists(muxedTemp))
         {
-            Debug.LogError($"[RecordingSession] ffmpeg mux failed (exit {mux.exitCode}). stderr: {mux.stderr}");
+            string why = mux.timedOut
+                ? $"timed out after {mux.timeoutSec:0}s — ffmpeg was killed; a timeout, not an ffmpeg error"
+                : $"exit {mux.exitCode}";
+            Debug.LogError($"[RecordingSession] ffmpeg mux failed ({why}). stderr: {mux.stderr}");
             try { if (File.Exists(muxedTemp)) File.Delete(muxedTemp); } catch { }
             yield break;
         }
@@ -954,10 +1307,19 @@ public class RecordingSession : MonoBehaviour
         public bool started;
         public int exitCode = -1;
         public string stderr = "";
+        // Set when RunFfmpeg killed the process at its cap. exitCode stays -1
+        // then, so callers must look here first: a timeout is not an ffmpeg
+        // error and must never be reported as one.
+        public bool timedOut;
+        public float timeoutSec;
     }
 
-    IEnumerator RunFfmpeg(string ffmpegPath, string args, ProcResult result)
+    // Runs ffmpeg and waits for it, killing it after `timeoutSec` (see
+    // FfmpegProbeTimeoutSec for probes and MuxTimeoutSec() for muxes — a mux
+    // works through the whole take, a probe only reads a header).
+    IEnumerator RunFfmpeg(string ffmpegPath, string args, ProcResult result, float timeoutSec)
     {
+        result.timeoutSec = timeoutSec;
         Diag.Process process;
         System.Threading.Tasks.Task<string> stderrTask;
         try
@@ -984,14 +1346,16 @@ public class RecordingSession : MonoBehaviour
         }
 
         float waited = 0f;
-        while (!process.HasExited && waited < 180f)
+        while (!process.HasExited && waited < timeoutSec)
         {
             waited += Time.unscaledDeltaTime;
             yield return null;
         }
         if (!process.HasExited)
         {
-            Debug.LogError("[RecordingSession] ffmpeg did not finish within 180s — killing it.");
+            result.timedOut = true;
+            Debug.LogError($"[RecordingSession] ffmpeg did not finish within {timeoutSec:0}s — killing it. " +
+                           "(This is a timeout, not an ffmpeg error.)");
             try { process.Kill(); } catch { }
             process.Dispose();
             yield break;

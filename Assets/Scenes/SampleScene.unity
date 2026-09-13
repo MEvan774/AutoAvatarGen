@@ -383,8 +383,6 @@ MonoBehaviour:
     sprite: {fileID: 21300000, guid: 26e970b545bc6b84ea7b3fbc761710b9, type: 3}
   - emotionName: Concerned
     sprite: {fileID: 21300000, guid: 4dcefbf14e21a6145a21c92b02c29119, type: 3}
-  - emotionName: Disgusted
-    sprite: {fileID: 21300000, guid: 4236799967a81f84d81c81f04c8753c1, type: 3}
   - emotionName: EyebrowRaised
     sprite: {fileID: 21300000, guid: 05026ae2efc6a00439542e68d793546c, type: 3}
   - emotionName: Frowned
@@ -1321,6 +1319,7 @@ MonoBehaviour:
   frameRate: 30
   maxCaptureWarmupSeconds: 2
   bitrateKbps: 8000
+  captureAntiAliasing: 3
   gpuEncoding: 1
   nvidiaEncoding: 0
   horizontalFlip: 0
