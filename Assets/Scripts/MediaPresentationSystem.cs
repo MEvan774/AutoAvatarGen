@@ -75,7 +75,9 @@ public class MediaPresentationSystem : MonoBehaviour
     [Header("Camera Zoom")]
     [Tooltip("Main camera — used for zoom in/out.")]
     public Camera mainCamera;
-    float zoomDuration = 0.6f;
+    [Tooltip("Length of the eased glide for {Zoom:In} / {Zoom:Out} and the auto-reset. " +
+             "Ignored by ,Cut / Reset / Pullback / ExtremeIn / ExtremeOut, which snap.")]
+    public float zoomDuration = 0.7f;
     [Tooltip("How much to zoom in (1.12 = 112% zoom, blueprint says 110-115%).")]
     [Range(1.01f, 1.25f)]
     public float zoomInMultiplier = 1.12f;
@@ -1116,21 +1118,25 @@ public class MediaPresentationSystem : MonoBehaviour
         pendingResetCoroutine = null;
     }
 
-    // Snappy ease-out glide shared by every animated zoom (In, Out and the
-    // auto-reset): the camera starts moving at full speed and decelerates into
-    // the target, so the push reads as one deliberate motion. (This replaced
-    // the card-entry overshoot curve, which packed ~95% of the travel into the
-    // first sixth of the timeline and read as a jump cut on camera.)
+    // Ease-in-out glide shared by every animated zoom (In, Out and the
+    // auto-reset): the camera accelerates gently out of its current framing
+    // and decelerates into the target, so the push reads as one slow,
+    // deliberate motion. (The earlier ease-out cubic put half the travel in
+    // the first fifth of the timeline and still read as a snap on camera; the
+    // card-entry overshoot curve before it was worse.)
     IEnumerator AnimateZoom(float targetSize)
     {
         float startSize = mainCamera.orthographicSize;
         float elapsed = 0f;
 
-        while (elapsed < zoomDuration)
+        float duration = Mathf.Max(0.0001f, zoomDuration);
+        while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
-            float p = Mathf.Clamp01(elapsed / zoomDuration);
-            float t = 1f - Mathf.Pow(1f - p, 3f);   // ease-out cubic
+            float p = Mathf.Clamp01(elapsed / duration);
+            float t = p < 0.5f                       // ease-in-out cubic
+                ? 4f * p * p * p
+                : 1f - Mathf.Pow(-2f * p + 2f, 3f) / 2f;
             mainCamera.orthographicSize = Mathf.Lerp(startSize, targetSize, t);
             yield return null;
         }

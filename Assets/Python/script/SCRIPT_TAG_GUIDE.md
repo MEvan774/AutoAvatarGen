@@ -141,6 +141,7 @@ Moves the character. `Left` / `Right` / `Center`.
 
 ### Camera zoom — `{Zoom:Type}` `[,Cut]` `[,D=seconds]`
 `In` (push in for focus/intensity), `Out` (pull back), `Reset` (instant snap to default), `Pullback` (snap wide, drift wider, jump back), `ExtremeIn`/`ExtremeOut` (hard close-up on the punchline — see below).
+- `In` and `Out` are **slow eased glides (~0.7 s, ease-in-out)**, not snaps — the camera settles about a second after the word the tag sits on. Add `,Cut` when you want the snap.
 - `,Cut` = snap instead of animating (ignored by `Reset`/`Pullback`/`ExtremeIn`/`ExtremeOut`).
 - `,D=seconds` = for `In`, auto-reset after that long; for `Pullback`, the drift length.
 ```
