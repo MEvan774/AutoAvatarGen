@@ -1,0 +1,30 @@
+## NO ARROW
+{Timestamp:"No Arrow"}
+{Position:Right,Cut} {Neutral}
+[dry] First card. No keyword, and a hyphen in the context line. This used to get a red down arrow.
+{Stat:"12%","Market Share","year-over-year, 2019-2024",4}
+[flat] Now it should be a plain number. No arrow at all.
+{Stat:"8","Airlines Asked","answers due in August",4,NoArrow}
+[deadpan] Same again, but this time the script says no arrow out loud.
+
+## WIN AND LOSS
+{Timestamp:"Win And Loss"}
+{Transition:Wipe} {Position:Right} {Excited}
+[upbeat] Now a win. Green arrow, pointing up, green number.
+{Stat:"+40%","Revenue Growth","vs the same quarter last year",4,Win}
+[dry] And a loss. Red arrow, pointing down. Note the minus sign is gone from the text, the keyword does the work.
+{Stat:"$13B","Annual Losses","a widening deficit",4,Loss}
+[flat] Good. Now the same thing on the other side of the screen.
+
+## SIDES AND HOLDS
+{Timestamp:"Sides And Holds"}
+{Transition:Iris} {Position:Left} {Serious}
+[serious] This loss card sits on the right, with the arrow keyword first and the side last.
+{Stat:"71 hours","Total Downtime","planned for four",4,Loss,Right}
+[dry] This one swaps the order, side first, then the arrow. It should still work.
+{Stat:"3x","Signups After Launch","compared with the week before",4,Right,Win}
+[flat] Last one. A held win card that stays up until I stop talking about it.
+{Stat:"99.9%","Uptime This Year","best result so far",Start,Win,Right}
+[deadpan] Still here. Still green. Still pointing up.
+{Stat:End}
+[dry] And gone. That's the test.

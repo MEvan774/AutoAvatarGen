@@ -6,12 +6,14 @@ using System.Text.RegularExpressions;
 
 /// <summary>
 /// Displays a large statistic number with a prominent win/loss arrow and color coding.
-/// Tag: {Stat:"number","label","context",duration}
+/// Tag: {Stat:"number","label","context",duration[,Win|,Loss|,NoArrow][,Left|,Right]}
 ///
-/// Direction is inferred from the context string:
-///   - Contains "↑" or "+" → big green upward triangle + green number
-///   - Contains "↓" or "-" → big red downward triangle + red number
-///   - Otherwise           → no arrow, number in default orange accent
+/// The arrow is chosen by the tag's keyword (ContentCardEvent.statArrow):
+///   - Win               → big green upward arrow + green number
+///   - Loss              → big red downward arrow + red number
+///   - NoArrow / omitted → no arrow
+/// It is never inferred from the text — a "-" in the context ("year-over-year",
+/// "2019-2024") used to read as a loss and put a down arrow on neutral stats.
 /// </summary>
 public class StatCard : ContentCard
 {
@@ -109,16 +111,16 @@ public class StatCard : ContentCard
         rawNumber = data.primaryText;
         ParseNumericValue(rawNumber);
 
-        Direction dir = DetectDirection(data.tertiaryText);
+        StatArrow dir = data.statArrow;
         Color directionColor = GetDirectionColor(dir);
 
         // Configure the arrow graphic
-        if (showDirectionArrow && dir != Direction.None)
+        if (showDirectionArrow && dir != StatArrow.None)
         {
             arrow.gameObject.SetActive(true);
             arrow.color = directionColor;
             // Sprite is drawn as down-pointing; flip Y for up-pointing
-            arrowRect.localScale = (dir == Direction.Up)
+            arrowRect.localScale = (dir == StatArrow.Win)
                 ? new Vector3(1f, -1f, 1f)
                 : Vector3.one;
 
@@ -270,24 +272,12 @@ public class StatCard : ContentCard
         return value.ToString("F1");
     }
 
-    private enum Direction { None, Up, Down }
-
-    private Direction DetectDirection(string context)
-    {
-        if (string.IsNullOrEmpty(context)) return Direction.None;
-        if (context.Contains("\u2191") || context.Contains("\u25B2") || context.Contains("+"))
-            return Direction.Up;
-        if (context.Contains("\u2193") || context.Contains("\u25BC") || context.Contains("-"))
-            return Direction.Down;
-        return Direction.None;
-    }
-
-    private Color GetDirectionColor(Direction dir)
+    private Color GetDirectionColor(StatArrow dir)
     {
         switch (dir)
         {
-            case Direction.Up:   return ContentCardUIBuilder.PositiveGreen;
-            case Direction.Down: return ContentCardUIBuilder.NegativeRed;
+            case StatArrow.Win:  return ContentCardUIBuilder.PositiveGreen;
+            case StatArrow.Loss: return ContentCardUIBuilder.NegativeRed;
             default:             return ContentCardUIBuilder.NegativeRed;
         }
     }

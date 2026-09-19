@@ -113,7 +113,7 @@ _ALL_MARKERS = re.compile(
        r'|\{Headline:"[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Left|Right))?\}'  # headline cards (+optional bigCenter / side)
        r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'   # excerpt cards (+optional side)
        r'|\{Quote:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'     # quote cards (+optional side)
-       r'|\{Stat:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'      # stat cards (+optional side)
+       r'|\{Stat:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Win|Loss|NoArrow|Left|Right)){0,2}\}'  # stat cards (+optional arrow keyword and/or side, either order)
        r'|\{Logo:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
        r'|\{BRoll:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
        r'|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End\}'                         # held pair closing edge ({Tag:...,Start}…{Tag:End})
@@ -621,13 +621,16 @@ def _stamp_marker(marker: str, t: float) -> str:
     # Content cards: Headline / Excerpt / Quote / Stat
     # Preserve an optional trailing modifier after D= — ",bigCenter" (Headline →
     # centered feature card) or ",Left"/",Right" (the side a side card flies in
-    # from) — so the runtime parser still sees it. "Start" in the duration slot
+    # from) — so the runtime parser still sees it. Stat may carry an arrow
+    # keyword (",Win"/",Loss"/",NoArrow") AND a side, so the whole modifier tail
+    # (up to two, commas included) is kept verbatim. "Start" in the duration slot
     # is the held pair form ({Quote:...,Start}…{Quote:End}) and stamps D=0 —
     # the same persistent marker the duration-less BigText flow uses.
-    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?|Start)(?:,\s*(bigCenter|Left|Right))?$',
+    # Lockstep with TtsScriptProcessor.cs.
+    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right)){0,2})$',
                       inner, re.DOTALL)
     if m_card:
-        suffix = f",{m_card.group(4)}" if m_card.group(4) else ''
+        suffix = m_card.group(4)
         dur = '0' if m_card.group(3) == 'Start' else m_card.group(3)
         return f"{{{m_card.group(1)}:{m_card.group(2)},{ts},D={dur}{suffix}}}"
 

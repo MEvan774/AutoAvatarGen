@@ -15,6 +15,16 @@ public enum ContentCardType
     BigImage
 }
 
+// The Stat card's win/loss arrow, chosen by an optional ",Win" / ",Loss" /
+// ",NoArrow" keyword after the tag's duration. None is also what a tag with no
+// keyword gets — the arrow is never guessed from the card's text.
+public enum StatArrow
+{
+    None,
+    Win,
+    Loss
+}
+
 [System.Serializable]
 public class ContentCardEvent
 {
@@ -42,6 +52,10 @@ public class ContentCardEvent
     // null = no per-tag choice; fall back to the CardEntryAnimator's per-card
     // default (Left) / runtime direction. See ContentCard.SetDirectionOverride.
     public EntryDirection? entryDirectionOverride;
+
+    // Stat only: the arrow picked by the tag's ",Win" / ",Loss" / ",NoArrow"
+    // keyword. Win = green up arrow, Loss = red down arrow, None = no arrow.
+    public StatArrow statArrow;
 
     // The closing edge of a held pair — {BigText:End} for the persistent
     // BigText stack, or {Headline:End}/{Quote:End}/{Logo:End}/… for a side

@@ -25,8 +25,10 @@ public static class ContentZoneTagParser
     // {Black:Start}…{Black:End}; the bare {Tag:End} closing edge is its own
     // alternative below. (The TTS processors stamp a held opener as D=0, so the
     // keyword only reaches this parser in legacy/unstamped scripts.)
+    // Stat may carry an arrow keyword (",Win"/",Loss"/",NoArrow") as well as a
+    // side, in either order — hence up to two trailing modifiers.
     private static readonly Regex StripAllRegex = new Regex(
-        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Left|Right))?\}" +
+        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right)){0,2}\}" +
         @"|\{(?:Logo|BRoll):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
         @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End(?:,T=\d+(?:\.\d+)?)?\}" +
         @"|\{(?:BigMedia|BigImage):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}" +
@@ -49,8 +51,11 @@ public static class ContentZoneTagParser
     private static readonly Regex QuoteRegex = new Regex(
         @"\{Quote:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
 
+    // Stat's last capture group is its whole modifier tail rather than just the
+    // side: an optional arrow keyword (",Win"/",Loss"/",NoArrow") and an optional
+    // side, accepted in either order. ParseStatModifiers splits it.
     private static readonly Regex StatRegex = new Regex(
-        @"\{Stat:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
+        @"\{Stat:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)((?:,\s*(?:Win|Loss|NoArrow|Left|Right)){0,2})\}");
 
     private static readonly Regex LogoRegex = new Regex(
         @"\{Logo:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
@@ -147,6 +152,26 @@ public static class ContentZoneTagParser
         return sideGroup.Value == "Right" ? EntryDirection.FromRight : EntryDirection.FromLeft;
     }
 
+    // Splits a Stat tag's modifier tail (",Win,Right" / ",Left,Loss" / ",NoArrow"
+    // / "") into its arrow and its side. No arrow keyword = no arrow.
+    private static void ParseStatModifiers(string tail, out StatArrow arrow, out EntryDirection? side)
+    {
+        arrow = StatArrow.None;
+        side = null;
+        if (string.IsNullOrEmpty(tail)) return;
+
+        foreach (string raw in tail.Split(','))
+        {
+            switch (raw.Trim())
+            {
+                case "Win":   arrow = StatArrow.Win; break;
+                case "Loss":  arrow = StatArrow.Loss; break;
+                case "Left":  side = EntryDirection.FromLeft; break;
+                case "Right": side = EntryDirection.FromRight; break;
+            }
+        }
+    }
+
     private static void ExtractHeadlines(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
     {
         foreach (Match match in HeadlineRegex.Matches(script))
@@ -211,6 +236,7 @@ public static class ContentZoneTagParser
         foreach (Match match in StatRegex.Matches(script))
         {
             float time = ResolveTriggerTime(script, match.Index, match.Groups[4], audioDuration, totalCleanChars);
+            ParseStatModifiers(match.Groups[6].Value, out StatArrow arrow, out EntryDirection? side);
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
@@ -219,9 +245,10 @@ public static class ContentZoneTagParser
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
                 duration = ParseDuration(match.Groups[5].Value),
-                entryDirectionOverride = ParseSide(match.Groups[6])
+                entryDirectionOverride = side,
+                statArrow = arrow
             });
-            Debug.Log($"  Stat at {time:F2}s: {match.Groups[1].Value}");
+            Debug.Log($"  Stat at {time:F2}s: {match.Groups[1].Value} (arrow: {arrow})");
         }
     }
 

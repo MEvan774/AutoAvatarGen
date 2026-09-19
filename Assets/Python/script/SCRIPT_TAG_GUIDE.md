@@ -27,9 +27,9 @@ Paste this whole file to the model before asking it to write a script, or keep i
 2. **One tag per line, on its own line.** Don't put two tags on one line and don't bury a tag mid-sentence (emotion tags are one exception; the **transition line** is another — a `{Transition:…}` deliberately gathers all of a section's tags onto one line; and **duration-less `{BigText:LINE}`/`{BigText:End}` tags** sit mid-sentence on purpose, on the exact word their line belongs to — see §4).
 3. **Use straight ASCII double quotes `"` only.** Never curly/smart quotes (`“ ”`). Smart quotes break card tags.
 4. **Never put a `"` *inside* a quoted card field.** The field ends at the first `"`. If you need a quote inside quoted text, rephrase or use single quotes `'`. (Commas, periods, em‑dashes `—`, `%`, `$`, `€` inside quotes are fine.)
-5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline) or `,Left`/`,Right` (side cards and the `{Image:}`/`{Video:}` media tags) modifiers. **Two exceptions:** `BigText` may drop the duration to enter its line-by-line mode (`{BigText:LINE}` … `{BigText:End}`, see §4) — then the closing `{BigText:End}` is mandatory instead. And every **side card** (`Headline`/`Excerpt`/`Quote`/`Stat`/`Logo`/`BRoll`) and `{Image:}` may write the keyword **`Start`** in the duration slot to open a **held** card/image, closed with a matching `{Tag:End}` later — see §4 *"Holding a card"*; then that End tag is mandatory instead.
+5. **Every content card, `Logo`, `BRoll`, `BigMedia`, `BigText`, and `BigImage` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline), `,Win`/`,Loss`/`,NoArrow` (Stat's arrow — see §4 *"Stat"*) or `,Left`/`,Right` (side cards and the `{Image:}`/`{Video:}` media tags) modifiers. **Two exceptions:** `BigText` may drop the duration to enter its line-by-line mode (`{BigText:LINE}` … `{BigText:End}`, see §4) — then the closing `{BigText:End}` is mandatory instead. And every **side card** (`Headline`/`Excerpt`/`Quote`/`Stat`/`Logo`/`BRoll`) and `{Image:}` may write the keyword **`Start`** in the duration slot to open a **held** card/image, closed with a matching `{Tag:End}` later — see §4 *"Holding a card"*; then that End tag is mandatory instead.
 6. **Unquoted names (`Logo`, `BRoll`, `BigMedia`, `BigText`, `BigImage`) must not contain commas.** The comma is a delimiter. Use `+` to join multiple items (`BigImage` is a single image — no `+`).
-7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback/ExtremeIn/ExtremeOut`, `Cut`, `Smooth`, `bigCenter`, `Start/End` (held pairs), `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
+7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback/ExtremeIn/ExtremeOut`, `Cut`, `Smooth`, `bigCenter`, `Win/Loss/NoArrow` (Stat arrow), `Start/End` (held pairs), `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
 8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`, `BigImage`) are exempt** — they render in front of everything and appear in any position, including `Center`. (`BigImage` covers only the left 3/4, so it's meant to *share* the screen — stand the presenter on the **right** with `{Position:Right}`; see §4.)
 9. Keep the narration itself natural — it can contain quotes, commas, anything. The rules above apply to **tags only**.
 10. **Never put a space next to the commas or quotes that separate a tag's fields.** The strip regex is exact: `{Quote:"a","b","c",5}` works, but `{Quote:"a", "b", "c", 5}` (spaces after the commas) does **not** — the tag is left in the narration and read aloud. Spaces are only allowed **inside** a quoted value (`"VP of Comms, MegaCorp"`) or inside an unquoted name/description (`{BRoll:server room,4}`). Never around the `,` between fields, and never between `"` and `"`.
@@ -54,7 +54,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 | Headline card ✅ | `{Headline:"headline text","Source",5}` (+ optional `,bigCenter` **or** `,Left`/`,Right`) | yes — or `Start` … `{Headline:End}` |
 | Excerpt card ✅ | `{Excerpt:"full passage","phrase to highlight","Attribution",6}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Excerpt:End}` |
 | Quote card ✅ | `{Quote:"the quote","Person Name","Role / Title",5}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Quote:End}` |
-| Stat card ✅ | `{Stat:"2.3 billion","Label","Context line",5}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Stat:End}` |
+| Stat card ✅ | `{Stat:"2.3 billion","Label","Context line",5}` (+ optional arrow `,Win`/`,Loss`/`,NoArrow`, then optional `,Left`/`,Right`) | yes — or `Start` … `{Stat:End}` |
 | Logo card 🎬 | `{Logo:Google,4}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Logo:End}` |
 | B‑roll card 🎬 | `{BRoll:description,4}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{BRoll:End}` |
 | Big media (fullscreen) 🎬 | `{BigMedia:Google,4}` or `{BigMedia:Google+Brave+X,4}` (≤4) | yes |
@@ -346,11 +346,20 @@ Fields: `"full passage","phrase to highlight","attribution",duration[,Left|,Righ
 ```
 Fields: `"quote","person name","role/title",duration[,Left|,Right]` (note the comma inside `"VP of Communications, MegaCorp"` is fine — it's inside quotes)
 
-**Stat** — a big number with a label and context.
+**Stat** — a big number with a label and context, plus an **optional win/loss arrow** next to the number.
 ```
 {Stat:"2.3 billion","Monthly Active Users","as of Q2 2025",5}
+{Stat:"+40%","Revenue Growth","vs the same quarter last year",5,Win}
+{Stat:"$13B","OpenAI 2024 Losses","a widening deficit",5,Loss,Right}
 ```
-Fields: `"value","label","context",duration[,Left|,Right]`
+Fields: `"value","label","context",duration[,Win|,Loss|,NoArrow][,Left|,Right]`
+
+**Choosing the arrow — optional `,Win` / `,Loss` / `,NoArrow` (right after the duration).** The arrow is **only ever what you write** — it is never guessed from the card's text, so a `-`, `+`, `↑` or `↓` inside a field changes nothing.
+- `,Win` — a big **green arrow pointing up**; the number and context line turn green. Use it when the stat is good news *for the story's subject* (growth, a record, a gain).
+- `,Loss` — a big **red arrow pointing down**; the number and context line turn red. Use it for a drop, a loss, a decline.
+- `,NoArrow` — no arrow. **This is also what you get when you write no keyword at all**, so it's only there for when you want to be explicit.
+- **Leave the arrow off for a neutral number** — a count, a date, a size, a share (`"8","Airlines Asked"`, `"0.3%","Users Who Read Full ToS"`). An arrow claims a direction; don't add one unless the stat actually went up or down.
+- The keyword sits **right after the duration (or `Start`)**; if the card also takes a side, the side stays **last**: `{Stat:"…","…","…",5,Loss,Right}`, `{Stat:"…","…","…",Start,Win}`. Opening tag only — never on `{Stat:End}`. **Stat only** — writing `,Win`/`,Loss` on any other card makes that card silently not appear.
 
 **Logo** 🎬 — a single company logo. `name` must be a **company name configured in the Unity `ContentCardAssets` asset** (case-insensitive), *not* a filename — see *"Media & asset cards"*. Use a name from `MEDIA_LIBRARY.md`. No commas.
 ```
@@ -478,6 +487,7 @@ Notes on the example:
 - [ ] Each `{Transition:…}` is on the first line of its section, with that section's other tags grouped onto the same line.
 - [ ] Every content card is preceded by a `Left` or `Right` position.
 - [ ] Any `,Left`/`,Right` entry-side modifier (side cards, `{Image:}`, `{Video:}`) is the **last** value in the tag (after the duration **or** `Start`), spelled exactly (capitalized), not combined with `,bigCenter`, and never on an `End` tag.
+- [ ] **Every `Stat` arrow is deliberate** — `,Win` (green up) only on a real gain, `,Loss` (red down) only on a real drop, nothing (or `,NoArrow`) on a neutral number. The keyword sits right after the duration/`Start`, before any `,Left`/`,Right`, and appears on `Stat` tags only.
 - [ ] No `T=` written by hand.
 - [ ] One tag per line.
 - [ ] Each `## SECTION` that should be a YouTube chapter has a `{Timestamp:"..."}` on its first line, and the first section's is at the very top (so its chapter is `0:00`).

@@ -84,7 +84,9 @@ namespace MugsTech.Tts
             @"|\{Headline:""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Left|Right))?\}" +
             @"|\{Excerpt:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
             @"|\{Quote:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
-            @"|\{Stat:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+            // Stat also takes an arrow keyword (",Win"/",Loss"/",NoArrow")
+            // beside its side, in either order — up to two modifiers.
+            @"|\{Stat:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Win|Loss|NoArrow|Left|Right)){0,2}\}" +
             @"|\{Logo:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
             @"|\{BRoll:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
             @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End\}" +
@@ -514,16 +516,18 @@ namespace MugsTech.Tts
             // (DOTALL so embedded newlines in quoted text are tolerated). Preserve
             // an optional trailing modifier after D= — ",bigCenter" (Headline →
             // centered feature card) or ",Left"/",Right" (the side a side card
-            // flies in from) — so the runtime parser still sees it. "Start" in
-            // the duration slot is the held pair form
+            // flies in from) — so the runtime parser still sees it. Stat may
+            // carry an arrow keyword (",Win"/",Loss"/",NoArrow") AND a side, so
+            // the whole modifier tail (up to two, commas included) is kept
+            // verbatim. "Start" in the duration slot is the held pair form
             // ({Quote:...,Start}…{Quote:End}) and stamps D=0 — the same
             // persistent marker the duration-less BigText flow uses.
             Match mCard = Regex.Match(innerCurly,
-                @"^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?|Start)(?:,\s*(bigCenter|Left|Right))?$",
+                @"^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right)){0,2})$",
                 RegexOptions.Singleline);
             if (mCard.Success)
             {
-                string suffix = mCard.Groups[4].Success ? "," + mCard.Groups[4].Value : "";
+                string suffix = mCard.Groups[4].Value;
                 string dur = mCard.Groups[3].Value == "Start" ? "0" : mCard.Groups[3].Value;
                 return "{" + mCard.Groups[1].Value + ":" + mCard.Groups[2].Value
                      + "," + ts + ",D=" + dur + suffix + "}";
