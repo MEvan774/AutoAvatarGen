@@ -3,20 +3,23 @@
 generate_media_library.py
 =========================
 
-Inventory the media folders that sit next to this script and write a tag-ready
+Inventory the media folders under the app's media root and write a tag-ready
 ``MEDIA_LIBRARY.md`` for the AutoAvatarGen script-writing AI.
 
 WHAT IT DOES
-    - Looks at every subfolder sitting next to this script.
+    - Looks at the six media subfolders under the root, creating any that are
+      missing (the app does the same when the folder is picked in the menu):
+
+          BRoll/   Images/   CEO/   TwitterPosts/   Flags/   Logos/
+
     - Collects the image / video files Unity can actually load.
-    - Writes ``MEDIA_LIBRARY.md`` right beside itself, listing each file as the
+    - Writes ``MEDIA_LIBRARY.md`` into the root, listing each file as the
       exact NAME you type in a media tag, which tags accept it, and a
       copy-paste example.
 
 WHERE TO PUT IT
-    Drop this script into your external media ROOT -- the folder you point the
-    app's "Media folder" setting at, i.e. the one that contains the
-    ``Images/``, ``Logos/`` and ``BRoll/`` subfolders. Then run it:
+    Drop this script into your external media ROOT -- the one folder you point
+    the app's "Media folder" setting at. Then run it:
 
         python generate_media_library.py
 
@@ -29,10 +32,18 @@ WHY
     SCRIPT_TAG_GUIDE.md so it uses real, existing names instead of placeholders
     like ArticleTemp / VideoTemp.
 
-This mirrors how MediaPresentationSystem.cs resolves names on disk:
-    Images/  and  Logos/   ->  {Image:} / {BigImage:}     (.png .jpg .jpeg)
-    BRoll/                  ->  {Video:}                   (.mp4 .mov .webm .avi)
-Resolution is per-folder and NON-recursive, exactly like the C# side.
+This mirrors how MediaPresentationSystem.cs resolves names on disk. One root,
+six subfolders; a name is looked up in EVERY one of them -- the tag's own kind
+first, then the rest, then the root itself -- so the folder never appears in
+the tag:
+
+    {Image:} / {BigImage:}  ->  Images/ CEO/ TwitterPosts/ Flags/ Logos/,
+                                then BRoll/, then the root      (.png .jpg .jpeg)
+    {Video:}                ->  BRoll/, then the image folders, then the root
+                                                                (.mp4 .mov .webm .avi)
+
+Each folder is searched NON-recursively, exactly like the C# side, so a file
+inside a nested folder is not found.
 """
 
 from __future__ import annotations
@@ -42,56 +53,73 @@ from datetime import datetime
 from pathlib import Path
 
 # --- Config: kept in sync with MediaPresentationSystem.cs --------------------
-# ImageExtensions / VideoExtensions and the {Image:} "Images then Logos" search
-# order. If you change these in the C#, change them here too.
+# ImageExtensions / VideoExtensions, the subfolder names, and the search order
+# (ImageSubfolders / VideoSubfolders there). If you change them in the C#,
+# change them here too.
 IMAGE_EXTS = {".png", ".jpg", ".jpeg"}
 VIDEO_EXTS = {".mp4", ".mov", ".webm", ".avi"}
 IMAGE_EXT_ORDER = [".png", ".jpg", ".jpeg"]      # order Unity tries within a folder
 VIDEO_EXT_ORDER = [".mp4", ".mov", ".webm", ".avi"]
 
 OUTPUT_NAME = "MEDIA_LIBRARY.md"
+ROOT_LABEL = "(root)"          # pseudo-folder name for loose files in the root
+ROOT_RANK = 99                 # the root is always searched last
 
-# The subfolders Unity resolves media names against, in {Image:} search order.
-# rank = tie-break priority when the same bare name exists in more than one
-# image folder (Images is searched before Logos).
+IMAGE_WORKS_WITH = (
+    "`{Image:name}` (shows in the media area, default 3s) · "
+    "`{BigImage:name}` (fullscreen article screenshot covering the "
+    "left ¾ — stand the presenter on the right with `{Position:Right}`)"
+)
+VIDEO_WORKS_WITH = (
+    "`{Video:name}` … `{Video:End}` (silent b-roll under the narration; close it "
+    "with the End tag, or add `,seconds` to cap it)"
+)
+
+LOGO_NOTE = (
+    "The `{Logo:name}` and `{BigMedia:name}` cards resolve names through "
+    "the Unity **ContentCardAssets** asset, NOT this folder — the "
+    "company name there may differ from the file name. Verify those names "
+    "in Unity before using `{Logo:}` / `{BigMedia:}`."
+)
+BROLL_NOTE = (
+    "The `{BRoll:description}` side card resolves through the Unity "
+    "**ContentCardAssets** asset, NOT this folder. Verify it in Unity."
+)
+
+# The subfolders Unity resolves media names against, in search order for
+# their kind. rank = tie-break priority when the same bare name exists in
+# more than one folder of the same kind (lower wins).
 KNOWN_FOLDERS = [
-    {
-        "name": "Images",
-        "kind": "image",
-        "rank": 0,
-        "blurb": "General images / screenshots. Searched FIRST by `{Image:}`.",
-        "works_with": "`{Image:name}` (shows in the media area, default 3s) · "
-                      "`{BigImage:name}` (fullscreen article screenshot covering the "
-                      "left ¾ — stand the presenter on the right with "
-                      "`{Position:Right}`)",
-        "note": None,
-    },
-    {
-        "name": "Logos",
-        "kind": "image",
-        "rank": 1,
-        "blurb": "Company logos. Searched by `{Image:}` AFTER Images.",
-        "works_with": "`{Image:name}` · `{BigImage:name}` (same disk lookup as "
-                      "Images)",
-        "note": "The `{Logo:name}` and `{BigMedia:name}` cards resolve names through "
-                "the Unity **ContentCardAssets** asset, NOT this folder — the "
-                "company name there may differ from the file name. Verify those names "
-                "in Unity before using `{Logo:}` / `{BigMedia:}`.",
-    },
-    {
-        "name": "BRoll",
-        "kind": "video",
-        "rank": 0,
-        "blurb": "Video b-roll clips. Played by `{Video:}` (narration pauses while it plays).",
-        "works_with": "`{Video:name}` (omit the duration to play the whole clip, or "
-                      "add `,seconds` to cap it)",
-        "note": "The `{BRoll:description}` side card resolves through the Unity "
-                "**ContentCardAssets** asset, NOT this folder. Verify it in Unity.",
-    },
+    {"name": "Images",       "kind": "image", "rank": 0,
+     "blurb": "General images / screenshots. Searched FIRST by `{Image:}` / `{BigImage:}`.",
+     "note": None},
+    {"name": "CEO",          "kind": "image", "rank": 1,
+     "blurb": "CEO / executive portraits. Searched by `{Image:}` after Images.",
+     "note": None},
+    {"name": "TwitterPosts", "kind": "image", "rank": 2,
+     "blurb": "Tweet / social-post screenshots. Searched by `{Image:}` after CEO.",
+     "note": None},
+    {"name": "Flags",        "kind": "image", "rank": 3,
+     "blurb": "Country flags. Searched by `{Image:}` after TwitterPosts.",
+     "note": None},
+    {"name": "Logos",        "kind": "image", "rank": 4,
+     "blurb": "Company logos. Searched by `{Image:}` after Flags.",
+     "note": LOGO_NOTE},
+    {"name": "BRoll",        "kind": "video", "rank": 0,
+     "blurb": "Video b-roll clips. Played by `{Video:}` silently under the narration.",
+     "note": BROLL_NOTE},
 ]
 
 # Characters that break a {...} tag if they appear in a file name.
 BAD_NAME_CHARS = [",", "{", "}", '"', "|", "`"]
+
+
+def works_with(kind: str) -> str:
+    return IMAGE_WORKS_WITH if kind == "image" else VIDEO_WORKS_WITH
+
+
+def tag_label(kind: str) -> str:
+    return "`{Image:}` `{BigImage:}`" if kind == "image" else "`{Video:}`"
 
 
 def classify(path: Path):
@@ -127,6 +155,37 @@ def scan_folder(folder: Path, only_kind=None):
     return files, has_nested
 
 
+def find_existing_dir(root: Path, name: str):
+    """
+    Return the on-disk directory matching `name` case-insensitively (Windows
+    treats `logos` and `Logos` as the same folder; the app does too), or None.
+    """
+    direct = root / name
+    if direct.is_dir():
+        return direct
+    for child in root.iterdir():
+        if child.is_dir() and child.name.casefold() == name.casefold():
+            return child
+    return None
+
+
+def ensure_known_folders(root: Path):
+    """
+    Create any of the six media subfolders that are missing, like the app does
+    when the media folder is picked. Returns the list of names created.
+    """
+    created = []
+    for cfg in KNOWN_FOLDERS:
+        if find_existing_dir(root, cfg["name"]) is not None:
+            continue
+        try:
+            (root / cfg["name"]).mkdir()
+            created.append(cfg["name"])
+        except OSError as e:
+            print("WARNING: could not create {}/: {}".format(cfg["name"], e))
+    return created
+
+
 def cell(text: str) -> str:
     """Escape a value for a Markdown table cell (a literal | breaks the table)."""
     return text.replace("|", "\\|")
@@ -136,7 +195,7 @@ def primary_example(name: str, kind: str) -> str:
     """The ready-to-paste example tag shown in each table row."""
     if kind == "image":
         return "{Image:" + name + ",4}"
-    return "{Video:" + name + ",6}"
+    return "{Video:" + name + "}"
 
 
 def find_duplicates(entries, ext_order):
@@ -173,33 +232,33 @@ def find_duplicates(entries, ext_order):
     return warnings
 
 
-def build_markdown(root: Path) -> str:
+def build_markdown(root: Path, created_folders):
     out = []
     summary_rows = []      # (folder, count_str, tags_str)
     sections = []          # per-folder detail blocks
-    image_entries = []     # for cross-folder duplicate detection (Images + Logos)
-    video_entries = []     # for BRoll duplicate detection
+    image_entries = []     # for cross-folder duplicate detection (all image folders + root)
+    video_entries = []     # for BRoll duplicate detection (+ root)
     warnings = []
     total_files = 0
 
     known_names = {f["name"].casefold() for f in KNOWN_FOLDERS}
+    created_set = {n.casefold() for n in created_folders}
 
-    # --- Known folders, in {Image:} search order ----------------------------
+    # --- Known folders, in search order --------------------------------------
     for cfg in KNOWN_FOLDERS:
-        folder = root / cfg["name"]
-        tag_label = {
-            "Images": "`{Image:}` `{BigImage:}`",
-            "Logos":  "`{Image:}` `{BigImage:}`",
-            "BRoll":  "`{Video:}`",
-        }[cfg["name"]]
+        label = tag_label(cfg["kind"])
+        folder = find_existing_dir(root, cfg["name"])
 
-        if not folder.is_dir():
-            summary_rows.append((cfg["name"] + "/", "_not found_", tag_label))
+        if folder is None:
+            summary_rows.append((cfg["name"] + "/", "_could not create_", label))
             continue
 
         files, has_nested = scan_folder(folder, only_kind=cfg["kind"])
         total_files += len(files)
-        summary_rows.append((cfg["name"] + "/", str(len(files)), tag_label))
+        just_created = cfg["name"].casefold() in created_set
+        summary_rows.append((cfg["name"] + "/",
+                             str(len(files)) + (" _(just created)_" if just_created else ""),
+                             label))
 
         # Record entries for duplicate detection.
         for f in files:
@@ -212,7 +271,7 @@ def build_markdown(root: Path) -> str:
         block.append("")
         block.append(cfg["blurb"])
         block.append("")
-        block.append("**Works with:** " + cfg["works_with"])
+        block.append("**Works with:** " + works_with(cfg["kind"]))
         block.append("")
         if cfg["note"]:
             block.append("> ⚠️ " + cfg["note"])
@@ -236,8 +295,9 @@ def build_markdown(root: Path) -> str:
                         break
         else:
             block.append("_No usable {} files here yet._".format(cfg["kind"]))
-            warnings.append("`{}/` exists but has no usable {} files.".format(
-                cfg["name"], cfg["kind"]))
+            if not just_created:
+                warnings.append("`{}/` exists but has no usable {} files.".format(
+                    cfg["name"], cfg["kind"]))
 
         if has_nested:
             warnings.append(
@@ -247,6 +307,14 @@ def build_markdown(root: Path) -> str:
 
         block.append("")
         sections.append("\n".join(block))
+
+    # --- Loose media files sitting in the root (resolve, but searched LAST) --
+    loose, _ = scan_folder(root)
+    loose = [f for f in loose if f["name"] != OUTPUT_NAME]
+    for f in loose:
+        entry = dict(f, folder=ROOT_LABEL, folder_rank=ROOT_RANK)
+        (image_entries if f["kind"] == "image" else video_entries).append(entry)
+    total_files += len(loose)
 
     # --- Other subfolders (won't resolve at runtime) ------------------------
     other_blocks = []
@@ -259,10 +327,6 @@ def build_markdown(root: Path) -> str:
         names = ", ".join("`{}`".format(f["stem"]) for f in files)
         other_blocks.append("- **`{}/`** — {} file(s): {}".format(
             child.name, len(files), names))
-
-    # --- Loose media files sitting in the root (also won't resolve) ---------
-    loose, _ = scan_folder(root)
-    loose = [f for f in loose if f["name"] != OUTPUT_NAME]
 
     # --- Cross-folder duplicate names ---------------------------------------
     warnings.extend(find_duplicates(image_entries, IMAGE_EXT_ORDER))
@@ -285,6 +349,8 @@ def build_markdown(root: Path) -> str:
                "placeholder names like `ArticleTemp` / `VideoTemp`.")
     out.append("- Type the name **exactly as shown, without the file extension**, e.g. "
                "`{Image:<name>,4}`. Match the casing.")
+    out.append("- **Never write the folder in the tag.** `{Image:us}` finds `Flags/us.png` "
+               "on its own — every image folder is searched.")
     out.append("- If a needed image or clip isn't listed here, it doesn't exist yet — "
                "pick the closest listed name or leave the tag out.")
     out.append("")
@@ -298,32 +364,39 @@ def build_markdown(root: Path) -> str:
     out.append("|---|---|---|")
     for name, count, tags in summary_rows:
         out.append("| `{}` | {} | {} |".format(name, count, tags))
+    if loose:
+        out.append("| `{}` | {} | _(searched last — see below)_ |".format(ROOT_LABEL, len(loose)))
     out.append("")
     out.append("---")
     out.append("")
 
     out.extend(sections)
 
-    if other_blocks:
-        out.append("## ⚠️ Other subfolders found")
-        out.append("")
-        out.append("These are **not** the configured `Images` / `Logos` / `BRoll` "
-                   "folders, so Unity will not find their files at runtime unless you "
-                   "rename the folder (or set that subfolder name in the avatar's "
-                   "Inspector). Listed for reference only:")
-        out.append("")
-        out.extend(other_blocks)
-        out.append("")
-
     if loose:
         out.append("## ⚠️ Loose files in the media root")
         out.append("")
-        out.append("These media files sit directly in the root, not inside a media "
-                   "subfolder, so Unity will not find them. Move them into "
-                   "`Images/`, `Logos/` or `BRoll/`:")
+        out.append("These media files sit directly in the root instead of a media "
+                   "subfolder. They still resolve (the root is searched **after** every "
+                   "subfolder), but please move each into the folder that fits it "
+                   "(`Images/`, `CEO/`, `TwitterPosts/`, `Flags/`, `Logos/` or `BRoll/`):")
         out.append("")
+        out.append("| Name to type | File on disk | Copy-paste example |")
+        out.append("|---|---|---|")
         for f in loose:
-            out.append("- `{}`".format(f["name"]))
+            out.append("| `{name}` | `{file}` | `{ex}` |".format(
+                name=cell(f["stem"]), file=cell(f["name"]),
+                ex=cell(primary_example(f["stem"], f["kind"]))))
+        out.append("")
+
+    if other_blocks:
+        out.append("## ⚠️ Other subfolders found")
+        out.append("")
+        out.append("These are **not** one of the six media folders (`Images` / `CEO` / "
+                   "`TwitterPosts` / `Flags` / `Logos` / `BRoll`), so Unity will not find "
+                   "their files at runtime. Move the files into one of the six, or set "
+                   "that folder name in the avatar's Inspector. Listed for reference only:")
+        out.append("")
+        out.extend(other_blocks)
         out.append("")
 
     if warnings:
@@ -346,17 +419,22 @@ def main():
         print("ERROR: not a folder: {}".format(root))
         return 1
 
-    markdown, total, summary_rows = build_markdown(root)
+    created = ensure_known_folders(root)
+    if created:
+        print("Created missing media subfolder(s): {}".format(", ".join(created)))
+
+    markdown, total, summary_rows = build_markdown(root, created)
     out_path = root / OUTPUT_NAME
     out_path.write_text(markdown, encoding="utf-8")
 
     # Console summary
     print("Scanned: {}".format(root))
     for name, count, _ in summary_rows:
-        print("  {:<10} {}".format(name, count))
+        print("  {:<14} {}".format(name, count))
     if total == 0:
         print("\nNo resolvable media found. Place this script in your media ROOT —")
-        print("the folder that contains the Images/, Logos/ and BRoll/ subfolders.")
+        print("the one folder the app's 'Media folder' setting points at — and drop")
+        print("files into the subfolders it just created.")
     print("\nWrote {} ({} file(s)).".format(out_path, total))
     return 0
 

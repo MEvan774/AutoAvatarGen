@@ -15,9 +15,11 @@ using MugsTech.Style;
 /// Also exposes:
 ///   - A text field for the Python pre-processor output folder. ScriptFileReader
 ///     reads the same PlayerPrefs key and overrides its own pythonOutputFolder.
-///   - A text field + Browse button for the external media root folder
-///     (containing BRoll / Images / Logos subfolders). MediaPresentationSystem
-///     reads the same PlayerPrefs key and overrides its own externalMediaRoot.
+///   - A text field + Browse button for the external media root folder. Its
+///     BRoll / Images / CEO / TwitterPosts / Flags / Logos subfolders are
+///     created automatically, so one path is all the user sets.
+///     MediaPresentationSystem reads the same PlayerPrefs key and overrides
+///     its own externalMediaRoot.
 ///
 /// All path fields auto-save to PlayerPrefs on edit (onEndEdit) and on Browse,
 /// so once a folder is linked the user doesn't have to relink it next session.
@@ -59,7 +61,7 @@ public class MainMenuController : MonoBehaviour
     [SerializeField] Button startButton;
     [SerializeField] Button quitButton;
 
-    [Header("External Media Root (BRoll / Images / Logos)")]
+    [Header("External Media Root (media subfolders are auto-created)")]
     [Tooltip("Optional. If left null, the controller spawns its own row at runtime.")]
     [SerializeField] TMP_InputField mediaRootInput;
     [SerializeField] Button         mediaRootBrowseButton;
@@ -911,7 +913,7 @@ public class MainMenuController : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
-    // External media root (BRoll / Images / Logos)
+    // External media root (one path; the media subfolders are auto-created)
     //
     // Mirrors the Python output folder pattern: typing a path or picking one
     // via Browse… auto-saves to PlayerPrefs. MediaPresentationSystem reads the
@@ -927,6 +929,17 @@ public class MainMenuController : MonoBehaviour
         PlayerPrefs.Save();
         if (mediaRootInput != null && mediaRootInput.text != trimmed)
             mediaRootInput.text = trimmed;
+
+        // One path is all the user sets: lay the per-kind subfolders out under
+        // it right away so files can be sorted before the first take. The
+        // root itself is never created (a typo must not spawn a folder tree).
+        if (!string.IsNullOrEmpty(trimmed) && Directory.Exists(trimmed))
+        {
+            int created = MediaPresentationSystem.EnsureMediaSubfolders(
+                trimmed, MediaPresentationSystem.DefaultMediaSubfolders);
+            if (created > 0)
+                Debug.Log($"[MainMenu] Created {created} media subfolder(s) under '{trimmed}'.");
+        }
     }
 
     void OnUseBundledTtsOutputChanged(bool isOn)
@@ -975,7 +988,7 @@ public class MainMenuController : MonoBehaviour
             ? current
             : "";
         string picked = TryPickFolderPath(
-            "Pick media folder (must contain BRoll / Images / Logos)", startDir);
+            "Pick media folder (BRoll / Images / CEO / TwitterPosts / Flags / Logos are created inside it)", startDir);
         if (string.IsNullOrEmpty(picked)) return;
         OnMediaRootChanged(picked);
     }
@@ -1006,7 +1019,7 @@ public class MainMenuController : MonoBehaviour
         labelRT.anchoredPosition = new Vector2(0f, 0f);
         labelRT.sizeDelta        = new Vector2(1100f, 28f);
         var label = labelGO.AddComponent<TextMeshProUGUI>();
-        label.text       = "Media folder (contains BRoll / Images / Logos):";
+        label.text       = "Media folder (its media subfolders are created automatically):";
         label.fontSize   = 22;
         label.alignment  = TextAlignmentOptions.Center;
         label.color      = new Color(0.82f, 0.85f, 0.9f, 1f);

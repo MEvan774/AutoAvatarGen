@@ -217,7 +217,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 9151500922022232502, guid: a551534c450742744aacef8bb20b72f7, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -16.9953
+      value: -18.1
       objectReference: {fileID: 0}
     - target: {fileID: 9151500922022232502, guid: a551534c450742744aacef8bb20b72f7, type: 3}
       propertyPath: m_LocalRotation.w
@@ -287,15 +287,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 50022, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_Color.b
-      value: 1
+      value: 0.9
       objectReference: {fileID: 0}
     - target: {fileID: 50022, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_Color.g
-      value: 0.60188675
+      value: 0.53
       objectReference: {fileID: 0}
     - target: {fileID: 50022, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_Color.r
-      value: 0.6747123
+      value: 0.58
       objectReference: {fileID: 0}
     - target: {fileID: 50023, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: opacity
@@ -335,11 +335,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 50041, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_LocalScale.x
-      value: 0.3
+      value: 0.38
       objectReference: {fileID: 0}
     - target: {fileID: 50041, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_LocalScale.y
-      value: 0.3
+      value: 0.38
       objectReference: {fileID: 0}
     - target: {fileID: 50041, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_LocalScale.z
@@ -351,15 +351,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 50042, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_Color.b
-      value: 1
+      value: 0.9
       objectReference: {fileID: 0}
     - target: {fileID: 50042, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_Color.g
-      value: 0.6039216
+      value: 0.53
       objectReference: {fileID: 0}
     - target: {fileID: 50042, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_Color.r
-      value: 0.6784314
+      value: 0.58
       objectReference: {fileID: 0}
     - target: {fileID: 50043, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: opacity
@@ -391,15 +391,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 50062, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_Color.b
-      value: 1
+      value: 0.9
       objectReference: {fileID: 0}
     - target: {fileID: 50062, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_Color.g
-      value: 0.6039216
+      value: 0.53
       objectReference: {fileID: 0}
     - target: {fileID: 50062, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: m_Color.r
-      value: 0.6784314
+      value: 0.58
       objectReference: {fileID: 0}
     - target: {fileID: 50063, guid: 6017933924a4e7241ae0dd1e8c26e861, type: 3}
       propertyPath: opacity

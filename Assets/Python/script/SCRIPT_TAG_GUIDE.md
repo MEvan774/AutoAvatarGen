@@ -68,7 +68,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 
 **Legend — does the tag need a real asset to exist?**
 - ✅ **Self-contained — always works.** The tag carries its own text; nothing external to resolve. Safe to use anytime.
-- 📁 **Needs a real file on disk.** The `name` is a filename (no extension) in a media folder — `Image`/`BigImage` → `Images/` or `Logos/`; `Video` → `BRoll/`. Use only names from `MEDIA_LIBRARY.md`.
+- 📁 **Needs a real file on disk.** The `name` is a filename (no extension) in a media folder — `Image`/`BigImage` → any image folder under the media root (`Images/`, `CEO/`, `TwitterPosts/`, `Flags/`, `Logos/`); `Video` → `BRoll/`. The folder is never part of the name — just the file name. Use only names from `MEDIA_LIBRARY.md`.
 - 🎬 **Needs a real entry in the Unity `ContentCardAssets` asset** (a *different* place from the disk folders). `Logo`/`BigMedia` → a configured company logo; `BRoll` → a configured clip description. Use only names confirmed in `MEDIA_LIBRARY.md` / Unity.
 
 If you don't have a confirmed name for a 📁 or 🎬 tag, use a ✅ card instead — see §4 *"Media & asset cards — names must be real"*.
@@ -244,8 +244,8 @@ There are **two separate places** a name can resolve against, and they do **not*
 
 | Tag | Resolves against | `name` is… |
 |---|---|---|
-| `{Image:name}` 📁 | disk folders `Images/` then `Logos/` | an image **filename**, no extension (e.g. `privacy_headline`) |
-| `{BigImage:name}` 📁 | disk folders `Images/` then `Logos/` | an image **filename**, no extension |
+| `{Image:name}` 📁 | disk folders `Images/`, `CEO/`, `TwitterPosts/`, `Flags/`, `Logos/` (searched in that order) | an image **filename**, no extension (e.g. `privacy_headline`) |
+| `{BigImage:name}` 📁 | the same image folders as `{Image:}` | an image **filename**, no extension |
 | `{Video:name}` 📁 | disk folder `BRoll/` | a video **filename**, no extension |
 | `{Logo:name}` 🎬 | the Unity **`ContentCardAssets`** asset (logo list) | a configured **company name** (case-insensitive) |
 | `{BigMedia:name}` 🎬 | the Unity **`ContentCardAssets`** asset (logo list), then `Resources/Media/` | a configured **company name** |
@@ -259,7 +259,7 @@ Rules for every 📁 / 🎬 tag:
 ---
 
 ### Image — `{Image:name}` or `{Image:name,seconds}`  📁
-Shows an image in the media area. `name` is the file name (**extension omitted**) found in the configured `Images/` then `Logos/` disk folders — see *"Media & asset cards"* above; use a real name from `MEDIA_LIBRARY.md`. Duration optional — defaults to **3s**.
+Shows an image in the media area. `name` is the file name (**extension omitted**) found in any of the image folders under the media root (`Images/`, `CEO/`, `TwitterPosts/`, `Flags/`, `Logos/` — the folder itself is never written in the tag) — see *"Media & asset cards"* above; use a real name from `MEDIA_LIBRARY.md`. Duration optional — defaults to **3s**.
 
 **Choosing a side — optional `,Left` / `,Right` (last value).** Like the side content cards, the image sits on the **left** of the screen by default and slides in from that side with the same eased overshoot entry the cards use. Append `,Left` or `,Right` as the **final** value to pick the side it rests on (and slides in from) — `,Right` mirrors the media slot to the right of the screen. Place the presenter on the opposite side (`{Position:...}`) so they don't overlap it.
 ```
@@ -366,7 +366,7 @@ Fields: `"value","label","context",duration[,Left|,Right]`
 
 ### Feature cards (fullscreen, in front of the character)
 
-**BigMedia** 🎬 — 1 to 4 logos/images shown large and centered. Each `name` resolves through the Unity `ContentCardAssets` asset (then `Resources/Media/`) — same source as `{Logo:}`, *not* the disk `Images/`/`Logos/` folders — so use configured logo names from `MEDIA_LIBRARY.md`. Join multiple with `+` (≤4). A name that doesn't resolve is shown as plain text (its own letters), not an image.
+**BigMedia** 🎬 — 1 to 4 logos/images shown large and centered. Each `name` resolves through the Unity `ContentCardAssets` asset (then `Resources/Media/`) — same source as `{Logo:}`, *not* the disk image folders — so use configured logo names from `MEDIA_LIBRARY.md`. Join multiple with `+` (≤4). A name that doesn't resolve is shown as plain text (its own letters), not an image.
 ```
 {BigMedia:Google,4}
 {BigMedia:Google+Brave+X,4}
@@ -387,7 +387,7 @@ And that should worry you. {BigText:End}
 ```
 Don't mix the modes in one beat — a duration-less line landing while a timed BigText is up joins it but keeps the timed lifetime.
 
-**BigImage** 📁 — a large website-article or headline **screenshot** that covers the **left 3/4** of the screen, leaving the right quarter open for the presenter. It fills that area edge-to-edge (cropped to fit, no distortion) and drops in from the top. `name` is an image **filename (no extension)** in the same disk `Images/`/`Logos/` folders `{Image:}` uses — use a real one from `MEDIA_LIBRARY.md` (drop your screenshot there first). It's a feature card (not suppressed at `Center`), but it's designed to **share** the screen: put the presenter on the **right** so they stand in the open quarter beside the article, not behind it.
+**BigImage** 📁 — a large website-article or headline **screenshot** that covers the **left 3/4** of the screen, leaving the right quarter open for the presenter. It fills that area edge-to-edge (cropped to fit, no distortion) and drops in from the top. `name` is an image **filename (no extension)** in the same disk image folders `{Image:}` uses — use a real one from `MEDIA_LIBRARY.md` (drop your screenshot there first). It's a feature card (not suppressed at `Center`), but it's designed to **share** the screen: put the presenter on the **right** so they stand in the open quarter beside the article, not behind it.
 ```
 {Position:Right}
 {BigImage:tesla_q3_article,6}

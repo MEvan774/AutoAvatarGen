@@ -170,13 +170,21 @@ public class MediaPresentationSystem : MonoBehaviour
     public string mediaFolderPath = "Media";
 
     [Header("External Media Folders (absolute paths outside the project)")]
-    [Tooltip("Root folder on disk that contains the BRoll / Images / Logos subfolders. Leave blank to fall back to Resources. Overridden at runtime by the main menu's 'Media folder' input (saved to PlayerPrefs).")]
+    [Tooltip("Root folder on disk that holds the media subfolders below. Leave blank to fall back to Resources. " +
+             "Overridden at runtime by the main menu's 'Media folder' input (saved to PlayerPrefs). " +
+             "Missing subfolders are created automatically — one path is all that needs setting.")]
     public string externalMediaRoot = "";
-    [Tooltip("Subfolder under the root that holds video b-roll files. Looked up by {Video:name,...}.")]
+    [Tooltip("Subfolder under the root that holds video b-roll files. Searched first by {Video:name,...}.")]
     public string bRollSubfolder = "BRoll";
-    [Tooltip("Subfolder under the root that holds general images/screenshots. Searched first by {Image:name,...}.")]
+    [Tooltip("Subfolder under the root that holds general images/screenshots. Searched first by {Image:name,...} / {BigImage:name,...}.")]
     public string imagesSubfolder = "Images";
-    [Tooltip("Subfolder under the root that holds company logos. Searched after Images by {Image:name,...}.")]
+    [Tooltip("Subfolder under the root that holds CEO / executive portraits. Searched by {Image:} after Images.")]
+    public string ceoSubfolder = "CEO";
+    [Tooltip("Subfolder under the root that holds tweet / social-post screenshots. Searched by {Image:} after CEO.")]
+    public string twitterPostsSubfolder = "TwitterPosts";
+    [Tooltip("Subfolder under the root that holds country flags. Searched by {Image:} after TwitterPosts.")]
+    public string flagsSubfolder = "Flags";
+    [Tooltip("Subfolder under the root that holds company logos. Searched by {Image:} after Flags.")]
     public string logosSubfolder = "Logos";
 
     [Tooltip("How long a {Video:} clip may spend preparing before it is given up on. " +
@@ -597,6 +605,17 @@ public class MediaPresentationSystem : MonoBehaviour
         {
             externalMediaRoot = overrideRoot;
             Debug.Log($"[MediaPresentation] External media root overridden via main menu: {externalMediaRoot}");
+        }
+
+        // One root path is all the user sets — make sure the per-kind
+        // subfolders exist under it before any {Image:} / {Video:} lookup.
+        if (!string.IsNullOrWhiteSpace(externalMediaRoot))
+        {
+            if (Directory.Exists(externalMediaRoot))
+                EnsureMediaSubfolders(externalMediaRoot, AllSubfolders);
+            else
+                Debug.LogWarning($"[MediaPresentation] External media root does not exist: '{externalMediaRoot}' — " +
+                                 $"media names will only resolve from Resources/{mediaFolderPath}.");
         }
 
         // Store default camera size for zoom reset
@@ -1976,27 +1995,116 @@ public class MediaPresentationSystem : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
-    // External-folder resolution. {Image:name} searches Images then Logos;
-    // {Video:name} searches BRoll. Names may include or omit an extension —
+    // External-folder layout and resolution.
+    //
+    // One root, six subfolders (BRoll / Images / CEO / TwitterPosts / Flags /
+    // Logos). A media name is looked up in EVERY subfolder — the tag's own
+    // kind first ({Image:} starts at Images, {Video:} at BRoll), then the
+    // rest in a fixed order, then the root itself — so a file only has to be
+    // somewhere under the root to resolve, and sorting it into the right
+    // folder never changes the tag. Names may include or omit an extension;
     // if omitted, common extensions are tried. Returns null if not found or
     // if externalMediaRoot is blank.
+    //
+    // generate_media_library.py mirrors this order when it writes
+    // MEDIA_LIBRARY.md — keep the two in sync.
     // -----------------------------------------------------------------------
 
-    string ResolveImagePath(string mediaName)
+    /// <summary>
+    /// Subfolder names a freshly chosen root gets from the main menu, where no
+    /// MediaPresentationSystem instance exists to read the Inspector names
+    /// from. Same defaults as the fields above.
+    /// </summary>
+    public static readonly string[] DefaultMediaSubfolders =
+        { "BRoll", "Images", "CEO", "TwitterPosts", "Flags", "Logos" };
+
+    /// <summary>Image subfolders in {Image:} / {BigImage:} search order.</summary>
+    string[] ImageSubfolders =>
+        new[] { imagesSubfolder, ceoSubfolder, twitterPostsSubfolder, flagsSubfolder, logosSubfolder };
+
+    /// <summary>Video subfolders in {Video:} search order.</summary>
+    string[] VideoSubfolders => new[] { bRollSubfolder };
+
+    /// <summary>Every configured subfolder, video first then images.</summary>
+    string[] AllSubfolders
     {
-        if (string.IsNullOrWhiteSpace(externalMediaRoot)) return null;
+        get
+        {
+            var all = new List<string>(VideoSubfolders);
+            all.AddRange(ImageSubfolders);
+            return all.ToArray();
+        }
+    }
 
-        string fromImages = FindFileInFolder(Path.Combine(externalMediaRoot, imagesSubfolder), mediaName, ImageExtensions);
-        if (fromImages != null) return fromImages;
+    /// <summary>
+    /// Creates each of <paramref name="subfolders"/> under <paramref name="root"/>
+    /// when it is missing. The root itself is never created — a mistyped path
+    /// must not grow a folder tree somewhere unexpected. Returns how many
+    /// folders were created, or -1 when the root does not exist.
+    /// </summary>
+    public static int EnsureMediaSubfolders(string root, IEnumerable<string> subfolders)
+    {
+        if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root)) return -1;
 
-        return FindFileInFolder(Path.Combine(externalMediaRoot, logosSubfolder), mediaName, ImageExtensions);
+        int created = 0;
+        foreach (string sub in subfolders)
+        {
+            if (string.IsNullOrWhiteSpace(sub)) continue;
+            try
+            {
+                string path = Path.Combine(root, sub.Trim());
+                // Directory.Exists is case-insensitive on Windows, so an
+                // existing "logos" satisfies "Logos" and is left alone.
+                if (Directory.Exists(path)) continue;
+                Directory.CreateDirectory(path);
+                created++;
+                Debug.Log($"[MediaPresentation] Created media subfolder: {path}");
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[MediaPresentation] Could not create media subfolder '{sub}' under '{root}': {e.Message}");
+            }
+        }
+        return created;
+    }
+
+    string ResolveImagePath(string mediaName)
+        => FindInMediaRoot(mediaName, ImageExtensions, ImageSubfolders, VideoSubfolders);
+
+    string ResolveVideoPath(string mediaName)
+        => FindInMediaRoot(mediaName, VideoExtensions, VideoSubfolders, ImageSubfolders);
+
+    // Preferred subfolders first, then the remaining ones, then the root.
+    string FindInMediaRoot(string mediaName, string[] extensions, string[] preferred, string[] others)
+    {
+        if (string.IsNullOrWhiteSpace(externalMediaRoot) || string.IsNullOrWhiteSpace(mediaName)) return null;
+
+        string hit = FindInSubfolders(preferred, mediaName, extensions);
+        if (hit != null) return hit;
+
+        hit = FindInSubfolders(others, mediaName, extensions);
+        if (hit != null) return hit;
+
+        return FindFileInFolder(externalMediaRoot, mediaName, extensions);
+    }
+
+    string FindInSubfolders(string[] subfolders, string mediaName, string[] extensions)
+    {
+        foreach (string sub in subfolders)
+        {
+            if (string.IsNullOrWhiteSpace(sub)) continue;
+            string hit = FindFileInFolder(Path.Combine(externalMediaRoot, sub.Trim()), mediaName, extensions);
+            if (hit != null) return hit;
+        }
+        return null;
     }
 
     /// <summary>
     /// Resolves and loads an image by name for content cards that need a disk
     /// texture (e.g. the {BigImage:...} article card). Uses the SAME lookup as
-    /// {Image:name}: the external Images folder first, then Logos, then a final
-    /// Resources/{mediaFolderPath} fallback. Returns null if nothing matched.
+    /// {Image:name}: every external media subfolder (Images first), then the
+    /// root, then a final Resources/{mediaFolderPath} fallback. Returns null if
+    /// nothing matched.
     ///
     /// <paramref name="ownedByCaller"/> is true when the returned texture was
     /// decoded from disk and the caller MUST Destroy() it when done; false for a
@@ -2021,12 +2129,6 @@ public class MediaPresentationSystem : MonoBehaviour
         }
 
         return Resources.Load<Texture2D>($"{mediaFolderPath}/{mediaName}");
-    }
-
-    string ResolveVideoPath(string mediaName)
-    {
-        if (string.IsNullOrWhiteSpace(externalMediaRoot)) return null;
-        return FindFileInFolder(Path.Combine(externalMediaRoot, bRollSubfolder), mediaName, VideoExtensions);
     }
 
     static string FindFileInFolder(string folder, string mediaName, string[] extensions)

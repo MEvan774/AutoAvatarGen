@@ -41,6 +41,17 @@ public class FloatingShape : MonoBehaviour
     [Header("Fade")]
     public float opacity = 0.18f;
 
+    /// <summary>
+    /// Extra displacement added on top of the start point every frame, set by
+    /// an outside driver (DoodleParallaxDrift uses it to carry the shape
+    /// slowly across the frame). Needed because Update() below rebuilds the
+    /// position from startPos each frame — anything that moved the transform
+    /// directly would be overwritten. NonSerialized: runtime-only, so it never
+    /// shows in the Inspector or lands in a prefab, and with no driver it
+    /// stays zero (menu shapes behave exactly as before).
+    /// </summary>
+    [System.NonSerialized] public Vector3 externalOffset;
+
     private Vector3 startPos;
     private Quaternion startRot;
     private float timeOffset;
@@ -121,7 +132,7 @@ public class FloatingShape : MonoBehaviour
                 0);
         }
 
-        transform.position = startPos + drift + new Vector3(
+        transform.position = startPos + externalOffset + drift + new Vector3(
             Mathf.Sin(t * bobFrequency * 0.7f) * bobAmplitude,
             Mathf.Sin(t * bobFrequency) * bobAmplitude,
             0);
