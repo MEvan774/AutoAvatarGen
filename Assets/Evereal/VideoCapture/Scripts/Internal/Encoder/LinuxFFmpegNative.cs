@@ -42,12 +42,30 @@ namespace Evereal.VideoCapture
     private const string InputPixelFormat = "rgba";
     private const int BytesPerPixel = 4;
 
-    // libx264 speed/quality trade-off for realtime capture. The bitrate is
-    // fixed by the caller, so this only decides how hard x264 works for it.
-    // Measured on this machine (i7-11800H, real 1080p footage through this exact
-    // rgba/vflip/bt709 chain, 8000k): medium 37 fps — too close to 30 once Unity
-    // shares the CPU — faster 58, veryfast 80.
+    // H.264 encoder for H264_MP4 takes: "auto" (default) encodes on the NVIDIA
+    // GPU (h264_nvenc) when a probe at the start of each take shows this ffmpeg
+    // and driver can open it, and falls back to libx264 on the CPU otherwise.
+    // Force one with H264Encoder or the environment variable below
+    // ("h264_nvenc" | "libx264" | "auto").
+    //
+    // Measured on the render machine (i7-11800H + GTX 1650, 20 s of real 1080p
+    // footage through this exact rgba -> BT.709 chain at 8000k): libx264
+    // veryfast keeps 3.5 CPU cores busy at realtime, NVENC p5 0.6 cores, at the
+    // same quality (SSIM 0.9728 vs 0.9727) and file size.
+    public const string H264EncoderEnv = "AUTOAVATARGEN_H264_ENCODER";
+    public static string H264Encoder = null; // null -> H264EncoderEnv -> "auto"
+
+    // The encoder the most recent H.264 take used (for logs and the self-test).
+    public static string LastH264Encoder { get; private set; }
+
+    // libx264 speed/quality trade-off for the CPU fallback. The bitrate is fixed
+    // by the caller, so this only decides how hard x264 works for it. Measured
+    // as above: medium 37 fps — too close to 30 once Unity shares the CPU —
+    // faster 58, veryfast 80.
     public static string H264Preset = "veryfast";
+
+    // An NVENC probe is one black frame; it normally takes ~0.4 s.
+    private const int NvencProbeTimeoutMs = 15000;
 
     // If ffmpeg dies this fast it never got past option parsing (bad path, an
     // encoder this ffmpeg build lacks) — report it as a failed start.
@@ -74,25 +92,20 @@ namespace Evereal.VideoCapture
         return IntPtr.Zero;
       }
 
-      bool yuv;
-      string codec = VideoCodecArgs(preset, bitrate, out yuv);
+      string h264Encoder = IsH264(preset) ? ChooseH264Encoder(preset, width, height, bitrate, frameRate, ffmpegPath) : null;
+      string pixFmt;
+      string codec = VideoCodecArgs(preset, bitrate, h264Encoder, out pixFmt);
 
       var filters = new List<string>();
       if (verticalFlip) filters.Add("vflip");
       if (horizontalFlip) filters.Add("hflip");
-      if (yuv)
-      {
-        // HD video is BT.709; swscale's default for RGB->YUV is BT.601, which
-        // players would then decode with the wrong matrix (shifted colours).
-        filters.Add("scale=out_color_matrix=bt709:out_range=tv");
-      }
+      if (pixFmt != null) filters.Add(YuvFilters(pixFmt));
 
       string args =
         "-hide_banner -nostats -loglevel info -y " +
         $"-f rawvideo -pix_fmt {InputPixelFormat} -video_size {width}x{height} -framerate {frameRate} -i - " +
         (filters.Count > 0 ? $"-vf {string.Join(",", filters)} " : "") +
         codec + " " +
-        (yuv ? "-colorspace bt709 -color_primaries bt709 -color_trc bt709 -color_range tv " : "") +
         Quote(videoPath);
 
       FFmpegProcess session = FFmpegProcess.Launch(ffmpegPath, args, true, "VOD encode", videoPath);
@@ -221,9 +234,10 @@ namespace Evereal.VideoCapture
         var flips = new List<string>();
         if (verticalFlip) flips.Add("vflip");
         if (horizontalFlip) flips.Add("hflip");
-        bool yuv;
+        // CPU encode: a flip at mux time is a rare, post-take step.
+        string pixFmt;
         args.Append("-vf ").Append(string.Join(",", flips)).Append(' ')
-            .Append(VideoCodecArgs(preset, bitrate, out yuv)).Append(' ');
+            .Append(VideoCodecArgs(preset, bitrate, "libx264", out pixFmt)).Append(' ');
       }
       else
       {
@@ -261,27 +275,116 @@ namespace Evereal.VideoCapture
 
     #region Internal
 
-    private static string VideoCodecArgs(EncoderPreset preset, int bitrate, out bool yuv)
+    // Matched by name: the enum is #if'd per platform (H264_NVIDIA_MP4 exists
+    // whenever a Windows build target is active, even in a Linux editor).
+    private static bool IsH264(EncoderPreset preset)
     {
-      // Matched by name: the enum is #if'd per platform (H264_NVIDIA_MP4 exists
-      // whenever a Windows build target is active, even in a Linux editor).
       string name = preset.ToString();
-      yuv = true;
+      return name.StartsWith("H264") && !name.Contains("LOSSLESS");
+    }
+
+    // The codec arguments, and the pixel format the codec is fed (null for an
+    // RGB codec, which gets no YUV conversion).
+    private static string VideoCodecArgs(EncoderPreset preset, int bitrate, string h264Encoder, out string pixFmt)
+    {
+      string name = preset.ToString();
+      pixFmt = "yuv420p";
       if (name.Contains("LOSSLESS"))
-        return "-c:v libx264 -preset ultrafast -qp 0 -pix_fmt yuv444p";
+      {
+        pixFmt = "yuv444p";
+        return "-c:v libx264 -preset ultrafast -qp 0";
+      }
       if (name.StartsWith("H265"))
-        return $"-c:v libx265 -b:v {bitrate}k -pix_fmt yuv420p -tag:v hvc1";
+        return $"-c:v libx265 -b:v {bitrate}k -tag:v hvc1";
       if (name.StartsWith("VP8"))
-        return $"-c:v libvpx -b:v {bitrate}k -pix_fmt yuv420p";
+        return $"-c:v libvpx -b:v {bitrate}k";
       if (name.StartsWith("VP9"))
-        return $"-c:v libvpx-vp9 -b:v {bitrate}k -pix_fmt yuv420p";
+        return $"-c:v libvpx-vp9 -b:v {bitrate}k";
       if (name.StartsWith("FFV1"))
       {
-        yuv = false;
+        pixFmt = null;
         return "-c:v ffv1 -level 3";
       }
-      // H264_MP4 (and H264_NVIDIA_MP4, see above).
-      return $"-c:v libx264 -preset {H264Preset} -b:v {bitrate}k -pix_fmt yuv420p";
+      // H264_MP4 (and H264_NVIDIA_MP4, see IsH264).
+      if (h264Encoder == "h264_nvenc")
+        return $"-c:v h264_nvenc -preset p5 -tune hq -rc vbr -b:v {bitrate}k -maxrate {bitrate * 3 / 2}k -bufsize {bitrate * 2}k";
+      return $"-c:v libx264 -preset {H264Preset} -b:v {bitrate}k";
+    }
+
+    // RGB -> YUV the way HD video is decoded: BT.709 matrix, limited range —
+    // swscale's default is BT.601, i.e. shifted colours — and the frames TAGGED
+    // bt709 (setparams). With this ffmpeg (8.1) the -color_primaries/-color_trc
+    // output options came out "unknown"; tags set on the frames survive.
+    // Converting here (not inside NVENC, which would use BT.601 for RGB input)
+    // keeps both encoders' output identical in colour.
+    private static string YuvFilters(string pixFmt)
+    {
+      return "scale=out_color_matrix=bt709:out_range=tv,format=" + pixFmt +
+             ",setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv";
+    }
+
+    private static string ChooseH264Encoder(
+      EncoderPreset preset, int width, int height, int bitrate, int frameRate, string ffmpegPath)
+    {
+      string wanted = (H264Encoder ?? Environment.GetEnvironmentVariable(H264EncoderEnv) ?? "auto")
+        .Trim().ToLowerInvariant();
+      if (wanted == "libx264" || wanted == "h264_nvenc")
+      {
+        Debug.LogFormat(LOG_FORMAT, $"H.264 encoder forced to {wanted}.");
+        return LastH264Encoder = wanted;
+      }
+      if (wanted != "auto" && wanted.Length > 0)
+        Debug.LogWarningFormat(LOG_FORMAT, $"Unknown H.264 encoder '{wanted}' ({H264EncoderEnv}) — using auto.");
+
+      // One black frame through the exact NVENC settings the take will use.
+      string pixFmt;
+      string codec = VideoCodecArgs(preset, bitrate, "h264_nvenc", out pixFmt);
+      string probeArgs = "-hide_banner -nostdin -v error " +
+        $"-f lavfi -i color=c=black:s={width}x{height}:r={frameRate},format={InputPixelFormat} " +
+        $"-frames:v 1 -vf {YuvFilters(pixFmt)} {codec} -f null -";
+      string failure = RunProbe(ffmpegPath, probeArgs);
+      if (failure == null)
+      {
+        Debug.LogFormat(LOG_FORMAT, "H.264 encoder: h264_nvenc (NVIDIA GPU).");
+        return LastH264Encoder = "h264_nvenc";
+      }
+      Debug.LogWarningFormat(LOG_FORMAT, $"NVENC unavailable ({failure}) — H.264 encoder: libx264 (CPU).");
+      return LastH264Encoder = "libx264";
+    }
+
+    // Null when ffmpeg ran the probe successfully, else why it did not.
+    private static string RunProbe(string ffmpegPath, string args)
+    {
+      var startInfo = new ProcessStartInfo
+      {
+        FileName = ffmpegPath,
+        Arguments = args,
+        UseShellExecute = false,
+        CreateNoWindow = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+      };
+      try
+      {
+        using (Process probe = Process.Start(startInfo))
+        {
+          var stderr = probe.StandardError.ReadToEndAsync();
+          probe.StandardOutput.ReadToEndAsync();
+          if (!probe.WaitForExit(NvencProbeTimeoutMs))
+          {
+            try { probe.Kill(); } catch (Exception) { /* already gone */ }
+            return $"probe timed out after {NvencProbeTimeoutMs / 1000}s";
+          }
+          if (probe.ExitCode == 0)
+            return null;
+          string said = stderr.Wait(2000) ? stderr.Result.Trim().Replace('\n', ' ') : "";
+          return $"exit {probe.ExitCode}: {said}";
+        }
+      }
+      catch (Exception e)
+      {
+        return e.Message;
+      }
     }
 
     private static string Quote(string s)

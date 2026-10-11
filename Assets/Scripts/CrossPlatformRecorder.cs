@@ -104,7 +104,9 @@ public class CrossPlatformRecorder : MonoBehaviour
     [Header("Live Preview")]
     [Tooltip("Show the recording on the Game view via Evereal's screen-blitter camera. " +
              "If false, Display 1 shows 'no cameras rendering' while capturing because " +
-             "the Main Camera's output is routed to the recording texture.")]
+             "the Main Camera's output is routed to the recording texture. Ignored while " +
+             "RecordingSession's full-screen progress overlay covers the window (every " +
+             "Camera-source take) — the preview would be drawn only to be hidden.")]
     public bool showLivePreview = true;
 
     [Header("Debug")]
@@ -460,8 +462,14 @@ public class CrossPlatformRecorder : MonoBehaviour
         // Screen blitter copies the captured texture back to Display 1 so the Game
         // view shows the recording in progress. Without this, the Main Camera's
         // output goes only to the offscreen texture and Display 1 shows "no cameras
-        // rendering" while capture is active.
-        videoCaptureComponent.screenBlitter = showLivePreview;
+        // rendering" while capture is active. RecordingSession covers the window
+        // with an opaque progress screen during Camera-source takes, so there the
+        // blit — a full-screen pass every frame on the GPU that also renders the
+        // take, and the source of the on-screen flicker on Linux/GL — is skipped.
+        bool overlayCoversWindow = RecordingSession.Instance != null &&
+                                   recordingSource == RecordingSource.Camera;
+        bool livePreview = showLivePreview && !overlayCoversWindow;
+        videoCaptureComponent.screenBlitter = livePreview;
 
         // Transparent alpha channel capture — a paid-only feature.
         // We set camera properties ourselves in ApplyBackgroundMode, so we don't
@@ -538,7 +546,8 @@ public class CrossPlatformRecorder : MonoBehaviour
         Log($"VideoCapture configured: {frameWidth}x{frameHeight} @ {frameRate}fps, " +
             $"{bitrateKbps}kbps, msaa={captureAntiAliasing}, " +
             $"transparent={videoCaptureComponent.transparent}, " +
-            $"gpu={allowGpuEncoding}, flipH={horizontalFlip}, flipV={verticalFlip}");
+            $"gpu={allowGpuEncoding}, flipH={horizontalFlip}, flipV={verticalFlip}, " +
+            $"livePreview={livePreview}{(showLivePreview && !livePreview ? " (hidden under the progress overlay)" : "")}");
     }
 
     // -----------------------------------------------------------------------
