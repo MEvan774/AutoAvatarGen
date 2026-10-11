@@ -489,6 +489,24 @@ public class CrossPlatformRecorder : MonoBehaviour
                              "Using software encoding instead.");
             allowGpuEncoding = false;
         }
+#if UNITY_EDITOR_LINUX || (UNITY_STANDALONE_LINUX && !UNITY_EDITOR)
+        // LINUX: GPUEncoder and uNvEncoder are Windows-native plugins; on Linux
+        // the only encoder is the ffmpeg pipe behind Evereal's FFmpegEncoder
+        // (LinuxFFmpegNative). Don't rely on Evereal's own platform fallback.
+        if (allowGpuEncoding)
+        {
+            Log("GPU encoding disabled on Linux — using the ffmpeg pipe encoder.");
+            allowGpuEncoding = false;
+        }
+        // LINUX: EncoderPreset is #if'd per platform. The scene stores 1, which is
+        // H264_NVIDIA_MP4 on Windows but reads back as H264_LOSSLESS_MP4 here —
+        // a qp-0 lossless encode no realtime take can sustain.
+        if (videoCaptureComponent.encoderPreset == EncoderPreset.H264_LOSSLESS_MP4)
+        {
+            Log("Encoder preset H264_LOSSLESS_MP4 (the Windows H264_NVIDIA_MP4 slot) -> H264_MP4 on Linux.");
+            videoCaptureComponent.encoderPreset = EncoderPreset.H264_MP4;
+        }
+#endif
         videoCaptureComponent.gpuEncoding = allowGpuEncoding;
 
         // Resolution / framerate / bitrate

@@ -10,15 +10,15 @@ using Diag = System.Diagnostics;
 /// <summary>
 /// Persistent owner of a single recording run. Spawned by the main menu when the
 /// user presses "Start Recording", survives across the scene swap into the
-/// recording scene, hosts a Screen-Space-Overlay "recording in progress" wheel
-/// (so it is NOT captured by Evereal when the recorder is in Camera source
-/// mode — overlay UI is excluded from camera captures), subscribes to the
-/// VideoCapture OnComplete/OnError events, and routes the result back to the
-/// main menu.
+/// recording scene, hosts a full-screen Screen-Space-Overlay "recording in
+/// progress" screen (NOT captured by Evereal when the recorder is in Camera
+/// source mode — overlay UI is excluded from camera captures), subscribes to
+/// the VideoCapture OnComplete/OnError events, and routes the result back to
+/// the main menu.
 ///
-/// Note on the loading wheel: this works out-of-the-box because
-/// CrossPlatformRecorder defaults to RecordingSource.Camera. If you switch it
-/// to RecordingSource.Screen, the overlay WILL end up in the recording.
+/// Note on the progress screen: it relies on CrossPlatformRecorder's default
+/// RecordingSource.Camera. In RecordingSource.Screen mode the whole window is
+/// captured, overlay included, so the progress screen stays hidden for that take.
 /// </summary>
 public class RecordingSession : MonoBehaviour
 {
@@ -84,21 +84,41 @@ public class RecordingSession : MonoBehaviour
     float takeStartedRealtime = -1f;
     float recordedSeconds;
 
+    // Full-screen progress overlay — see BuildIndicator.
     GameObject indicatorRoot;
-    Image spinnerImage;
+    Image glowImage;
+    Image progressRing;
+    RectTransform activityArc;
     Image recDot;
-    Text headerText;
+    Text stateText;
+    Text takeNameText;
     Text percentText;
+    Text timeText;
+    Text statusText;
+    Text remainingText;
+
+    enum IndicatorPhase { Preparing, Recording, WrappingUp }
+
+    // What the overlay's texts currently show, so they are only rebuilt when a
+    // value changes — not every frame mid-take, where allocations cost frames.
+    IndicatorPhase shownPhase;
+    int shownPercent = -1;
+    int shownElapsedSec = -1;
+    int shownTotalSec = -1;
+    bool takeNameShown;
 
     // Progress tracking — percent is audio-playback-driven: (voiceAudio.time /
     // voiceAudio.clip.length). Cached so we can latch to 100% during the
     // "generating" phase after the audio stops.
     AudioSource voiceAudio;
     float displayedPercent;
+    float clipLengthSec;   // narration length once its clip is known (0 before)
 
     static Sprite cachedSolidSprite;
-    static Sprite cachedRingSprite;
     static Sprite cachedDiskSprite;
+    static Sprite cachedProgressRingSprite;
+    static Sprite cachedThinRingSprite;
+    static Sprite cachedGlowSprite;
 
     public static void Begin()
     {
@@ -210,10 +230,26 @@ public class RecordingSession : MonoBehaviour
         recordedSeconds = 0f;
         voiceAudio = null;
         displayedPercent = 0f;
-        if (percentText != null) percentText.text = "0%";
-        if (spinnerImage != null) spinnerImage.fillAmount = 0f;
-        SetIndicatorVisible(true);
+        clipLengthSec = 0f;
+        shownPercent = shownElapsedSec = shownTotalSec = -1;
+        takeNameShown = false;
+        if (takeNameText != null) takeNameText.text = "";
+        if (progressRing != null) progressRing.fillAmount = 0f;
+
+        // The overlay is opaque and full-screen — in Screen-source mode it would
+        // BE the recording. Camera source (the default) renders off-screen.
+        bool screenCapture = RecorderCapturesScreen();
+        if (screenCapture)
+            Debug.LogWarning("[RecordingSession] Recorder is in Screen source mode — the full-screen progress " +
+                             "overlay would be recorded, so it stays hidden for this take.");
+        SetIndicatorVisible(!screenCapture);
         StartCoroutine(SubscribeWhenReady());
+    }
+
+    static bool RecorderCapturesScreen()
+    {
+        var recorder = FindAnyObjectByType<CrossPlatformRecorder>(FindObjectsInactive.Include);
+        return recorder != null && recorder.recordingSource == CrossPlatformRecorder.RecordingSource.Screen;
     }
 
     void LeaveRecordingScene()
@@ -989,13 +1025,43 @@ public class RecordingSession : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
-    // Indicator UI — Screen Space Overlay so Camera-source recording skips it
+    // Indicator UI — a full-screen, fully opaque Screen Space Overlay.
+    //
+    // Opaque on purpose: while capturing, the window behind it only shows
+    // Evereal's live-preview blit, which flickers badly on Linux/GL (the
+    // recorded file is clean — the capture camera renders off-screen into its
+    // own texture). Covering every pixel every frame hides that, and Overlay UI
+    // never reaches a Camera-source capture. Nothing on it takes input
+    // (raycastTarget off), so it never swallows clicks meant for the scene.
+    //
+    //   ● RECORDING                                  COLD_OPEN_STITCHED_…
+    //
+    //                         ╭─────────╮
+    //                        │    42%    │   ← ring fills with the take;
+    //                        │ 03:21/07:58│     a thin arc circles it
+    //                         ╰─────────╯
+    //                     Recording the take
+    //                      4:37 remaining
+    //
+    //     The video is recorded off-screen — this screen is not part of it.
     // -----------------------------------------------------------------------
+
+    static readonly Color OverlayBackground = new Color(0.055f, 0.063f, 0.082f, 1f);
+    static readonly Color RecordRed         = new Color(1f, 0.32f, 0.28f, 1f);
+    static readonly Color StandbyAmber      = new Color(1f, 0.76f, 0.34f, 1f);
+    static readonly Color TextPrimary       = new Color(0.95f, 0.96f, 0.98f, 1f);
+    static readonly Color TextMuted         = new Color(0.60f, 0.64f, 0.72f, 1f);
+    static readonly Color TextFaint         = new Color(0.40f, 0.43f, 0.50f, 1f);
+
+    const float RingDiameter = 460f;
+    static readonly Vector2 Center = new Vector2(0.5f, 0.5f);
+    static readonly Vector2 RingCenter = new Vector2(0f, 40f);
 
     void BuildIndicator()
     {
         indicatorRoot = new GameObject("RecordingIndicatorCanvas", typeof(RectTransform));
-        DontDestroyOnLoad(indicatorRoot);
+        // Edit mode too: the editor's overlay preview (RecordingOverlayPreview) builds it.
+        if (Application.isPlaying) DontDestroyOnLoad(indicatorRoot);
 
         Canvas canvas = indicatorRoot.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -1004,88 +1070,108 @@ public class RecordingSession : MonoBehaviour
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920, 1080);
         scaler.matchWidthOrHeight = 0.5f;
-        indicatorRoot.AddComponent<GraphicRaycaster>();
+        Transform root = indicatorRoot.transform;
 
-        GameObject plate = new GameObject("Plate", typeof(RectTransform));
-        plate.transform.SetParent(indicatorRoot.transform, false);
-        Image plateImg = plate.AddComponent<Image>();
-        plateImg.sprite = GetSolidSprite();
-        plateImg.type   = Image.Type.Simple;
-        plateImg.color  = new Color(0f, 0f, 0f, 0.65f);
-        RectTransform plateRect = plateImg.rectTransform;
-        plateRect.anchorMin = new Vector2(1f, 0f);
-        plateRect.anchorMax = new Vector2(1f, 0f);
-        plateRect.pivot     = new Vector2(1f, 0f);
-        plateRect.anchoredPosition = new Vector2(-40f, 40f);
-        plateRect.sizeDelta = new Vector2(560f, 150f);
+        // Backdrop: solid, edge to edge — plus a soft glow behind the ring.
+        Stretch(AddImage(root, "Backdrop", GetSolidSprite(), OverlayBackground).rectTransform);
+        glowImage = AddImage(root, "Glow", GetGlowSprite(), Color.clear);
+        Place(glowImage.rectTransform, Center, RingCenter, new Vector2(1150f, 1150f));
 
-        GameObject spinObj = new GameObject("Spinner", typeof(RectTransform));
-        spinObj.transform.SetParent(plate.transform, false);
-        spinnerImage = spinObj.AddComponent<Image>();
-        spinnerImage.sprite = GetRingSprite();
-        spinnerImage.type       = Image.Type.Filled;
-        spinnerImage.fillMethod = Image.FillMethod.Radial360;
-        spinnerImage.fillOrigin = (int)Image.Origin360.Top;
-        // fillAmount is driven each frame by UpdateProgressPercent — starts
-        // empty and grows to a full circle as the take progresses 0%→100%.
-        spinnerImage.fillClockwise = true;
-        spinnerImage.fillAmount = 0f;
-        spinnerImage.color      = new Color(1f, 0.32f, 0.28f, 1f);
-        RectTransform spinRect = spinnerImage.rectTransform;
-        spinRect.anchorMin = new Vector2(0f, 0.5f);
-        spinRect.anchorMax = new Vector2(0f, 0.5f);
-        spinRect.pivot     = new Vector2(0.5f, 0.5f);
-        spinRect.anchoredPosition = new Vector2(65f, 0f);
-        spinRect.sizeDelta = new Vector2(74f, 74f);
+        // Header: phase dot + label (top-left), take name (top-right).
+        recDot = AddImage(root, "RecDot", GetDiskSprite(), StandbyAmber);
+        Place(recDot.rectTransform, new Vector2(0f, 1f), new Vector2(92f, -84f), new Vector2(22f, 22f));
+        stateText = AddText(root, "State", "PREPARING", 28, FontStyle.Bold, TextPrimary, TextAnchor.MiddleLeft);
+        Place(stateText.rectTransform, new Vector2(0f, 1f), new Vector2(120f, -84f), new Vector2(600f, 40f), new Vector2(0f, 0.5f));
+        takeNameText = AddText(root, "TakeName", "", 22, FontStyle.Normal, TextMuted, TextAnchor.MiddleRight);
+        Place(takeNameText.rectTransform, new Vector2(1f, 1f), new Vector2(-80f, -84f), new Vector2(1000f, 40f), new Vector2(1f, 0.5f));
 
-        GameObject dotObj = new GameObject("RecDot", typeof(RectTransform));
-        dotObj.transform.SetParent(plate.transform, false);
-        recDot = dotObj.AddComponent<Image>();
-        recDot.sprite = GetDiskSprite();
-        recDot.color  = new Color(1f, 0.18f, 0.18f, 1f);
-        RectTransform dotRect = recDot.rectTransform;
-        dotRect.anchorMin = new Vector2(0f, 0.5f);
-        dotRect.anchorMax = new Vector2(0f, 0.5f);
-        dotRect.pivot     = new Vector2(0.5f, 0.5f);
-        dotRect.anchoredPosition = new Vector2(65f, 0f);
-        dotRect.sizeDelta = new Vector2(26f, 26f);
+        // Progress ring: faint track, red fill growing clockwise from the top
+        // with the take, and a thin arc circling outside it so the screen
+        // visibly lives even while the percentage sits still (e.g. preparing).
+        Image track = AddImage(root, "RingTrack", GetProgressRingSprite(), new Color(1f, 1f, 1f, 0.035f));
+        Place(track.rectTransform, Center, RingCenter, new Vector2(RingDiameter, RingDiameter));
 
-        GameObject textObj = new GameObject("Label", typeof(RectTransform));
-        textObj.transform.SetParent(plate.transform, false);
-        headerText = textObj.AddComponent<Text>();
-        headerText.text = "RECORDING\nScene capture in progress…";
-        headerText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        headerText.fontSize = 24;
-        headerText.color = Color.white;
-        headerText.alignment = TextAnchor.MiddleLeft;
-        headerText.horizontalOverflow = HorizontalWrapMode.Overflow;
-        headerText.verticalOverflow   = VerticalWrapMode.Overflow;
-        RectTransform textRect = headerText.rectTransform;
-        textRect.anchorMin = new Vector2(0f, 0f);
-        textRect.anchorMax = new Vector2(1f, 1f);
-        textRect.offsetMin = new Vector2(125f, 10f);
-        textRect.offsetMax = new Vector2(-140f, -10f);
+        progressRing = AddImage(root, "RingFill", GetProgressRingSprite(), RecordRed);
+        progressRing.type          = Image.Type.Filled;
+        progressRing.fillMethod    = Image.FillMethod.Radial360;
+        progressRing.fillOrigin    = (int)Image.Origin360.Top;
+        progressRing.fillClockwise = true;
+        progressRing.fillAmount    = 0f;
+        Place(progressRing.rectTransform, Center, RingCenter, new Vector2(RingDiameter, RingDiameter));
 
-        // Big percentage on the right — updated each frame in Update() from the
-        // currently-playing narration AudioSource. Bold amber to stand apart
-        // from the white header text.
-        GameObject pctObj = new GameObject("Percent", typeof(RectTransform));
-        pctObj.transform.SetParent(plate.transform, false);
-        percentText = pctObj.AddComponent<Text>();
-        percentText.text = "0%";
-        percentText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        percentText.fontSize = 44;
-        percentText.fontStyle = FontStyle.Bold;
-        percentText.color = new Color(1f, 0.85f, 0.35f, 1f);
-        percentText.alignment = TextAnchor.MiddleRight;
-        percentText.horizontalOverflow = HorizontalWrapMode.Overflow;
-        percentText.verticalOverflow   = VerticalWrapMode.Overflow;
-        RectTransform pctRect = percentText.rectTransform;
-        pctRect.anchorMin = new Vector2(1f, 0.5f);
-        pctRect.anchorMax = new Vector2(1f, 0.5f);
-        pctRect.pivot     = new Vector2(1f, 0.5f);
-        pctRect.anchoredPosition = new Vector2(-18f, 0f);
-        pctRect.sizeDelta = new Vector2(130f, 60f);
+        Image arc = AddImage(root, "ActivityArc", GetThinRingSprite(), new Color(1f, 1f, 1f, 0.30f));
+        arc.type          = Image.Type.Filled;
+        arc.fillMethod    = Image.FillMethod.Radial360;
+        arc.fillOrigin    = (int)Image.Origin360.Top;
+        arc.fillClockwise = true;
+        arc.fillAmount    = 0.08f;
+        Place(arc.rectTransform, Center, RingCenter, new Vector2(RingDiameter + 56f, RingDiameter + 56f));
+        activityArc = arc.rectTransform;
+
+        // Inside the ring: big percentage over elapsed / total.
+        percentText = AddText(root, "Percent", "0%", 120, FontStyle.Bold, TextPrimary, TextAnchor.MiddleCenter);
+        Place(percentText.rectTransform, Center, RingCenter + new Vector2(0f, 22f), new Vector2(420f, 150f));
+        timeText = AddText(root, "Time", "--:-- / --:--", 30, FontStyle.Normal, TextMuted, TextAnchor.MiddleCenter);
+        Place(timeText.rectTransform, Center, RingCenter + new Vector2(0f, -80f), new Vector2(420f, 44f));
+
+        // Under the ring: what is happening, and how long is left.
+        statusText = AddText(root, "Status", "", 36, FontStyle.Normal, TextPrimary, TextAnchor.MiddleCenter);
+        Place(statusText.rectTransform, Center, new Vector2(0f, -272f), new Vector2(1400f, 50f));
+        remainingText = AddText(root, "Remaining", "", 26, FontStyle.Normal, TextMuted, TextAnchor.MiddleCenter);
+        Place(remainingText.rectTransform, Center, new Vector2(0f, -320f), new Vector2(1400f, 40f));
+
+        Text hint = AddText(root, "Hint",
+            "The video is recorded off-screen \u2014 this screen is not part of it.\n" +
+            "Leave the window open; it returns to the menu when the take is finished.",
+            22, FontStyle.Normal, TextFaint, TextAnchor.MiddleCenter);
+        Place(hint.rectTransform, new Vector2(0.5f, 0f), new Vector2(0f, 90f), new Vector2(1600f, 70f));
+
+        ApplyIndicatorPhase(IndicatorPhase.Preparing);
+    }
+
+    static Image AddImage(Transform parent, string name, Sprite sprite, Color color)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        Image image = go.AddComponent<Image>();
+        image.sprite = sprite;
+        image.color = color;
+        image.raycastTarget = false;
+        return image;
+    }
+
+    static Text AddText(Transform parent, string name, string value, int size, FontStyle style, Color color, TextAnchor alignment)
+    {
+        var go = new GameObject(name, typeof(RectTransform));
+        go.transform.SetParent(parent, false);
+        Text text = go.AddComponent<Text>();
+        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.text = value;
+        text.fontSize = size;
+        text.fontStyle = style;
+        text.color = color;
+        text.alignment = alignment;
+        text.horizontalOverflow = HorizontalWrapMode.Overflow;
+        text.verticalOverflow   = VerticalWrapMode.Overflow;
+        text.raycastTarget = false;
+        return text;
+    }
+
+    static void Place(RectTransform rect, Vector2 anchor, Vector2 position, Vector2 size, Vector2? pivot = null)
+    {
+        rect.anchorMin = anchor;
+        rect.anchorMax = anchor;
+        rect.pivot = pivot ?? new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = position;
+        rect.sizeDelta = size;
+    }
+
+    static void Stretch(RectTransform rect)
+    {
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
     }
 
     void SetIndicatorVisible(bool visible)
@@ -1097,24 +1183,94 @@ public class RecordingSession : MonoBehaviour
     {
         if (indicatorRoot == null || !indicatorRoot.activeSelf) return;
 
-        if (spinnerImage != null)
-            spinnerImage.rectTransform.Rotate(0f, 0f, -220f * Time.unscaledDeltaTime);
+        UpdateProgressPercent();
 
-        if (recDot != null)
+        bool capturing = capture != null && capture.status == CaptureStatus.STARTED;
+        bool narrating = voiceAudio != null && voiceAudio.isPlaying;
+        IndicatorPhase phase =
+            !capturing || (!narrating && displayedPercent <= 0f) ? IndicatorPhase.Preparing
+            : !narrating && displayedPercent >= 99f              ? IndicatorPhase.WrappingUp
+            :                                                      IndicatorPhase.Recording;
+
+        if (activityArc != null)
+            activityArc.Rotate(0f, 0f, -150f * Time.unscaledDeltaTime);
+
+        // The take's file name is only set once capture has started.
+        if (!takeNameShown && capturing && takeNameText != null)
         {
-            float pulse = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 2.4f));
-            Color c = recDot.color;
-            c.a = pulse;
-            recDot.color = c;
+            takeNameShown = true;
+            if (FFmpegMuxer.singleton != null && !string.IsNullOrEmpty(FFmpegMuxer.singleton.customFileName))
+                takeNameText.text = FFmpegMuxer.singleton.customFileName;
         }
 
-        UpdateProgressPercent();
+        ApplyIndicatorPhase(phase);
     }
 
-    // Drives the 0%-100% readout AND the spinner ring fill on the recording
-    // indicator. Progress is measured against audio playback (voiceAudio.time
-    // / clip.length) so it tracks the actual narrative length the user will
-    // see in the output.
+    // Phase colours and the readouts. Amber only while preparing — wrapping up
+    // is still capturing, so it keeps the pulsing red dot. The texts are
+    // rebuilt only when something visible changed.
+    void ApplyIndicatorPhase(IndicatorPhase phase)
+    {
+        bool capturing = phase != IndicatorPhase.Preparing;
+        Color phaseColor = capturing ? RecordRed : StandbyAmber;
+        if (glowImage != null)
+            glowImage.color = new Color(phaseColor.r, phaseColor.g, phaseColor.b, 0.08f);
+        if (recDot != null)
+        {
+            phaseColor.a = capturing ? 0.45f + 0.55f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 2.4f)) : 1f;
+            recDot.color = phaseColor;
+        }
+
+        int percent    = phase == IndicatorPhase.WrappingUp ? 100 : Mathf.FloorToInt(displayedPercent);
+        int totalSec   = Mathf.FloorToInt(clipLengthSec);
+        int elapsedSec = phase == IndicatorPhase.WrappingUp
+            ? totalSec
+            : Mathf.FloorToInt(clipLengthSec * displayedPercent * 0.01f);
+
+        if (phase == shownPhase && percent == shownPercent &&
+            elapsedSec == shownElapsedSec && totalSec == shownTotalSec)
+            return;
+        shownPhase = phase;
+        shownPercent = percent;
+        shownElapsedSec = elapsedSec;
+        shownTotalSec = totalSec;
+
+        bool clipKnown = totalSec > 0;
+        percentText.text = percent + "%";
+        timeText.text = clipKnown ? FormatTime(elapsedSec) + " / " + FormatTime(totalSec) : "--:-- / --:--";
+
+        switch (phase)
+        {
+            case IndicatorPhase.Preparing:
+                stateText.text = "PREPARING";
+                statusText.text = "Getting the scene ready\u2026";
+                remainingText.text = "";
+                break;
+            case IndicatorPhase.Recording:
+                stateText.text = "RECORDING";
+                statusText.text = "Recording the take";
+                remainingText.text = clipKnown ? FormatTime(totalSec - elapsedSec) + " remaining" : "";
+                break;
+            case IndicatorPhase.WrappingUp:
+                stateText.text = "WRAPPING UP";
+                statusText.text = "Letting the last visuals play out\u2026";
+                remainingText.text = "";
+                break;
+        }
+    }
+
+    static string FormatTime(int seconds)
+    {
+        seconds = Mathf.Max(0, seconds);
+        return seconds >= 3600
+            ? (seconds / 3600) + ":" + (seconds / 60 % 60).ToString("00") + ":" + (seconds % 60).ToString("00")
+            : (seconds / 60).ToString("00") + ":" + (seconds % 60).ToString("00");
+    }
+
+    // Drives the progress ring (and, via RefreshIndicatorTexts, the readouts).
+    // Progress is measured against audio playback (voiceAudio.time /
+    // clip.length — one stitched clip for the whole take) so it tracks the
+    // actual narrative length the user will see in the output.
     //
     // State machine:
     //   - Before playback: 0%
@@ -1123,8 +1279,6 @@ public class RecordingSession : MonoBehaviour
     //     100% once capture is handed off (the "generating video" phase).
     void UpdateProgressPercent()
     {
-        if (percentText == null) return;
-
         // If our voiceAudio reference is unusable (null, destroyed, or its
         // clip hasn't been assigned yet), try to re-acquire from the systems
         // that actually own the narration AudioSource. The reference cached
@@ -1140,6 +1294,7 @@ public class RecordingSession : MonoBehaviour
 
         if (voiceAudio != null && voiceAudio.clip != null && voiceAudio.clip.length > 0f)
         {
+            clipLengthSec = voiceAudio.clip.length;
             float fraction = Mathf.Clamp01(voiceAudio.time / voiceAudio.clip.length);
             float live = fraction * 100f;
 
@@ -1166,12 +1321,8 @@ public class RecordingSession : MonoBehaviour
         }
 
         displayedPercent = Mathf.Clamp(pct, 0f, 100f);
-        percentText.text = Mathf.RoundToInt(displayedPercent) + "%";
-
-        // Drive the ring fill so the spinner visually loads from empty to full
-        // alongside the percent readout.
-        if (spinnerImage != null)
-            spinnerImage.fillAmount = displayedPercent * 0.01f;
+        if (progressRing != null)
+            progressRing.fillAmount = displayedPercent * 0.01f;
     }
 
     // Walks the scene for the AudioSource that's actually carrying the
@@ -1414,7 +1565,12 @@ public class RecordingSession : MonoBehaviour
 
     static string GetBundledFfmpegPath()
     {
-#if UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
+#if UNITY_EDITOR_LINUX || (UNITY_STANDALONE_LINUX && !UNITY_EDITOR)
+        // LINUX: the system ffmpeg Evereal's recorder resolved (pref → bundled →
+        // PATH), as a FULL path — every caller File.Exists()es it, which the bare
+        // "ffmpeg" below would always fail, silently disabling the mux fallback.
+        return FFmpegConfig.path;
+#elif UNITY_STANDALONE_WIN || UNITY_EDITOR_WIN
         return Path.Combine(Application.streamingAssetsPath, "FFmpeg", "x86_64", "ffmpeg.exe");
 #elif UNITY_STANDALONE_OSX || UNITY_EDITOR_OSX
         return Path.Combine(Application.streamingAssetsPath, "FFmpeg", "ffmpeg");
@@ -1435,28 +1591,67 @@ public class RecordingSession : MonoBehaviour
         return cachedSolidSprite;
     }
 
-    static Sprite GetRingSprite()
+    // Thick progress ring (track + fill), sized for the full-screen overlay.
+    static Sprite GetProgressRingSprite()
     {
-        if (cachedRingSprite != null) return cachedRingSprite;
-        const int size = 128;
-        Texture2D tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
-        tex.filterMode = FilterMode.Bilinear;
+        if (cachedProgressRingSprite == null) cachedProgressRingSprite = MakeRingSprite(512, 0.90f);
+        return cachedProgressRingSprite;
+    }
+
+    // Hairline ring for the activity arc circling the progress ring.
+    static Sprite GetThinRingSprite()
+    {
+        if (cachedThinRingSprite == null) cachedThinRingSprite = MakeRingSprite(512, 0.985f);
+        return cachedThinRingSprite;
+    }
+
+    // Anti-aliased white ring; innerRatio = inner radius / outer radius.
+    static Sprite MakeRingSprite(int size, float innerRatio)
+    {
         float r      = size * 0.5f;
-        float rOuter = r - 2f;
-        float rInner = r * 0.66f;
-        Color opaque = Color.white;
-        Color clear  = new Color(1, 1, 1, 0);
+        float rOuter = r - 1f;
+        float rInner = rOuter * innerRatio;
+        var pixels = new Color32[size * size];
         for (int y = 0; y < size; y++)
         for (int x = 0; x < size; x++)
         {
             float dx = x - r + 0.5f;
             float dy = y - r + 0.5f;
             float d  = Mathf.Sqrt(dx * dx + dy * dy);
-            tex.SetPixel(x, y, (d <= rOuter && d >= rInner) ? opaque : clear);
+            float a  = Mathf.Clamp01(rOuter - d + 0.5f) * Mathf.Clamp01(d - rInner + 0.5f);
+            pixels[y * size + x] = new Color32(255, 255, 255, (byte)(a * 255f));
         }
-        tex.Apply();
-        cachedRingSprite = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
-        return cachedRingSprite;
+        return SpriteFromPixels(size, pixels);
+    }
+
+    // Soft radial falloff, white at the centre to clear at the edge.
+    static Sprite GetGlowSprite()
+    {
+        if (cachedGlowSprite != null) return cachedGlowSprite;
+        const int size = 256;
+        float r = size * 0.5f;
+        var pixels = new Color32[size * size];
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            float dx = x - r + 0.5f;
+            float dy = y - r + 0.5f;
+            float falloff = Mathf.Clamp01(1f - Mathf.Sqrt(dx * dx + dy * dy) / r);
+            pixels[y * size + x] = new Color32(255, 255, 255, (byte)(falloff * falloff * 255f));
+        }
+        cachedGlowSprite = SpriteFromPixels(size, pixels);
+        return cachedGlowSprite;
+    }
+
+    static Sprite SpriteFromPixels(int size, Color32[] pixels)
+    {
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Bilinear;
+        tex.wrapMode   = TextureWrapMode.Clamp;
+        tex.hideFlags  = HideFlags.DontUnloadUnusedAsset;
+        tex.SetPixels32(pixels);
+        tex.Apply(false, true);
+        return Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
     }
 
     static Sprite GetDiskSprite()

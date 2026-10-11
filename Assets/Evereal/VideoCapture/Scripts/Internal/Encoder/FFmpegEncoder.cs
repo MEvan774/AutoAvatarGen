@@ -21,6 +21,7 @@ namespace Evereal.VideoCapture
   {
     #region Dll Import
 
+#if !(UNITY_EDITOR_LINUX || (UNITY_STANDALONE_LINUX && !UNITY_EDITOR)) // LINUX: native plugin ships for Windows/macOS only
     [DllImport("FFmpegEncoder")]
     private static extern IntPtr FFmpegEncoder_StartVodCapture(
       EncoderPreset preset,
@@ -94,6 +95,38 @@ namespace Evereal.VideoCapture
 
     [DllImport("FFmpegEncoder")]
     private static extern void FFmpegEncoder_CleanScreenshot(IntPtr api);
+#else
+    // LINUX: same names, forwarded to the managed ffmpeg-pipe backend (LinuxFFmpegNative.cs).
+    private static IntPtr FFmpegEncoder_StartVodCapture(
+      EncoderPreset preset, int width, int height, int bitrate, int frameRate, bool verticalFlip, bool horizontalFlip,
+      ProjectionType projectionType, StereoMode stereoMode, string videoPath, string ffmpegPath)
+      => LinuxFFmpegNative.StartVodCapture(preset, width, height, bitrate, frameRate, verticalFlip, horizontalFlip,
+        projectionType, stereoMode, videoPath, ffmpegPath);
+    private static bool FFmpegEncoder_CaptureVodFrames(IntPtr api, byte[] data, int count)
+      => LinuxFFmpegNative.CaptureVodFrames(api, data, count);
+    unsafe private static bool FFmpegEncoder_CaptureVodFrames(IntPtr api, byte* data, int count)
+      => LinuxFFmpegNative.CaptureVodFrames(api, data, count);
+    private static bool FFmpegEncoder_StopVodCapture(IntPtr api) => LinuxFFmpegNative.StopVodCapture(api);
+    private static void FFmpegEncoder_CleanVodCapture(IntPtr api) => LinuxFFmpegNative.CleanVodCapture(api);
+
+    // LINUX: live streaming and screenshots are not implemented — fail with a clear error.
+    private static IntPtr FFmpegEncoder_StartLiveCapture(
+      int width, int height, int bitrate, int frameRate, bool verticalFlip, bool horizontalFlip,
+      ProjectionType projectionType, StereoMode stereoMode, string videoPath, string ffmpegPath)
+      => LinuxFFmpegNative.Unsupported("Live streaming");
+    private static bool FFmpegEncoder_CaptureLiveFrames(IntPtr api, byte[] data, int count) => false;
+    unsafe private static bool FFmpegEncoder_CaptureLiveFrames(IntPtr api, byte* data, int count) => false;
+    private static bool FFmpegEncoder_StopLiveCapture(IntPtr api) => false;
+    static void FFmpegEncoder_CleanLiveCapture(IntPtr api) { }
+    private static IntPtr FFmpegEncoder_StartScreenshot(
+      int width, int height, bool verticalFlip, bool horizontalFlip,
+      ProjectionType projectionType, StereoMode stereoMode, string imagePath, string ffmpegPath)
+      => LinuxFFmpegNative.Unsupported("Screenshot capture");
+    private static bool FFmpegEncoder_CaptureScreenshot(IntPtr api, byte[] data) => false;
+    unsafe private static bool FFmpegEncoder_CaptureScreenshot(IntPtr api, byte* data) => false;
+    private static void FFmpegEncoder_StopScreenshot(IntPtr api) { }
+    private static void FFmpegEncoder_CleanScreenshot(IntPtr api) { }
+#endif
 
     #endregion
 

@@ -14,6 +14,7 @@ namespace Evereal.VideoCapture
   {
     #region Dll Import
 
+#if !(UNITY_EDITOR_LINUX || (UNITY_STANDALONE_LINUX && !UNITY_EDITOR)) // LINUX: native plugin ships for Windows/macOS only
     [DllImport("FFmpegEncoder")]
     private static extern IntPtr FFmpegEncoder_StartMuxingProcess(
       EncoderPreset preset,
@@ -41,6 +42,20 @@ namespace Evereal.VideoCapture
 
     [DllImport("FFmpegEncoder")]
     private static extern void FFmpegEncoder_CleanMuxingProcess(IntPtr api);
+#else
+    // LINUX: same names, forwarded to the managed ffmpeg backend (LinuxFFmpegNative.cs).
+    private static IntPtr FFmpegEncoder_StartMuxingProcess(
+      EncoderPreset preset, int bitrate, bool verticalFlip, bool horizontalFlip,
+      string mediaPath, string videoPath, string audioPpath, string ffmpegPath, bool isLive)
+      => LinuxFFmpegNative.StartMuxingProcess(preset, bitrate, verticalFlip, horizontalFlip,
+        mediaPath, videoPath, audioPpath, ffmpegPath, isLive);
+    private static IntPtr FFmpegEncoder_StartMuxingProcess2(
+      EncoderPreset preset, int bitrate, bool verticalFlip, bool horizontalFlip,
+      string mediaPath, string videoPath, string audioPpath, string audioPpath2, string ffmpegPath, bool isLive)
+      => LinuxFFmpegNative.StartMuxingProcess2(preset, bitrate, verticalFlip, horizontalFlip,
+        mediaPath, videoPath, audioPpath, audioPpath2, ffmpegPath, isLive);
+    private static void FFmpegEncoder_CleanMuxingProcess(IntPtr api) => LinuxFFmpegNative.CleanMuxingProcess(api);
+#endif
 
     #endregion
 
