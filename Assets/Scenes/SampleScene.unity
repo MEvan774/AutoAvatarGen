@@ -418,7 +418,9 @@ MonoBehaviour:
   - emotionName: ChinScratching
     sprite: {fileID: 21300000, guid: 0eaa40baa1db9db4cac3454b7afac1f2, type: 3}
   - emotionName: Smug
-    sprite: {fileID: 21300000, guid: 70cbe7b704c3fde489e1a3eb871783e5, type: 3}
+    sprite: {fileID: 21300000, guid: a765d369bbf49e8aa9ffb273c18bd532, type: 3}
+  - emotionName: SmugLookingAtViewer
+    sprite: {fileID: 21300000, guid: b84bfaf525cb9ddbc955065d47a833b1, type: 3}
   - emotionName: OpenPalmSide
     sprite: {fileID: 21300000, guid: 1c88fc1fe298e284b99414133774e1ac, type: 3}
   - emotionName: OpenPalmSideLookingAtViewer
@@ -435,6 +437,8 @@ MonoBehaviour:
     sprite: {fileID: 21300000, guid: 63fd0f4445511de489ecf62975c4e95e, type: 3}
   - emotionName: PointUpLookingAtViewer
     sprite: {fileID: 21300000, guid: 47bf9e78a3599884682e7384696435ec, type: 3}
+  - emotionName: Disgusted
+    sprite: {fileID: 21300000, guid: 7cf76869f07f1136fabff2960446563a, type: 3}
   timingOffset: 0
   useCrossfade: 1
   crossfadeDuration: 0.4
@@ -524,6 +528,7 @@ MonoBehaviour:
   transitionDuration: 1.5
   useHardCuts: 0
   mainCamera: {fileID: 236571324}
+  zoomDuration: 0.7
   zoomInMultiplier: 1.12
   extremeZoomMultiplier: 2
   extremeZoomFollowsCharacter: 1
@@ -552,6 +557,9 @@ MonoBehaviour:
   externalMediaRoot: 
   bRollSubfolder: BRoll
   imagesSubfolder: Images
+  ceoSubfolder: CEO
+  twitterPostsSubfolder: TwitterPosts
+  flagsSubfolder: Flags
   logosSubfolder: Logos
   videoPrepareTimeout: 10
 --- !u!114 &88322329
