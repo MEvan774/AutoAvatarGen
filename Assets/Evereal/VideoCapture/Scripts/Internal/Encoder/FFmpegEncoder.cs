@@ -154,6 +154,21 @@ namespace Evereal.VideoCapture
     // very next call in VideoCapture.StartCapture). Starting the video timeline
     // before the spawn would pad its head with frames the wav never heard.
     private double captureStartDspTime;
+    // PROJECT FIX (AutoAvatarGen): smoothed realtime pacing clock. dspTime only
+    // advances once per DSP buffer (1024 samples = 21.3ms at 48kHz), and reading
+    // it raw made the 33.3ms frame grid skip a frame and then double the next
+    // whenever a frame landed near a slot boundary — measured as ~14% duplicated
+    // frames, in bursts that recur every ~15s, most visible on sliding cards.
+    // The clock now runs on the high-resolution real clock (smooth per frame)
+    // plus a correction slowly steered toward dspTime, so it still cannot drift
+    // off the wav over a long take. See UpdateRealtimePacingClock().
+    private double captureStartRealTime;
+    private double lastPaceRealElapsed;
+    private double dspClockCorrection;
+    private const double DspClockSmoothingSeconds = 2.0;
+    // Pacing statistics, logged when the take stops.
+    private int paceExtraFrames;
+    private int paceSkippedFrames;
     // Frame statistics info.
     private int capturedFrameCount;
     private int encodedFrameCount;
@@ -433,6 +448,11 @@ namespace Evereal.VideoCapture
       // clock — AFTER the native spawn above, aligned with the AudioRecorder's
       // StartRecord that follows in VideoCapture.StartCapture. See Update().
       captureStartDspTime = AudioSettings.dspTime;
+      captureStartRealTime = Time.realtimeSinceStartupAsDouble;
+      lastPaceRealElapsed = 0.0;
+      dspClockCorrection = 0.0;
+      paceExtraFrames = 0;
+      paceSkippedFrames = 0;
 
       // Sync with ffmpeg encode thread.
       StartCoroutine(SyncFrameQueue());
@@ -472,6 +492,17 @@ namespace Evereal.VideoCapture
       //Debug.LogFormat(LOG_FORMAT, "FFmpegEncoder Stopped");
       //Debug.LogFormat(LOG_FORMAT, "CapturingTime: " + capturingTime);
       //Debug.LogFormat(LOG_FORMAT, "CapturedFrameCount: " + capturedFrameCount);
+
+      // PROJECT FIX (AutoAvatarGen): one line per take to check pacing health.
+      // Extra frames are duplicates written to catch up after a stall (or the
+      // engine running slightly slower than the recording rate); skipped frames
+      // are rendered frames dropped because the engine ran ahead.
+      if (!offlineRender)
+        Debug.LogFormat(LOG_FORMAT, string.Format(
+          "Pacing: {0} frames over {1:F2}s, {2} duplicate frames, {3} rendered frames skipped, " +
+          "audio-clock correction {4:F1}ms.",
+          capturedFrameCount, capturingTime, paceExtraFrames, paceSkippedFrames,
+          dspClockCorrection * 1000.0));
 
       return true;
     }
@@ -644,8 +675,8 @@ namespace Evereal.VideoCapture
       // clock, not on summed Time.deltaTime. The AudioRecorder's wav lives on
       // the audio hardware clock (OnAudioFilterRead), while Σ deltaTime drifts
       // off it under render load (measured ~0.4% long on a 3-minute take, i.e.
-      // the muxed video ran ~0.7s behind its own narration by the end). Deriving
-      // capturingTime from AudioSettings.dspTime puts frame pacing and the wav
+      // the muxed video ran ~0.7s behind its own narration by the end). Locking
+      // capturingTime to AudioSettings.dspTime puts frame pacing and the wav
       // on the SAME clock, so the muxed streams cannot drift apart. Offline
       // rendering and screenshots keep the original game-time accrual —
       // offline mode deliberately runs decoupled from real time.
@@ -655,14 +686,56 @@ namespace Evereal.VideoCapture
       }
       else
       {
-        capturingTime = (float)(AudioSettings.dspTime - captureStartDspTime);
+        UpdateRealtimePacingClock();
       }
-      int totalRequiredFrameCount = (int)(capturingTime / deltaFrameTime);
       // Skip frames if we already got enough
-      if (offlineRender || screenshotStarted || capturedFrameCount < totalRequiredFrameCount)
+      if (offlineRender || screenshotStarted || FramesOwed() > 0)
       {
         StartCoroutine(CaptureFrame());
       }
+      else
+      {
+        paceSkippedFrames++;
+      }
+    }
+
+    // PROJECT FIX (AutoAvatarGen): realtime capturingTime = the smooth real
+    // clock + a correction that a first-order filter steers toward the dsp
+    // clock. Over a few seconds the 21ms dspTime steps average out (residual
+    // ripple well under 1ms), while any steady rate difference between the two
+    // clocks is still tracked, so video and wav stay locked for the whole take.
+    private void UpdateRealtimePacingClock()
+    {
+      double realElapsed = Time.realtimeSinceStartupAsDouble - captureStartRealTime;
+      double dspElapsed = AudioSettings.dspTime - captureStartDspTime;
+
+      double step = realElapsed - lastPaceRealElapsed;
+      lastPaceRealElapsed = realElapsed;
+      double gain = Math.Min(1.0, Math.Max(0.0, step) / DspClockSmoothingSeconds);
+      dspClockCorrection += (dspElapsed - (realElapsed + dspClockCorrection)) * gain;
+
+      capturingTime = (float)(realElapsed + dspClockCorrection);
+    }
+
+    // PROJECT FIX (AutoAvatarGen): how many video frames the current rendered
+    // frame should be written as. The stock rule wrote floor(owed): steady on
+    // average, but owed sits near an integer for long stretches whenever the
+    // engine's ~30fps and the 30fps grid line up, and any jitter then flipped
+    // it between 0 and 2 — a dropped frame followed by a doubled one, i.e. a
+    // visible stutter on anything moving. Here a rendered frame is written
+    // exactly once while the video is within ±1 frame of the clock; only a
+    // real stall (duplicate to catch up) or running ahead (skip) leaves that
+    // band. The band is centred on the stock rule's average, so A/V sync is
+    // unchanged. Offline and screenshot capture keep the stock rule.
+    private int FramesOwed()
+    {
+      if (offlineRender || screenshotStarted)
+        return (int)(capturingTime / deltaFrameTime) - capturedFrameCount;
+
+      double owed = (double)capturingTime / deltaFrameTime - capturedFrameCount;
+      if (owed < 0.5) return 0;
+      if (owed < 2.5) return 1;
+      return (int)(owed - 0.5);
     }
 
     #endregion // Unity Lifecycle
@@ -806,10 +879,12 @@ namespace Evereal.VideoCapture
 
     private void EnqueueFrameBuffer(Texture2D texture)
     {
-      int totalRequiredFrameCount = (int)(capturingTime / deltaFrameTime);
-      int requiredFrameCount = totalRequiredFrameCount - capturedFrameCount;
+      // PROJECT FIX (AutoAvatarGen): same count rule as the Update decision.
+      int requiredFrameCount = FramesOwed();
       if (requiredFrameCount > 5)
         Debug.LogWarningFormat(LOG_FORMAT, "Dropped " + (requiredFrameCount - 1) + " frames, please consider lower the frame rate.");
+      if (requiredFrameCount > 1)
+        paceExtraFrames += requiredFrameCount - 1;
       byte[] buffer = texture.GetRawTextureData();
       lock (frameQueue)
       {
@@ -828,7 +903,7 @@ namespace Evereal.VideoCapture
 
       encodeReady.Set();
 
-      capturedFrameCount = totalRequiredFrameCount;
+      capturedFrameCount += requiredFrameCount;
 
       // Clean texture resources
       Destroy(texture);
@@ -857,8 +932,8 @@ namespace Evereal.VideoCapture
         return;
       }
 
-      int totalRequiredFrameCount = (int)(capturingTime / deltaFrameTime);
-      int requiredFrameCount = totalRequiredFrameCount - capturedFrameCount;
+      // PROJECT FIX (AutoAvatarGen): same count rule as the Update decision.
+      int requiredFrameCount = FramesOwed();
       if (requiredFrameCount > 5)
         Debug.LogWarningFormat(LOG_FORMAT, "Dropped " + (requiredFrameCount - 1) + " frames, please consider lower the frame rate.");
 
@@ -903,7 +978,9 @@ namespace Evereal.VideoCapture
         }
       }
 
-      capturedFrameCount = totalRequiredFrameCount;
+      if (requiredFrameCount > 1)
+        paceExtraFrames += requiredFrameCount - 1;
+      capturedFrameCount += requiredFrameCount;
 #endif
     }
 
