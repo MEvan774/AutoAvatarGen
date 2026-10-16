@@ -173,7 +173,7 @@ public class StatCard : ContentCard
                 value => numberText.text = prefix + FormatNumber(value) + suffix,
                 numericValue,
                 countUpDuration
-            ).SetEase(Ease.OutQuad);
+            ).SetEase(Ease.OutQuad).SetTarget(numberText); // so KillAllTweens finds it
         }
     }
 

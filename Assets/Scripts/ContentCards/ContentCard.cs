@@ -261,6 +261,22 @@ public abstract class ContentCard : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Kills every tween on this card before it is destroyed outright (a
+    /// transition clear or a {Zoom:ExtremeIn} cut): the show/hide sequence,
+    /// the idle float, and the loose per-element tweens some cards start
+    /// alongside it (Quote marks, Logo pop, Stat arrow and count-up), so
+    /// nothing keeps animating the destroyed hierarchy. Never fires
+    /// OnHideComplete.
+    /// </summary>
+    public void KillAllTweens()
+    {
+        KillCurrentSequence();
+        StopIdleFloat();
+        foreach (Component c in GetComponentsInChildren<Component>(true))
+            if (c != null) DOTween.Kill(c);
+    }
+
     protected void KillCurrentSequence()
     {
         if (currentSequence != null && currentSequence.IsActive())

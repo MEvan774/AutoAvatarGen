@@ -104,6 +104,14 @@ public class MediaPresentationSystem : MonoBehaviour
              "Sprite Size, so one offset frames them all.")]
     public Vector2 extremeZoomFaceOffset = new Vector2(0f, 2.69f);
 
+    [Tooltip("{Zoom:ExtremeIn} cuts every card and {Image:}/{Video:} away on the camera snap's " +
+             "frame. Writers stack the open visual's End tag, {Position:Center,Cut} and the " +
+             "ExtremeIn on the same word, and those can fire a frame or two apart — so a fade, " +
+             "End or dismissal that comes due within this many seconds of an ExtremeIn is " +
+             "left for the cut instead of starting a visible fade in the wide shot.")]
+    [Range(0f, 0.3f)]
+    public float closeUpCutWindow = 0.1f;
+
     [Header("Pullback Effect ({Zoom:Pullback})")]
     [Tooltip("Initial wide framing — orthographicSize is snapped to defaultSize * this on trigger.")]
     [Range(1.1f, 4f)]
@@ -240,6 +248,35 @@ public class MediaPresentationSystem : MonoBehaviour
             if (Mathf.Abs(z.triggerTime - time) <= window) return true;
         }
         return false;
+    }
+
+    /// <summary>True while a {Zoom:ExtremeIn} close-up is held (until its ExtremeOut).</summary>
+    public bool IsCloseUpHeld => !float.IsNaN(extremeRestoreSize);
+
+    /// <summary>
+    /// True when a {Zoom:ExtremeIn} that hasn't fired yet is due within
+    /// <see cref="closeUpCutWindow"/> of the narration clock. Anything about to
+    /// fade or close now is left for that cut, so it vanishes on the camera
+    /// snap's frame rather than starting a fade a frame or two early. Goes
+    /// false the moment the ExtremeIn fires — or, if it never does, once the
+    /// window has passed, so a caller waiting on it always gets released.
+    /// </summary>
+    public bool IsCloseUpCutImminent
+    {
+        get
+        {
+            if (closeUpCutWindow <= 0f || zoomMarkers == null ||
+                voiceAudio == null || !voiceAudio.isPlaying) return false;
+
+            float now = voiceAudio.time;
+            for (int i = lastTriggeredZoomMarker + 1; i < zoomMarkers.Count; i++)
+            {
+                var z = zoomMarkers[i];
+                if (z.zoomType == ZoomType.ExtremeIn &&
+                    Mathf.Abs(z.triggerTime - now) <= closeUpCutWindow) return true;
+            }
+            return false;
+        }
     }
 
     /// <summary>
@@ -389,6 +426,39 @@ public class MediaPresentationSystem : MonoBehaviour
     /// belongs to ends. No-op when nothing is showing.
     /// </summary>
     public void DismissActiveMedia() => mediaDismissToken++;
+
+    // Bumped by every {Zoom:ExtremeIn} cut. Unlike mediaDismissToken it is
+    // also watched by a timed {Image:} (which ignores ordinary dismissals) and
+    // by a {Video:} still preparing, so nothing the close-up cut away can
+    // finish its beat or appear late on top of his face.
+    private int closeUpCutCount;
+
+    // The {Zoom:ExtremeIn} jump cut: everything in the content zone and the
+    // media slot goes on this frame, with no fade. The camera snap that follows
+    // in ApplyZoom happens on the same frame. The black panel and the future
+    // timeline are untouched — later cards and media still fire normally (and
+    // are blocked only while the close-up is actually held).
+    void CutAwayVisualsForCloseUp()
+    {
+        if (contentZoneController != null)
+            contentZoneController.CutForCloseUp();
+
+        bool mediaOnScreen = isShowingMedia;
+        closeUpCutCount++;
+        DismissActiveMedia();
+
+        // The media coroutine notices the token on its next frame and runs its
+        // normal teardown — hide the slot now so it isn't in the close-up's
+        // first frame. Its shadow follows in LateUpdate, still this frame.
+        if (mediaEntrySequence != null && mediaEntrySequence.IsActive())
+            mediaEntrySequence.Kill();
+        mediaEntrySequence = null;
+        if (mediaDisplay != null && mediaDisplay.gameObject.activeSelf)
+            mediaDisplay.gameObject.SetActive(false);
+
+        if (mediaOnScreen)
+            Debug.Log("[Zoom] ExtremeIn cut the on-screen media away.");
+    }
 
     // True once the NEXT {Image:}/{Video:} marker's trigger time has arrived —
     // the third thing that supersedes a clip. Checking it here (rather than
@@ -1002,6 +1072,10 @@ public class MediaPresentationSystem : MonoBehaviour
         // ramp to accidentally ease.
         if (type == ZoomType.ExtremeIn)
         {
+            // A jump cut, so every card and media item goes with it — on this
+            // frame, no fade — and stays gone through ExtremeOut.
+            CutAwayVisualsForCloseUp();
+
             // Only capture when nothing is held, so a doubled ExtremeIn can't
             // overwrite the real framing with the already-zoomed one.
             if (float.IsNaN(extremeRestoreSize))
@@ -1520,6 +1594,12 @@ public class MediaPresentationSystem : MonoBehaviour
                             continue;
                         }
 
+                        if (BlockedByCloseUp(mediaMarkers[i]))
+                        {
+                            lastTriggeredMediaMarker = i;
+                            continue;
+                        }
+
                         Debug.Log($"Triggering media: {mediaMarkers[i].mediaName} at {currentTime:F2}s");
 
                         if (currentMediaCoroutine != null)
@@ -1546,7 +1626,7 @@ public class MediaPresentationSystem : MonoBehaviour
             for (int i = lastTriggeredMediaMarker + 1; i < mediaMarkers.Count; i++)
             {
                 // A trailing {Video:End} has nothing left to close — skip it.
-                if (mediaMarkers[i].endsMedia)
+                if (mediaMarkers[i].endsMedia || BlockedByCloseUp(mediaMarkers[i]))
                 {
                     lastTriggeredMediaMarker = i;
                     continue;
@@ -1558,6 +1638,20 @@ public class MediaPresentationSystem : MonoBehaviour
                 lastTriggeredMediaMarker = i;
             }
         }
+    }
+
+    // Nothing is shown over the extreme close-up — scripts never place media
+    // between ExtremeIn and ExtremeOut, so one that comes due there is a script
+    // mistake: skip it rather than put it over his face.
+    // Also blocks one due a frame or two before the cut, which would only
+    // flash up and be cut away.
+    bool BlockedByCloseUp(MediaMarkerData marker)
+    {
+        if (!IsCloseUpHeld && !IsCloseUpCutImminent) return false;
+        string tag = marker.mediaType == MediaType.IMAGE ? "Image" : "Video";
+        Debug.LogWarning($"{{{tag}:{marker.mediaName}}} came due on a {{Zoom:ExtremeIn}} " +
+                         "close-up — blocked. Move it outside the ExtremeIn…ExtremeOut pair.");
+        return true;
     }
 
     // -----------------------------------------------------------------------
@@ -1652,6 +1746,7 @@ public class MediaPresentationSystem : MonoBehaviour
         // frames. Activating up front is what flashed a white box before each
         // clip. Each branch calls ShowDisplay() once it has a real texture.
         Texture2D loadedDiskTexture = null;
+        int cutCount = closeUpCutCount;
 
         if (marker.mediaType == MediaType.IMAGE)
         {
@@ -1714,8 +1809,15 @@ public class MediaPresentationSystem : MonoBehaviour
                     float heldElapsed = 0f;
                     while (true)
                     {
-                        if (mediaDismissToken != token) break;   // position change / card
-                        if (NextMediaMarkerDue())       break;   // {Image:End} or next media
+                        if (closeUpCutCount != cutCount) break;  // {Zoom:ExtremeIn} cut it away
+
+                        // An end that lands right on an ExtremeIn waits for the
+                        // cut, so the image goes on the camera snap's frame.
+                        if (!IsCloseUpCutImminent)
+                        {
+                            if (mediaDismissToken != token) break;   // position change / card
+                            if (NextMediaMarkerDue())       break;   // {Image:End} or next media
+                        }
 
                         // Narration over (an End tag on the final words can no
                         // longer fire — same end-of-audio race as the cards):
@@ -1733,7 +1835,16 @@ public class MediaPresentationSystem : MonoBehaviour
                 else
                 {
                     Debug.Log($"Displaying image: {marker.mediaName} for {hold}s");
-                    yield return new WaitForSeconds(hold);
+
+                    // Holds for its duration, unaffected by ordinary dismissals
+                    // as before — only a {Zoom:ExtremeIn} cut ends it early, and
+                    // an expiry right on one waits for that cut.
+                    float shown = 0f;
+                    while ((shown < hold || IsCloseUpCutImminent) && closeUpCutCount == cutCount)
+                    {
+                        shown += Time.deltaTime;
+                        yield return null;
+                    }
                 }
             }
             else
@@ -1791,13 +1902,22 @@ public class MediaPresentationSystem : MonoBehaviour
                 // this coroutine returns — an unbounded loop would hold the
                 // take open and stall the recorder waiting on it.
                 float prepareElapsed = 0f;
-                while (!videoPlayer.isPrepared && prepareElapsed < videoPrepareTimeout)
+                while (!videoPlayer.isPrepared && prepareElapsed < videoPrepareTimeout &&
+                       closeUpCutCount == cutCount)
                 {
                     prepareElapsed += Time.unscaledDeltaTime;
                     yield return null;
                 }
 
-                if (videoPlayer.isPrepared)
+                // A {Zoom:ExtremeIn} while the clip was preparing cut it away
+                // before it was ever on screen — don't let it appear late.
+                bool cutWhilePreparing = closeUpCutCount != cutCount;
+                if (cutWhilePreparing)
+                {
+                    Debug.Log($"Video '{marker.mediaName}' was cut away by {{Zoom:ExtremeIn}} " +
+                              "while preparing — not shown.");
+                }
+                else if (videoPlayer.isPrepared)
                 {
                     MuteAudioTracks(videoPlayer);
 
@@ -1851,8 +1971,15 @@ public class MediaPresentationSystem : MonoBehaviour
                             break;
                         }
 
-                        if (mediaDismissToken != token) break;   // position change / card
-                        if (NextMediaMarkerDue())         break;   // next clip is due
+                        if (closeUpCutCount != cutCount) break;    // {Zoom:ExtremeIn} cut it away
+
+                        // An end that lands right on an ExtremeIn waits for the
+                        // cut, so the clip goes on the camera snap's frame.
+                        if (!IsCloseUpCutImminent)
+                        {
+                            if (mediaDismissToken != token) break;   // position change / card
+                            if (NextMediaMarkerDue())         break;   // next clip is due
+                        }
 
                         // Narration over: hold the authored minimum, then stop so
                         // the recorder isn't kept open by a clip nothing will end.
@@ -2656,6 +2783,8 @@ public class MediaPresentationSystem : MonoBehaviour
                     DismissActiveMedia();
                     continue;
                 }
+                if (BlockedByCloseUp(m.mediaMarkers[i]))
+                    continue;
                 if (currentMediaCoroutine != null)
                     StopCoroutine(currentMediaCoroutine);
                 currentMediaCoroutine = StartCoroutine(ShowMedia(m.mediaMarkers[i]));

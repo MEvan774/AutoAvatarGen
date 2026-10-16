@@ -56,6 +56,11 @@ public class ContentZoneController : MonoBehaviour
     // word — which used to clobber so only the last one showed.
     private readonly Queue<ContentCardEvent> cardQueue = new Queue<ContentCardEvent>();
 
+    // Held cards a {Zoom:ExtremeIn} cut away (or blocked) before their
+    // {Tag:End} arrived. That End is then expected, not a script error, so it
+    // is consumed as a quiet no-op instead of a warning.
+    private readonly HashSet<ContentCardType> closeUpCutHeldTypes = new HashSet<ContentCardType>();
+
     // Lazily-built mirror of `contentZone` on the right side of the screen. Side
     // cards tagged ",Right" rest here so they land on the right, mirroring how
     // default/",Left" cards sit in `contentZone` on the left.
@@ -205,6 +210,7 @@ public class ContentZoneController : MonoBehaviour
         lastTriggeredIndex = -1;
         isPaused = false;
         cardQueue.Clear();
+        closeUpCutHeldTypes.Clear();
 
         Debug.Log($"ContentZoneController: Timeline set with {events.Count} events");
     }
@@ -249,6 +255,7 @@ public class ContentZoneController : MonoBehaviour
                     // out later when a side position resumes).
                     if (isPaused && !IsFeatureCard(timeline[i].cardType))
                     {
+                        BlockIfInCloseUp(timeline[i]); // skipped either way — this names the mistake
                         lastTriggeredIndex = i;
                         continue;
                     }
@@ -275,6 +282,7 @@ public class ContentZoneController : MonoBehaviour
                 // Same rule as the live loop: while centered, only feature cards.
                 if (isPaused && !IsFeatureCard(timeline[i].cardType))
                 {
+                    BlockIfInCloseUp(timeline[i]);
                     lastTriggeredIndex = i;
                     continue;
                 }
@@ -330,10 +338,16 @@ public class ContentZoneController : MonoBehaviour
                 activeCardPersistent = false; // hand the close to the normal hide flow
                 HideCurrentCard();
             }
+            else if (closeUpCutHeldTypes.Remove(evt.cardType))
+                Debug.Log($"{{{evt.cardType}:End}} — the card was already cut away by " +
+                          "{Zoom:ExtremeIn}; nothing to close.");
             else if (!RemoveQueuedHeldCard(evt.cardType))
                 Debug.LogWarning($"{{{evt.cardType}:End}} fired with no {evt.cardType} on screen — ignored.");
             return;
         }
+
+        if (BlockIfInCloseUp(evt))
+            return;
 
         // Persistent BigText flow ({BigText:LINE}…{BigText:End}, no durations):
         // a line tag lands on the open BigText stack instead of queueing behind
@@ -365,6 +379,28 @@ public class ContentZoneController : MonoBehaviour
         hideAndShowCoroutine = StartCoroutine(HideAndShowSequence(evt, zone));
     }
 
+    // True while a {Zoom:ExtremeIn} close-up is held, or its cut is a frame or
+    // two away — anything shown now would be on top of his face, or flash up
+    // just to be cut.
+    private bool CloseUpCutComingOrHeld =>
+        mediaPresentationSystem != null &&
+        (mediaPresentationSystem.IsCloseUpHeld || mediaPresentationSystem.IsCloseUpCutImminent);
+
+    // Nothing appears over the extreme close-up. Scripts never place cards
+    // between ExtremeIn and ExtremeOut, so one that comes due there is a script
+    // mistake: block it (and say so) rather than put it over his face. End
+    // tags pass — closing something is always safe.
+    private bool BlockIfInCloseUp(ContentCardEvent evt)
+    {
+        if (evt.dismissesCard || !CloseUpCutComingOrHeld) return false;
+
+        Debug.LogWarning($"{evt.cardType} card came due on a {{Zoom:ExtremeIn}} " +
+                         "close-up — blocked. Move it outside the ExtremeIn…ExtremeOut pair.");
+        if (evt.duration <= 0f)
+            closeUpCutHeldTypes.Add(evt.cardType); // so its End lands quietly
+        return true;
+    }
+
     /// <summary>
     /// Shows the next queued card once the current one has finished. While the
     /// timeline is paused (character centered) it skips — and drops — side cards
@@ -373,6 +409,16 @@ public class ContentZoneController : MonoBehaviour
     /// </summary>
     private void ShowNextQueued()
     {
+        // A {Zoom:ExtremeIn} is about to cut the zone and the queue goes with
+        // it — popping the next card now would flash it up for a frame or two
+        // before the snap. Cut the queue here instead.
+        if (cardQueue.Count > 0 && mediaPresentationSystem != null &&
+            mediaPresentationSystem.IsCloseUpCutImminent)
+        {
+            CutForCloseUp();
+            return;
+        }
+
         while (cardQueue.Count > 0)
         {
             ContentCardEvent next = cardQueue.Dequeue();
@@ -601,6 +647,11 @@ public class ContentZoneController : MonoBehaviour
             durationCoroutine = null;
         }
 
+        // An End (or an expiring duration) right on a {Zoom:ExtremeIn} is part
+        // of that cut: don't start a fade the close-up would chop mid-way.
+        if (LeaveForCloseUpCut(HideCurrentCard))
+            return;
+
         activeCard.OnHideComplete = () =>
         {
             if (activeCard != null)
@@ -633,8 +684,63 @@ public class ContentZoneController : MonoBehaviour
             ContentCard card = activeCard;
             activeCard = null;
             card.OnHideComplete = null;
+            card.KillAllTweens(); // nothing may keep animating the destroyed hierarchy
             Destroy(card.gameObject);
         }
+    }
+
+    /// <summary>
+    /// The {Zoom:ExtremeIn} jump cut: everything in the content zone — the
+    /// active card of any type and the whole queue behind it — goes on this
+    /// frame with no fade, exactly like a transition clear. Held cards cut
+    /// here are remembered so their later {Tag:End} is a quiet no-op, and
+    /// nothing comes back on ExtremeOut. The future timeline is untouched.
+    /// </summary>
+    public void CutForCloseUp()
+    {
+        // An active card still owed an End (one whose End was already handed
+        // to this cut cleared the flag), plus any held card waiting in the queue.
+        if (activeCard != null && activeCardPersistent)
+            closeUpCutHeldTypes.Add(activeCardType);
+        foreach (ContentCardEvent e in cardQueue)
+            if (e.duration <= 0f && !e.dismissesCard)
+                closeUpCutHeldTypes.Add(e.cardType);
+
+        if (activeCard != null || cardQueue.Count > 0)
+            Debug.Log($"ContentZoneController: {{Zoom:ExtremeIn}} cut away " +
+                      (activeCard != null ? $"the {activeCardType} card" : "no active card") +
+                      (cardQueue.Count > 0 ? $" and {cardQueue.Count} queued" : "") + ".");
+
+        ClearForTransition();
+        activeCardPersistent = false;
+    }
+
+    // When a {Zoom:ExtremeIn} is about to cut (MediaPresentationSystem.
+    // IsCloseUpCutImminent), the active card is left at full opacity for that
+    // cut instead of starting a fade: writers stack the End tag,
+    // {Position:Center,Cut} and the ExtremeIn on one word, and those can fire a
+    // frame or two apart. The cut stops the watcher (it lives in
+    // durationCoroutine); should the close-up never fire, the window lapses and
+    // `close` runs as it would have. Returns false — do the close now — when no
+    // cut is coming.
+    private bool LeaveForCloseUpCut(System.Action close)
+    {
+        if (mediaPresentationSystem == null || !mediaPresentationSystem.IsCloseUpCutImminent)
+            return false;
+
+        if (durationCoroutine != null) StopCoroutine(durationCoroutine);
+        durationCoroutine = StartCoroutine(CloseWhenCloseUpCutMisses(close));
+        return true;
+    }
+
+    private IEnumerator CloseWhenCloseUpCutMisses(System.Action close)
+    {
+        while (mediaPresentationSystem != null && mediaPresentationSystem.IsCloseUpCutImminent)
+            yield return null;
+
+        durationCoroutine = null;
+        if (activeCard != null)
+            close();
     }
 
     /// <summary>
@@ -654,22 +760,32 @@ public class ContentZoneController : MonoBehaviour
                 durationCoroutine = null;
             }
 
-            activeCard.OnHideComplete = () =>
-            {
-                if (activeCard != null)
-                {
-                    Destroy(activeCard.gameObject);
-                    activeCard = null;
-                }
-                // Drain the queue — feature cards may still play centered; the
-                // skip logic in ShowNextQueued drops any queued side cards.
-                ShowNextQueued();
-            };
-
-            activeCard.Hide(fast: true);
+            // A {Position:Center,Cut} right on a {Zoom:ExtremeIn} leaves the
+            // side card for the close-up's cut rather than fading it.
+            if (!LeaveForCloseUpCut(FastHideSideCard))
+                FastHideSideCard();
         }
 
         Debug.Log("ContentZoneController: Timeline paused (character centered)");
+    }
+
+    private void FastHideSideCard()
+    {
+        if (activeCard == null || IsFeatureCard(activeCardType)) return;
+
+        activeCard.OnHideComplete = () =>
+        {
+            if (activeCard != null)
+            {
+                Destroy(activeCard.gameObject);
+                activeCard = null;
+            }
+            // Drain the queue — feature cards may still play centered; the
+            // skip logic in ShowNextQueued drops any queued side cards.
+            ShowNextQueued();
+        };
+
+        activeCard.Hide(fast: true);
     }
 
     /// <summary>Resume the card timeline.</summary>
