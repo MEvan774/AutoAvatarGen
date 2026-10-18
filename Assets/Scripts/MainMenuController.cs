@@ -24,11 +24,13 @@ using MugsTech.Style;
 /// All path fields auto-save to PlayerPrefs on edit (onEndEdit) and on Browse,
 /// so once a folder is linked the user doesn't have to relink it next session.
 ///
-/// The UI itself lives as authored GameObjects in MainMenu.unity. Re-build
-/// the hierarchy with: Tools -> AutoAvatarGen -> Build Main Menu UI
-/// (see Assets/Editor/MainMenuUIBuilder.cs).
+/// The controls are authored GameObjects in MainMenu.unity plus a few built
+/// here at runtime when not wired in the inspector. Where they appear on screen
+/// is decided at startup by ArrangeLayout (MainMenuController.Layout.cs), which
+/// re-parents them into the workflow layout and the Settings window — the
+/// hand-tweaked scene is never re-baked.
 /// </summary>
-public class MainMenuController : MonoBehaviour
+public partial class MainMenuController : MonoBehaviour
 {
     // Shared with ScriptFileReader. If you rename this, rename it there too.
     public const string PythonOutputFolderPrefKey = "AutoAvatarGen.PythonOutputFolder";
@@ -138,6 +140,7 @@ public class MainMenuController : MonoBehaviour
             useBundledTtsOutputToggle.onValueChanged.AddListener(OnUseBundledTtsOutputChanged);
         }
 
+        EnsureRecordingOutputControls();
         if (recordingOutputInput != null)
         {
             recordingOutputInput.onEndEdit.AddListener(OnRecordingOutputChanged);
@@ -154,6 +157,7 @@ public class MainMenuController : MonoBehaviour
         RefreshActiveSaves();
 
         WireGenerateAudioButton();
+        EnsureBackgroundModeControls();
         WireBackgroundModeRow();
         EnsurePresenterTransitionControls();
         WirePresenterTransitionRow();
@@ -165,12 +169,19 @@ public class MainMenuController : MonoBehaviour
         EnsureOpenFolderButton();
         EnsureTimestampsPanel();
 
-        RefreshResult();
+        // Place every control (scene-authored or built above) into the
+        // workflow layout + Settings window.
+        ArrangeLayout();
 
         // Skin every button to the cohesive minimalist palette. Runs last so it
         // catches the rows built above at runtime, and reaches the (inactive)
         // TTS panel that lives under this canvas.
         UITheme.Apply(gameObject);
+
+        // After the skinning: the field tint is the missing-folder warning,
+        // and it also feeds the "Ready to record" status line.
+        if (musicFolderInput != null) UpdateMusicFolderValidity(musicFolderInput.text);
+        RefreshResult();
     }
 
     // -----------------------------------------------------------------------
@@ -223,6 +234,14 @@ public class MainMenuController : MonoBehaviour
     [Tooltip("Text that shows the current background style label (Synthwave / Late Night Desk / " +
              "Night City / Violet Doodles).")]
     [SerializeField] TMP_Text backgroundStyleLabel;
+
+    // Fallback for scenes without the authored row (see EnsurePresenterTransitionControls).
+    void EnsureBackgroundModeControls()
+    {
+        if (backgroundModeLabel != null) return; // authored in the scene
+        BuildCycleControls("BackgroundMode",
+            out backgroundModePrevButton, out backgroundModeLabel, out backgroundModeNextButton);
+    }
 
     void WireBackgroundModeRow()
     {
@@ -301,88 +320,29 @@ public class MainMenuController : MonoBehaviour
         presenterTransitionLabel.text = PresenterTransitionSettings.Label(style);
     }
 
-    // The two runtime cycle rows (presenter transition, card entry animation)
-    // share the free band between the Quit button and the result panel, as a
-    // symmetric pair either side of the bottom-center: each row's controls span
-    // ±250 px around its own x, so ±300 keeps them clear of each other and of
-    // the 560 px-wide Start/Quit buttons above.
-    const float RuntimeCycleRowY      = 240f;
-    const float RuntimeCycleRowSpread = 300f;
-
-    // Builds the presenter-transition cycle row at runtime if it wasn't authored
-    // in the scene. Mirrors EnsureMediaRootControls / the background mode row:
-    // bottom-center band, left half (the card entry row takes the right half).
+    // Builds the presenter-transition cycle controls at runtime if they weren't
+    // authored in the scene, so the option always shows in the menu.
+    // ArrangeLayout places them in the Look card.
     void EnsurePresenterTransitionControls()
     {
         if (presenterTransitionLabel != null) return; // already wired in the inspector
 
-        BuildRuntimeCycleRow("PresenterTransition", "Presenter transition",
-            new Vector2(-RuntimeCycleRowSpread, RuntimeCycleRowY),
+        BuildCycleControls("PresenterTransition",
             out presenterTransitionPrevButton, out presenterTransitionLabel, out presenterTransitionNextButton);
     }
 
-    // Builds a "< [value] >" cycle row (header above, controls below) on the
-    // main canvas at a bottom-anchored position. Returns the three things the
-    // callers wire: prev button, value label, next button.
-    void BuildRuntimeCycleRow(string namePrefix, string headerText, Vector2 bottomAnchoredPos,
-                              out Button prevButton, out TMP_Text valueLabel, out Button nextButton)
+    // Builds bare "<", value label and ">" controls for a cycle option. They
+    // start loose on the canvas; ArrangeLayout gives them their row.
+    void BuildCycleControls(string namePrefix, out Button prevButton, out TMP_Text valueLabel, out Button nextButton)
     {
         prevButton = null; valueLabel = null; nextButton = null;
 
         Canvas canvas = GetComponentInChildren<Canvas>();
         if (canvas == null) return;
 
-        var row = new GameObject(namePrefix + "Row", typeof(RectTransform));
-        row.transform.SetParent(canvas.transform, false);
-        var rowRT = (RectTransform)row.transform;
-        rowRT.anchorMin = rowRT.anchorMax = rowRT.pivot = new Vector2(0.5f, 0f);
-        rowRT.anchoredPosition = bottomAnchoredPos;
-        rowRT.sizeDelta        = new Vector2(900f, 100f);
-
-        // Header
-        var headerGO = new GameObject("Header", typeof(RectTransform));
-        headerGO.transform.SetParent(row.transform, false);
-        var headerRT = (RectTransform)headerGO.transform;
-        headerRT.anchorMin = new Vector2(0f, 1f);
-        headerRT.anchorMax = new Vector2(1f, 1f);
-        headerRT.pivot     = new Vector2(0.5f, 1f);
-        headerRT.anchoredPosition = new Vector2(0f, -10f);
-        headerRT.sizeDelta        = new Vector2(-20f, 28f);
-        var header = headerGO.AddComponent<TextMeshProUGUI>();
-        header.text      = headerText;
-        header.fontSize  = 22;
-        header.fontStyle = FontStyles.Bold;
-        header.alignment = TextAlignmentOptions.Center;
-        header.color     = new Color(0.82f, 0.85f, 0.9f, 1f);
-        header.raycastTarget = false;
-
-        const float controlsY = -56f;
-
-        prevButton = BuildTransitionCycleButton(row.transform, namePrefix + "Prev", "<", -220f, controlsY);
-
-        // Value display
-        var valueGO = new GameObject(namePrefix + "Value", typeof(RectTransform));
-        valueGO.transform.SetParent(row.transform, false);
-        valueGO.AddComponent<Image>().color = new Color(0.15f, 0.17f, 0.21f, 1f);
-        var valueRT = (RectTransform)valueGO.transform;
-        valueRT.anchorMin = valueRT.anchorMax = valueRT.pivot = new Vector2(0.5f, 1f);
-        valueRT.anchoredPosition = new Vector2(0f, controlsY);
-        valueRT.sizeDelta        = new Vector2(320f, 44f);
-
-        var labelGO = new GameObject("Text", typeof(RectTransform));
-        labelGO.transform.SetParent(valueGO.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
-        labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
-        var label = labelGO.AddComponent<TextMeshProUGUI>();
-        label.fontSize  = 24;
-        label.fontStyle = FontStyles.Bold;
-        label.alignment = TextAlignmentOptions.Center;
-        label.color     = Color.white;
-        label.raycastTarget = false;
-        valueLabel = label;
-
-        nextButton = BuildTransitionCycleButton(row.transform, namePrefix + "Next", ">", 220f, controlsY);
+        prevButton = UITheme.MakeButton(canvas.transform, namePrefix + "Prev", "<");
+        valueLabel = UITheme.MakeText(canvas.transform, namePrefix + "Value", "", UITheme.TextRole.Value);
+        nextButton = UITheme.MakeButton(canvas.transform, namePrefix + "Next", ">");
     }
 
     // -----------------------------------------------------------------------
@@ -402,9 +362,7 @@ public class MainMenuController : MonoBehaviour
     {
         if (cardEntryLabel != null) return; // already wired in the inspector
 
-        BuildRuntimeCycleRow("CardEntry", "Card entry animation",
-            new Vector2(RuntimeCycleRowSpread, RuntimeCycleRowY),
-            out cardEntryPrevButton, out cardEntryLabel, out cardEntryNextButton);
+        BuildCycleControls("CardEntry", out cardEntryPrevButton, out cardEntryLabel, out cardEntryNextButton);
     }
 
     void WireCardEntryRow()
@@ -437,20 +395,14 @@ public class MainMenuController : MonoBehaviour
     // Same cycle-row pattern, persisted via BackgroundStyleManager. The choice
     // picks WHICH animated backdrop the recording scene shows in Normal mode
     // (BackgroundModeManager activates exactly one at scene load) and where
-    // {Mood:...} crossfades are routed. Centered below the presenter/card
-    // rows, in the bottom strip the authored BackgroundModeRow vacated when it
-    // moved to the top band (clear of the ResultPanel, which tops out ~105).
-    // Always built at runtime — no scene edit.
+    // {Mood:...} crossfades are routed. Always built at runtime — no scene edit.
     // -----------------------------------------------------------------------
-
-    const float BackgroundStyleRowY = 130f;
 
     void EnsureBackgroundStyleControls()
     {
         if (backgroundStyleLabel != null) return; // already wired in the inspector
 
-        BuildRuntimeCycleRow("BackgroundStyle", "Background style",
-            new Vector2(0f, BackgroundStyleRowY),
+        BuildCycleControls("BackgroundStyle",
             out backgroundStylePrevButton, out backgroundStyleLabel, out backgroundStyleNextButton);
     }
 
@@ -476,35 +428,6 @@ public class MainMenuController : MonoBehaviour
         if (backgroundStyleLabel == null) return;
         var style = MugsTech.Background.BackgroundStyleManager.LoadStyle();
         backgroundStyleLabel.text = MugsTech.Background.BackgroundStyleManager.Label(style);
-    }
-
-    static Button BuildTransitionCycleButton(Transform parent, string name, string glyph, float x, float y)
-    {
-        var go = new GameObject(name, typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var rt = (RectTransform)go.transform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);
-        rt.anchoredPosition = new Vector2(x, y);
-        rt.sizeDelta        = new Vector2(60f, 44f);
-
-        var img = go.AddComponent<Image>();
-        img.color = new Color(0.20f, 0.45f, 0.65f, 1f);
-        var btn = go.AddComponent<Button>();
-        btn.targetGraphic = img;
-
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(go.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
-        labelRT.offsetMin = labelRT.offsetMax = Vector2.zero;
-        var t = labelGO.AddComponent<TextMeshProUGUI>();
-        t.text      = glyph;
-        t.fontSize  = 30;
-        t.fontStyle = FontStyles.Bold;
-        t.alignment = TextAlignmentOptions.Center;
-        t.color     = Color.white;
-        t.raycastTarget = false;
-        return btn;
     }
 
     // -----------------------------------------------------------------------
@@ -575,10 +498,14 @@ public class MainMenuController : MonoBehaviour
     // the Editor's MugsTech > Timestamps window doesn't exist in a player build.
     // Self-contained, so the hand-tweaked MainMenu scene needs no rebuild.
     // -----------------------------------------------------------------------
+    TimestampsPanelController timestampsPanel;
+
     void EnsureTimestampsPanel()
     {
-        if (FindObjectOfType<TimestampsPanelController>() == null)
-            gameObject.AddComponent<TimestampsPanelController>();
+        timestampsPanel = FindObjectOfType<TimestampsPanelController>();
+        if (timestampsPanel == null)
+            timestampsPanel = gameObject.AddComponent<TimestampsPanelController>();
+        timestampsPanel.Build(); // builds now (not in Start) so ArrangeLayout can place its button
     }
 
     // -----------------------------------------------------------------------
@@ -606,33 +533,7 @@ public class MainMenuController : MonoBehaviour
         {
             Canvas canvas = GetComponentInChildren<Canvas>();
             if (canvas == null) return;
-
-            var go = new GameObject("OpenFolderButton",
-                typeof(RectTransform), typeof(Image), typeof(Button));
-            go.transform.SetParent(canvas.transform, false);
-            var rt = (RectTransform)go.transform;
-            // Bottom-right corner, just above the result panel.
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0f);
-            rt.anchoredPosition = new Vector2(-40f, 185f);
-            rt.sizeDelta        = new Vector2(340f, 64f);
-
-            var img = go.GetComponent<Image>();
-            img.color = new Color(0.20f, 0.45f, 0.65f, 1f);
-            openFolderButton = go.GetComponent<Button>();
-            openFolderButton.targetGraphic = img;
-
-            var labelGO = new GameObject("Label", typeof(RectTransform));
-            labelGO.transform.SetParent(go.transform, false);
-            var labelRT = (RectTransform)labelGO.transform;
-            labelRT.anchorMin = Vector2.zero; labelRT.anchorMax = Vector2.one;
-            labelRT.offsetMin = Vector2.zero; labelRT.offsetMax = Vector2.zero;
-            var t = labelGO.AddComponent<TextMeshProUGUI>();
-            t.text      = "Open video folder";
-            t.fontSize  = 24;
-            t.fontStyle = FontStyles.Bold;
-            t.alignment = TextAlignmentOptions.Center;
-            t.color     = Color.white;
-            t.raycastTarget = false;
+            openFolderButton = UITheme.MakeButton(canvas.transform, "OpenFolderButton", "Open video folder");
         }
 
         openFolderButton.onClick.AddListener(OnOpenFolderClicked);
@@ -800,9 +701,20 @@ public class MainMenuController : MonoBehaviour
         var r = RecordingSession.LastResult;
         if (r == null)
         {
-            statusText.text  = "Ready to record.";
-            statusText.color = new Color(0.82f, 0.85f, 0.90f, 1f);
-            pathText.text    = "No recording has been completed yet in this session.";
+            // The music path lives in Settings now, so a stale one is called
+            // out here too — otherwise it only surfaces as a silent take.
+            if (musicFolderMissing)
+            {
+                statusText.text  = "⚠  Music folder not found";
+                statusText.color = UITheme.Warning;
+                pathText.text    = "Fix it in Settings, or clear it to record without music.";
+            }
+            else
+            {
+                statusText.text  = "Ready to record.";
+                statusText.color = UITheme.Text;
+                pathText.text    = "No recording has been completed yet in this session.";
+            }
             lastSavedVideoPath = null;
             SetOpenFolderButtonVisible(false);
             return;
@@ -812,7 +724,7 @@ public class MainMenuController : MonoBehaviour
         {
             case RecordingSession.RecordingResult.Status.Generating:
                 statusText.text  = "●  Recording complete";
-                statusText.color = new Color(0.98f, 0.80f, 0.30f, 1f);
+                statusText.color = UITheme.Warning;
                 pathText.text    = "Generating video… Evereal is finalising the file, " +
                                    "this usually takes a few seconds.";
                 // Path isn't final yet — keep the open-folder button hidden.
@@ -829,14 +741,14 @@ public class MainMenuController : MonoBehaviour
                 if (!string.IsNullOrEmpty(musicError))
                 {
                     statusText.text  = "✓  Video saved   ⚠  MUSIC FAILED";
-                    statusText.color = new Color(0.98f, 0.80f, 0.30f, 1f);
+                    statusText.color = UITheme.Warning;
                     pathText.text    = (string.IsNullOrEmpty(r.SavePath) ? "(no path returned)" : r.SavePath)
                                        + "\n⚠ Music: " + musicError;
                 }
                 else
                 {
                     statusText.text  = "✓  Video saved";
-                    statusText.color = new Color(0.35f, 0.85f, 0.45f, 1f);
+                    statusText.color = UITheme.Success;
                     pathText.text    = string.IsNullOrEmpty(r.SavePath) ? "(no path returned)" : r.SavePath;
                 }
                 // Offer to reveal the finished file only when we actually have a path.
@@ -846,7 +758,7 @@ public class MainMenuController : MonoBehaviour
 
             case RecordingSession.RecordingResult.Status.Failed:
                 statusText.text  = "✗  Recording failed";
-                statusText.color = new Color(0.95f, 0.35f, 0.35f, 1f);
+                statusText.color = UITheme.Error;
                 pathText.text    = string.IsNullOrEmpty(r.ErrorMessage) ? "(no error details)" : r.ErrorMessage;
                 lastSavedVideoPath = null;
                 SetOpenFolderButtonVisible(false);
@@ -856,12 +768,17 @@ public class MainMenuController : MonoBehaviour
 
     void OnStartClicked()
     {
-        // Flush field values in case the user typed but didn't click out before hitting Start.
+        FlushPathFields();
+        RecordingSession.Begin();
+    }
+
+    // Saves the path fields in case the user typed but didn't click out.
+    void FlushPathFields()
+    {
         OnPathChanged(pathInput.text);
         if (mediaRootInput != null) OnMediaRootChanged(mediaRootInput.text);
         if (recordingOutputInput != null) OnRecordingOutputChanged(recordingOutputInput.text);
         if (musicFolderInput != null) OnMusicFolderChanged(musicFolderInput.text);
-        RecordingSession.Begin();
     }
 
     void OnQuitClicked()
@@ -993,121 +910,29 @@ public class MainMenuController : MonoBehaviour
         OnMediaRootChanged(picked);
     }
 
-    // Builds the media-root row at runtime if it hasn't been hand-wired in the
-    // inspector. Same trick as EnsureActiveSaveControls: existing scenes don't
-    // need a UI rebuild to get the new controls.
+    // Builds the media-root controls at runtime if they haven't been hand-wired
+    // in the inspector, so existing scenes don't need a UI rebuild. They start
+    // loose on the canvas; ArrangeLayout puts them in the Settings window.
     void EnsureMediaRootControls()
     {
         if (mediaRootInput != null) return; // already wired in the inspector
+        BuildPathControls("MediaRoot", out mediaRootInput, out mediaRootBrowseButton);
+    }
 
+    void EnsureRecordingOutputControls()
+    {
+        if (recordingOutputInput != null) return; // already wired in the inspector
+        BuildPathControls("RecordingOutput", out recordingOutputInput, out recordingOutputBrowseButton);
+    }
+
+    // A bare path field + "Browse…" button.
+    void BuildPathControls(string namePrefix, out TMP_InputField input, out Button browse)
+    {
+        input = null; browse = null;
         Canvas canvas = GetComponentInChildren<Canvas>();
         if (canvas == null) return;
-
-        // Row container, anchored top-center.
-        var row = new GameObject("MediaRootRow", typeof(RectTransform));
-        row.transform.SetParent(canvas.transform, false);
-        var rowRT = (RectTransform)row.transform;
-        rowRT.anchorMin = rowRT.anchorMax = rowRT.pivot = new Vector2(0.5f, 1f);
-        rowRT.anchoredPosition = new Vector2(0f, -56f);
-        rowRT.sizeDelta        = new Vector2(1500f, 80f);
-
-        // Label
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(row.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = labelRT.anchorMax = labelRT.pivot = new Vector2(0.5f, 1f);
-        labelRT.anchoredPosition = new Vector2(0f, 0f);
-        labelRT.sizeDelta        = new Vector2(1100f, 28f);
-        var label = labelGO.AddComponent<TextMeshProUGUI>();
-        label.text       = "Media folder (its media subfolders are created automatically):";
-        label.fontSize   = 22;
-        label.alignment  = TextAlignmentOptions.Center;
-        label.color      = new Color(0.82f, 0.85f, 0.9f, 1f);
-
-        // Input field
-        var inputGO = new GameObject("MediaRootInput", typeof(RectTransform));
-        inputGO.transform.SetParent(row.transform, false);
-        var inputRT = (RectTransform)inputGO.transform;
-        inputRT.anchorMin = inputRT.anchorMax = inputRT.pivot = new Vector2(0.5f, 1f);
-        inputRT.anchoredPosition = new Vector2(-90f, -34f);
-        inputRT.sizeDelta        = new Vector2(920f, 44f);
-
-        var bg = inputGO.AddComponent<Image>();
-        bg.color = new Color(0.15f, 0.17f, 0.21f, 1f);
-
-        var input = inputGO.AddComponent<TMP_InputField>();
-
-        var textArea = new GameObject("Text Area", typeof(RectTransform));
-        textArea.transform.SetParent(inputGO.transform, false);
-        var taRT = (RectTransform)textArea.transform;
-        taRT.anchorMin = Vector2.zero;
-        taRT.anchorMax = Vector2.one;
-        taRT.offsetMin = new Vector2(14f, 4f);
-        taRT.offsetMax = new Vector2(-14f, -4f);
-        textArea.AddComponent<RectMask2D>();
-
-        var textGO = new GameObject("Text", typeof(RectTransform));
-        textGO.transform.SetParent(textArea.transform, false);
-        var textRT = (RectTransform)textGO.transform;
-        textRT.anchorMin = Vector2.zero;
-        textRT.anchorMax = Vector2.one;
-        textRT.offsetMin = Vector2.zero;
-        textRT.offsetMax = Vector2.zero;
-        var text = textGO.AddComponent<TextMeshProUGUI>();
-        text.text      = "";
-        text.fontSize  = 22;
-        text.alignment = TextAlignmentOptions.Left;
-        text.color     = Color.white;
-        text.richText  = false;
-
-        var phGO = new GameObject("Placeholder", typeof(RectTransform));
-        phGO.transform.SetParent(textArea.transform, false);
-        var phRT = (RectTransform)phGO.transform;
-        phRT.anchorMin = Vector2.zero;
-        phRT.anchorMax = Vector2.one;
-        phRT.offsetMin = Vector2.zero;
-        phRT.offsetMax = Vector2.zero;
-        var ph = phGO.AddComponent<TextMeshProUGUI>();
-        ph.text      = "C:\\path\\to\\media-root  (leave blank for Resources/Media)";
-        ph.fontSize  = 22;
-        ph.fontStyle = FontStyles.Italic;
-        ph.alignment = TextAlignmentOptions.Left;
-        ph.color     = new Color(0.55f, 0.58f, 0.64f, 1f);
-
-        input.textViewport  = taRT;
-        input.textComponent = text;
-        input.placeholder   = ph;
-        input.targetGraphic = bg;
-
-        mediaRootInput = input;
-
-        // Browse button
-        var btnGO = new GameObject("MediaRootBrowseButton", typeof(RectTransform));
-        btnGO.transform.SetParent(row.transform, false);
-        var btnRT = (RectTransform)btnGO.transform;
-        btnRT.anchorMin = btnRT.anchorMax = btnRT.pivot = new Vector2(0.5f, 1f);
-        btnRT.anchoredPosition = new Vector2(460f, -34f);
-        btnRT.sizeDelta        = new Vector2(160f, 44f);
-        var btnImg = btnGO.AddComponent<Image>();
-        btnImg.color = new Color(0.20f, 0.45f, 0.65f, 1f);
-        var btn = btnGO.AddComponent<Button>();
-        btn.targetGraphic = btnImg;
-
-        var btnLabelGO = new GameObject("Label", typeof(RectTransform));
-        btnLabelGO.transform.SetParent(btnGO.transform, false);
-        var btnLabelRT = (RectTransform)btnLabelGO.transform;
-        btnLabelRT.anchorMin = Vector2.zero;
-        btnLabelRT.anchorMax = Vector2.one;
-        btnLabelRT.offsetMin = Vector2.zero;
-        btnLabelRT.offsetMax = Vector2.zero;
-        var btnLabel = btnLabelGO.AddComponent<TextMeshProUGUI>();
-        btnLabel.text       = "Browse…";
-        btnLabel.fontSize   = 24;
-        btnLabel.fontStyle  = FontStyles.Bold;
-        btnLabel.alignment  = TextAlignmentOptions.Center;
-        btnLabel.color      = Color.white;
-
-        mediaRootBrowseButton = btn;
+        input  = UITheme.MakeInput(canvas.transform, namePrefix + "Input", "");
+        browse = UITheme.MakeButton(canvas.transform, namePrefix + "BrowseButton", "Browse…");
     }
 
     // -----------------------------------------------------------------------
@@ -1118,8 +943,8 @@ public class MainMenuController : MonoBehaviour
     // the recording scene loads: a non-empty folder switches it to folder mode
     // (random LUFS-equalized playlist baked into the take, replacing the
     // Python post-mux mixer), empty falls back to the old override / preset
-    // behavior. Always built at runtime — no scene rebuild. Positioned
-    // center-anchored in the free band above the recording-output row.
+    // behavior. Always built at runtime — no scene rebuild; ArrangeLayout
+    // puts it in the Settings window.
     // -----------------------------------------------------------------------
 
     [Header("Background Music Folder")]
@@ -1130,128 +955,10 @@ public class MainMenuController : MonoBehaviour
     [SerializeField] TMP_InputField musicFolderInput;
     [SerializeField] Button         musicFolderBrowseButton;
 
-    // The center stack is packed (rows every ~50 units, hand-tweaked scene),
-    // so this is a single-line row — inline label, input, Browse — in the one
-    // free band: between StartButton (bottom −143) and QuitButton (top −184).
-    // x-metrics mirror the authored path rows exactly (input −90/920 wide,
-    // browse 450/160) so it reads as part of the same family. Everything here
-    // is center-anchored like its neighbors, so the fit holds at any window
-    // size.
     void EnsureMusicFolderControls()
     {
         if (musicFolderInput != null) return; // already wired in the inspector
-
-        Canvas canvas = GetComponentInChildren<Canvas>();
-        if (canvas == null) return;
-
-        const float rowY = -163.5f;
-        const float rowH = 32f;
-
-        var row = new GameObject("MusicFolderRow", typeof(RectTransform));
-        row.transform.SetParent(canvas.transform, false);
-        var rowRT = (RectTransform)row.transform;
-        rowRT.anchorMin = rowRT.anchorMax = rowRT.pivot = new Vector2(0.5f, 0.5f);
-        rowRT.anchoredPosition = Vector2.zero;
-        rowRT.sizeDelta        = Vector2.zero;
-
-        // Inline label, right-aligned against the input's left edge.
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(row.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = labelRT.anchorMax = labelRT.pivot = new Vector2(0.5f, 0.5f);
-        labelRT.anchoredPosition = new Vector2(-665f, rowY);
-        labelRT.sizeDelta        = new Vector2(220f, rowH);
-        var label = labelGO.AddComponent<TextMeshProUGUI>();
-        label.text      = "Music folder:";
-        label.fontSize  = 22;
-        label.alignment = TextAlignmentOptions.MidlineRight;
-        label.color     = new Color(0.82f, 0.85f, 0.9f, 1f);
-        label.raycastTarget = false;
-
-        // Input field
-        var inputGO = new GameObject("MusicFolderInput", typeof(RectTransform));
-        inputGO.transform.SetParent(row.transform, false);
-        var inputRT = (RectTransform)inputGO.transform;
-        inputRT.anchorMin = inputRT.anchorMax = inputRT.pivot = new Vector2(0.5f, 0.5f);
-        inputRT.anchoredPosition = new Vector2(-90f, rowY);
-        inputRT.sizeDelta        = new Vector2(920f, rowH);
-
-        var bg = inputGO.AddComponent<Image>();
-        bg.color = new Color(0.15f, 0.17f, 0.21f, 1f);
-
-        var input = inputGO.AddComponent<TMP_InputField>();
-
-        var textArea = new GameObject("Text Area", typeof(RectTransform));
-        textArea.transform.SetParent(inputGO.transform, false);
-        var taRT = (RectTransform)textArea.transform;
-        taRT.anchorMin = Vector2.zero;
-        taRT.anchorMax = Vector2.one;
-        taRT.offsetMin = new Vector2(14f, 2f);
-        taRT.offsetMax = new Vector2(-14f, -2f);
-        textArea.AddComponent<RectMask2D>();
-
-        var textGO = new GameObject("Text", typeof(RectTransform));
-        textGO.transform.SetParent(textArea.transform, false);
-        var textRT = (RectTransform)textGO.transform;
-        textRT.anchorMin = Vector2.zero;
-        textRT.anchorMax = Vector2.one;
-        textRT.offsetMin = Vector2.zero;
-        textRT.offsetMax = Vector2.zero;
-        var text = textGO.AddComponent<TextMeshProUGUI>();
-        text.text      = "";
-        text.fontSize  = 20;
-        text.alignment = TextAlignmentOptions.Left;
-        text.color     = Color.white;
-        text.richText  = false;
-
-        var phGO = new GameObject("Placeholder", typeof(RectTransform));
-        phGO.transform.SetParent(textArea.transform, false);
-        var phRT = (RectTransform)phGO.transform;
-        phRT.anchorMin = Vector2.zero;
-        phRT.anchorMax = Vector2.one;
-        phRT.offsetMin = Vector2.zero;
-        phRT.offsetMax = Vector2.zero;
-        var ph = phGO.AddComponent<TextMeshProUGUI>();
-        ph.text      = "C:\\...\\Background Music  (blank = no music baked into the take)";
-        ph.fontSize  = 20;
-        ph.fontStyle = FontStyles.Italic;
-        ph.alignment = TextAlignmentOptions.Left;
-        ph.color     = new Color(0.55f, 0.58f, 0.64f, 1f);
-
-        input.textViewport  = taRT;
-        input.textComponent = text;
-        input.placeholder   = ph;
-        input.targetGraphic = bg;
-
-        musicFolderInput = input;
-
-        // Browse button
-        var btnGO = new GameObject("MusicFolderBrowseButton", typeof(RectTransform));
-        btnGO.transform.SetParent(row.transform, false);
-        var btnRT = (RectTransform)btnGO.transform;
-        btnRT.anchorMin = btnRT.anchorMax = btnRT.pivot = new Vector2(0.5f, 0.5f);
-        btnRT.anchoredPosition = new Vector2(450f, rowY);
-        btnRT.sizeDelta        = new Vector2(160f, rowH);
-        var btnImg = btnGO.AddComponent<Image>();
-        btnImg.color = new Color(0.20f, 0.45f, 0.65f, 1f);
-        var btn = btnGO.AddComponent<Button>();
-        btn.targetGraphic = btnImg;
-
-        var btnLabelGO = new GameObject("Label", typeof(RectTransform));
-        btnLabelGO.transform.SetParent(btnGO.transform, false);
-        var btnLabelRT = (RectTransform)btnLabelGO.transform;
-        btnLabelRT.anchorMin = Vector2.zero;
-        btnLabelRT.anchorMax = Vector2.one;
-        btnLabelRT.offsetMin = Vector2.zero;
-        btnLabelRT.offsetMax = Vector2.zero;
-        var btnLabel = btnLabelGO.AddComponent<TextMeshProUGUI>();
-        btnLabel.text      = "Browse…";
-        btnLabel.fontSize  = 20;
-        btnLabel.fontStyle = FontStyles.Bold;
-        btnLabel.alignment = TextAlignmentOptions.Center;
-        btnLabel.color     = Color.white;
-
-        musicFolderBrowseButton = btn;
+        BuildPathControls("MusicFolder", out musicFolderInput, out musicFolderBrowseButton);
     }
 
     void OnMusicFolderChanged(string value)
@@ -1272,14 +979,18 @@ public class MainMenuController : MonoBehaviour
     // on disk. A stale path (folder moved/deleted since it was saved) would
     // otherwise only surface AFTER a take has already spent its credits and
     // render time — this makes it visible the moment the menu opens.
+    // The main-screen status line repeats the warning (RefreshResult), since
+    // the field itself is tucked away in the Settings window.
+    bool musicFolderMissing;
+
     void UpdateMusicFolderValidity(string path)
     {
         if (musicFolderInput == null) return;
-        var bg = musicFolderInput.targetGraphic as Image;
-        if (bg == null) return;
-        bool missing = !string.IsNullOrWhiteSpace(path) && !Directory.Exists(path.Trim());
-        bg.color = missing ? new Color(0.38f, 0.13f, 0.15f, 1f)   // folder gone — take would record silent
-                           : new Color(0.15f, 0.17f, 0.21f, 1f);  // normal field background
+        musicFolderMissing = !string.IsNullOrWhiteSpace(path) && !Directory.Exists(path.Trim());
+        if (musicFolderInput.targetGraphic is Image bg)
+            bg.color = musicFolderMissing ? UITheme.FieldError  // folder gone — take would record silent
+                                          : UITheme.Field;
+        if (RecordingSession.LastResult == null && statusText != null) RefreshResult();
     }
 
     void OnMusicFolderBrowseClicked()
@@ -1400,6 +1111,9 @@ public class MainMenuController : MonoBehaviour
     void FlashMessage(string text)
     {
         if (pathText != null) pathText.text = text;
+        // Import / Export are clicked from the Settings window, which covers
+        // the status bar — echo the message there too.
+        if (settingsStatus != null) settingsStatus.text = text;
     }
 
     static string TryPickSaveJsonPath(string defaultFileName)
@@ -1453,16 +1167,19 @@ public class MainMenuController : MonoBehaviour
         string current = (availableSaves != null && currentSaveIndex < availableSaves.Length)
             ? availableSaves[currentSaveIndex] : "";
         bool none = string.IsNullOrEmpty(current);
-        activeSaveLabel.text = "Active save:  " + (none ? "(none)" : current);
+        // The row itself is labelled "Visuals preset", so just the name.
+        activeSaveLabel.text  = none ? "(none)" : current;
+        activeSaveLabel.color = none ? UITheme.TextMuted : UITheme.TextStrong;
         if (activeSavePrevButton != null) activeSavePrevButton.interactable = availableSaves.Length > 1;
         if (activeSaveNextButton != null) activeSaveNextButton.interactable = availableSaves.Length > 1;
         // Export only makes sense when a real save is selected (not "(none)").
         if (activeSaveExportButton != null) activeSaveExportButton.interactable = !none;
     }
 
-    // The active-save row is created at runtime (rather than in MainMenuUIBuilder)
-    // so it appears without forcing a canvas rebuild — which would wipe any
-    // hand-added scene objects like the PresetsButton.
+    // The active-save controls are created at runtime (rather than in
+    // MainMenuUIBuilder) so they appear without forcing a canvas rebuild —
+    // which would wipe any hand-added scene objects like the PresetsButton.
+    // The cycle goes in the Look card; Import / Export go in Settings.
     void EnsureActiveSaveControls()
     {
         if (activeSaveLabel != null) return; // already wired in the inspector
@@ -1470,96 +1187,13 @@ public class MainMenuController : MonoBehaviour
         Canvas canvas = GetComponentInChildren<Canvas>();
         if (canvas == null) return;
 
-        var row = new GameObject("ActiveSaveRow", typeof(RectTransform));
-        row.transform.SetParent(canvas.transform, false);
-        var rowRT = (RectTransform)row.transform;
-        rowRT.anchorMin = new Vector2(0.5f, 1f);
-        rowRT.anchorMax = new Vector2(0.5f, 1f);
-        rowRT.pivot     = new Vector2(0.5f, 1f);
-        rowRT.anchoredPosition = new Vector2(0f, -50f);
-        rowRT.sizeDelta = new Vector2(1280f, 50f);
-
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(row.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = labelRT.anchorMax = labelRT.pivot = new Vector2(0.5f, 0.5f);
-        labelRT.anchoredPosition = Vector2.zero;
-        labelRT.sizeDelta = new Vector2(440f, 50f);
-        var label = labelGO.AddComponent<TextMeshProUGUI>();
-        label.text       = "Active save:  (none)";
-        label.fontSize   = 26;
-        label.alignment  = TextAlignmentOptions.Center;
-        label.color      = new Color(0.82f, 0.85f, 0.9f, 1f);
-        activeSaveLabel  = label;
-
-        activeSavePrevButton = BuildCycleButton(rowRT, "Prev", "<", -280f);
-        activeSaveNextButton = BuildCycleButton(rowRT, "Next", ">",  280f);
+        BuildCycleControls("ActiveSave", out activeSavePrevButton, out activeSaveLabel, out activeSaveNextButton);
 
         // Export saves the currently-active visuals save to a JSON file the user
         // picks — so they can keep their tweaks across new builds. Import re-loads
         // a previously exported JSON back into the local save store.
-        activeSaveExportButton = BuildWideTextButton(rowRT, "ExportSave", "Export…",  470f, new Color(0.20f, 0.45f, 0.65f, 1f));
-        activeSaveImportButton = BuildWideTextButton(rowRT, "ImportSave", "Import…", -470f, new Color(0.32f, 0.34f, 0.40f, 1f));
-    }
-
-    static Button BuildWideTextButton(RectTransform parent, string name, string label, float xOffset, Color tint)
-    {
-        var go = new GameObject(name, typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var rt = (RectTransform)go.transform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = new Vector2(xOffset, 0f);
-        rt.sizeDelta = new Vector2(160f, 44f);
-
-        var img = go.AddComponent<Image>();
-        img.color = tint;
-        var btn = go.AddComponent<Button>();
-        btn.targetGraphic = img;
-
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(go.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = Vector2.zero;
-        labelRT.anchorMax = Vector2.one;
-        labelRT.offsetMin = Vector2.zero;
-        labelRT.offsetMax = Vector2.zero;
-        var t = labelGO.AddComponent<TextMeshProUGUI>();
-        t.text       = label;
-        t.fontSize   = 22;
-        t.fontStyle  = FontStyles.Bold;
-        t.alignment  = TextAlignmentOptions.Center;
-        t.color      = Color.white;
-        return btn;
-    }
-
-    static Button BuildCycleButton(RectTransform parent, string name, string glyph, float xOffset)
-    {
-        var go = new GameObject(name, typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var rt = (RectTransform)go.transform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = new Vector2(xOffset, 0f);
-        rt.sizeDelta = new Vector2(56f, 44f);
-
-        var img = go.AddComponent<Image>();
-        img.color = new Color(0.20f, 0.45f, 0.65f, 1f);
-        var btn = go.AddComponent<Button>();
-        btn.targetGraphic = img;
-
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(go.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = Vector2.zero;
-        labelRT.anchorMax = Vector2.one;
-        labelRT.offsetMin = Vector2.zero;
-        labelRT.offsetMax = Vector2.zero;
-        var labelTmp = labelGO.AddComponent<TextMeshProUGUI>();
-        labelTmp.text       = glyph;
-        labelTmp.fontSize   = 30;
-        labelTmp.fontStyle  = FontStyles.Bold;
-        labelTmp.alignment  = TextAlignmentOptions.Center;
-        labelTmp.color      = Color.white;
-        return btn;
+        activeSaveExportButton = UITheme.MakeButton(canvas.transform, "ExportSave", "Export…");
+        activeSaveImportButton = UITheme.MakeButton(canvas.transform, "ImportSave", "Import…");
     }
 
 }

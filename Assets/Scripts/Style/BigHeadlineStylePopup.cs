@@ -242,7 +242,7 @@ namespace MugsTech.Style
             for (int i = 0; i < directionButtons.Length; i++)
             {
                 bool active = Mathf.Abs(Mathf.DeltaAngle(k_Directions[i], data.patternScrollDirection)) < 1f;
-                directionButtons[i].color = active ? k_ActiveColor : k_TrackColor;
+                directionButtons[i].color = active ? UITheme.Selected : UITheme.Neutral;
             }
         }
 
@@ -464,7 +464,7 @@ namespace MugsTech.Style
         void PaintTabs()
         {
             for (int i = 0; i < tabButtons.Length; i++)
-                tabButtons[i].color = i == activeTab ? k_ActiveColor : k_TrackColor;
+                tabButtons[i].color = i == activeTab ? UITheme.Selected : UITheme.Neutral;
         }
 
         static FontStyles ToTmpFontStyles(FontStyle s)
@@ -496,13 +496,6 @@ namespace MugsTech.Style
         const float k_LabelW       = 190f;
         const float k_ControlLeft  = -k_ControlsW * 0.5f + k_LabelW; // control's left edge within a row
 
-        static readonly Color k_PanelColor  = new Color(0.10f, 0.12f, 0.16f, 0.98f);
-        static readonly Color k_LabelColor  = new Color(0.85f, 0.88f, 0.93f, 1f);
-        static readonly Color k_HeaderColor = new Color(0.55f, 0.78f, 1f, 1f);
-        static readonly Color k_MutedColor  = new Color(0.55f, 0.58f, 0.64f, 1f);
-        static readonly Color k_TrackColor  = new Color(0.18f, 0.20f, 0.24f, 1f);
-        static readonly Color k_ActiveColor = new Color(0.20f, 0.45f, 0.65f, 1f);
-
         Transform panelTf;
 
         void BuildUI()
@@ -515,18 +508,23 @@ namespace MugsTech.Style
             selfRT.offsetMin = selfRT.offsetMax = Vector2.zero;
 
             var backdrop = NewChild("Backdrop", transform, stretch: true);
-            backdrop.AddComponent<Image>().color = new Color(0, 0, 0, 0.55f);
+            backdrop.AddComponent<Image>().color = UITheme.Backdrop;
 
             var panel = NewChild("Panel", transform, stretch: false);
             panelTf = panel.transform;
             var prt = (RectTransform)panel.transform;
             prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0.5f);
             prt.sizeDelta = new Vector2(k_PanelWidth, k_PanelHeight);
-            panel.AddComponent<Image>().color = k_PanelColor;
+            UITheme.Surface(panel.AddComponent<Image>(), UITheme.Window, UITheme.PanelRadius);
 
-            var title = NewText("Title", panelTf, "Big Headline Style", 32, FontStyle.Bold,
-                                TextAnchor.MiddleCenter, new Color(0.95f, 0.97f, 1f, 1f));
-            Place(title.rectTransform, new Vector2(0f, k_PanelHeight * 0.5f - 50f), new Vector2(k_PanelWidth - 60f, 56f));
+            // Header: title over the preview's left edge, Close top-right.
+            const float headerY = k_PanelHeight * 0.5f - 50f;
+            var title = NewText("Title", panelTf, "Big Headline Style", UITheme.TitleSize, FontStyle.Bold,
+                                TextAnchor.MiddleLeft, UITheme.TextStrong);
+            Place(title.rectTransform, new Vector2(-k_PanelWidth * 0.5f + 40f + 400f, headerY), new Vector2(800f, 56f));
+            var close = BuildButton(panelTf, "CloseButton", "Close",
+                new Vector2(k_PanelWidth * 0.5f - 40f - 60f, headerY), new Vector2(120f, UITheme.ControlHeight));
+            close.onClick.AddListener(Close);
 
             BuildPreviewArea();
             BuildTabs();
@@ -539,12 +537,13 @@ namespace MugsTech.Style
             // re-skins on every open anyway). Swatches, tabs and direction
             // buttons use Transition.None, and RefreshAllControls repaints them.
             UITheme.Apply(gameObject);
+            UITheme.ApplyControls(gameObject);
         }
 
         void BuildPreviewArea()
         {
-            var header = NewText("PreviewHeader", panelTf, "Live preview", 22, FontStyle.Bold,
-                                 TextAnchor.MiddleLeft, k_HeaderColor);
+            var header = NewText("PreviewHeader", panelTf, "Live preview", UITheme.HeadingSize, FontStyle.Bold,
+                                 TextAnchor.MiddleLeft, UITheme.Heading);
             Place(header.rectTransform, new Vector2(k_PreviewX, k_ColumnTop + 4f), new Vector2(k_PreviewW, 36f));
 
             // Frame at the preview's on-screen size; a dark "scene" shows
@@ -553,7 +552,7 @@ namespace MugsTech.Style
             var frt = (RectTransform)frame.transform;
             Place(frt, new Vector2(k_PreviewX, k_ColumnTop - 24f - k_PreviewH * 0.5f), new Vector2(k_PreviewW, k_PreviewH));
             var scene = frame.AddComponent<Image>();
-            scene.color = new Color(0.05f, 0.06f, 0.08f, 1f);
+            UITheme.Surface(scene, new Color(0.05f, 0.06f, 0.08f, 1f), UITheme.ControlRadius);
             scene.raycastTarget = false;
 
             // 1920×1080 stage scaled into the frame, so BigCenterCard's
@@ -577,19 +576,19 @@ namespace MugsTech.Style
 
             var caption = NewText("PreviewCaption", panelTf,
                 "Panel, pattern and text exactly as the recording draws them.",
-                18, FontStyle.Normal, TextAnchor.UpperLeft, k_MutedColor);
+                UITheme.SmallSize, FontStyle.Normal, TextAnchor.UpperLeft, UITheme.TextMuted);
             Place(caption.rectTransform,
                   new Vector2(k_PreviewX, k_ColumnTop - 24f - k_PreviewH - 26f),
                   new Vector2(k_PreviewW, 30f));
 
-            saveHintLabel = NewText("SaveHint", panelTf, "", 18, FontStyle.Italic,
-                                    TextAnchor.UpperLeft, new Color(1f, 0.80f, 0.45f, 1f));
+            saveHintLabel = NewText("SaveHint", panelTf, "", UITheme.SmallSize, FontStyle.Italic,
+                                    TextAnchor.UpperLeft, UITheme.Warning);
             Place(saveHintLabel.rectTransform,
                   new Vector2(k_PreviewX, k_ColumnTop - 24f - k_PreviewH - 58f),
                   new Vector2(k_PreviewW, 30f));
 
-            statusLabel = NewText("Status", panelTf, "", 18, FontStyle.Normal,
-                                  TextAnchor.UpperLeft, k_LabelColor);
+            statusLabel = NewText("Status", panelTf, "", UITheme.SmallSize, FontStyle.Normal,
+                                  TextAnchor.UpperLeft, UITheme.Text);
             Place(statusLabel.rectTransform,
                   new Vector2(k_PreviewX, k_ColumnTop - 24f - k_PreviewH - 90f),
                   new Vector2(k_PreviewW, 30f));
@@ -607,7 +606,7 @@ namespace MugsTech.Style
                 int tab = i;
                 var btn = BuildButton(panelTf, "Tab" + names[i], names[i],
                     new Vector2(k_ControlsX - k_ControlsW * 0.5f + 100f + i * 212f, k_ColumnTop + 4f),
-                    new Vector2(200f, 40f));
+                    new Vector2(200f, UITheme.ControlHeight));
                 btn.transition = Selectable.Transition.None; // PaintTabs shows the active one
                 btn.onClick.AddListener(() => SelectTab(tab));
                 tabButtons[i] = (Image)btn.targetGraphic;
@@ -637,7 +636,7 @@ namespace MugsTech.Style
                     NotifyChanged();
                 });
             matchCardsButton = BuildButton(bgRow.transform, "MatchCards", "Match Cards",
-                new Vector2(k_ControlLeft + 250f + 12f + 100f, 0f), new Vector2(200f, 40f));
+                new Vector2(k_ControlLeft + 250f + 12f + 100f, 0f), new Vector2(200f, UITheme.ControlHeight));
             matchCardsButton.onClick.AddListener(() =>
             {
                 data.backgroundColorHex = "";
@@ -655,13 +654,13 @@ namespace MugsTech.Style
             var imgRow = NewRow("PatternImage", ref y);
             BuildLabel(imgRow.transform, "Image");
             var chooseBtn = BuildButton(imgRow.transform, "ChoosePatternImage", "Choose Image…",
-                new Vector2(k_ControlLeft + 85f, 0f), new Vector2(170f, 40f));
+                new Vector2(k_ControlLeft + 85f, 0f), new Vector2(170f, UITheme.ControlHeight));
             chooseBtn.onClick.AddListener(OnChoosePatternImage);
             useDefaultButton = BuildButton(imgRow.transform, "UseDefaultPattern", "Use Default",
-                new Vector2(k_ControlLeft + 170f + 10f + 70f, 0f), new Vector2(140f, 40f));
+                new Vector2(k_ControlLeft + 170f + 10f + 70f, 0f), new Vector2(140f, UITheme.ControlHeight));
             useDefaultButton.onClick.AddListener(OnUseDefaultPattern);
-            patternImageLabel = NewText("FileName", imgRow.transform, "", 18, FontStyle.Italic,
-                                        TextAnchor.MiddleLeft, k_MutedColor);
+            patternImageLabel = NewText("FileName", imgRow.transform, "", UITheme.SmallSize, FontStyle.Italic,
+                                        TextAnchor.MiddleLeft, UITheme.TextMuted);
             Place(patternImageLabel.rectTransform,
                   new Vector2(k_ControlLeft + 330f + 70f, 0f), new Vector2(140f, k_RowHeight));
             patternImageLabel.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -681,8 +680,8 @@ namespace MugsTech.Style
                     RefreshAllControls();
                     NotifyChanged();
                 });
-            var tintHint = NewText("TintHint", tintRow.transform, "multiplies the image", 16,
-                                   FontStyle.Italic, TextAnchor.MiddleLeft, k_MutedColor);
+            var tintHint = NewText("TintHint", tintRow.transform, "multiplies the image", UITheme.SmallSize,
+                                   FontStyle.Italic, TextAnchor.MiddleLeft, UITheme.TextMuted);
             Place(tintHint.rectTransform, new Vector2(k_ControlLeft + 250f + 12f + 100f, 0f),
                   new Vector2(200f, k_RowHeight));
 
@@ -714,29 +713,29 @@ namespace MugsTech.Style
             var fontRow = NewRow("Font", ref y);
             BuildLabel(fontRow.transform, "Font");
             var prev = BuildButton(fontRow.transform, "FontPrev", "<",
-                new Vector2(k_ControlLeft + 22f, 0f), new Vector2(44f, 40f));
+                new Vector2(k_ControlLeft + 22f, 0f), new Vector2(44f, UITheme.ControlHeight));
             prev.onClick.AddListener(() => CycleFont(-1));
-            fontNameLabel = NewText("FontName", fontRow.transform, "", 18, FontStyle.Normal,
-                                    TextAnchor.MiddleCenter, k_LabelColor);
+            fontNameLabel = NewText("FontName", fontRow.transform, "", UITheme.SmallSize, FontStyle.Normal,
+                                    TextAnchor.MiddleCenter, UITheme.Text);
             Place(fontNameLabel.rectTransform, new Vector2(k_ControlLeft + 54f + 100f, 0f), new Vector2(200f, k_RowHeight));
             fontNameLabel.resizeTextForBestFit = true;
             fontNameLabel.resizeTextMinSize = 12;
             fontNameLabel.resizeTextMaxSize = 18;
             var next = BuildButton(fontRow.transform, "FontNext", ">",
-                new Vector2(k_ControlLeft + 264f + 22f, 0f), new Vector2(44f, 40f));
+                new Vector2(k_ControlLeft + 264f + 22f, 0f), new Vector2(44f, UITheme.ControlHeight));
             next.onClick.AddListener(() => CycleFont(+1));
             var load = BuildButton(fontRow.transform, "LoadFontFile", "Load File…",
-                new Vector2(k_ControlLeft + 318f + 76f, 0f), new Vector2(152f, 40f));
+                new Vector2(k_ControlLeft + 318f + 76f, 0f), new Vector2(152f, UITheme.ControlHeight));
             load.onClick.AddListener(OnLoadFontFile);
 
             var styleRow = NewRow("Style", ref y);
             BuildLabel(styleRow.transform, "Style");
             var styleBtn = BuildButton(styleRow.transform, "FontStyleCycle", "",
-                new Vector2(k_ControlLeft + 125f, 0f), new Vector2(250f, 40f));
+                new Vector2(k_ControlLeft + 125f, 0f), new Vector2(250f, UITheme.ControlHeight));
             fontStyleLabel = styleBtn.GetComponentInChildren<Text>();
             styleBtn.onClick.AddListener(CycleFontStyle);
-            var styleHint = NewText("StyleHint", styleRow.transform, "source stays italic", 16,
-                                    FontStyle.Italic, TextAnchor.MiddleLeft, k_MutedColor);
+            var styleHint = NewText("StyleHint", styleRow.transform, "source stays italic", UITheme.SmallSize,
+                                    FontStyle.Italic, TextAnchor.MiddleLeft, UITheme.TextMuted);
             Place(styleHint.rectTransform, new Vector2(k_ControlLeft + 250f + 12f + 100f, 0f),
                   new Vector2(200f, k_RowHeight));
             y -= 10f;
@@ -785,7 +784,7 @@ namespace MugsTech.Style
         {
             Image swatch = BuildColorRow(label, ref y, getColor, setHex);
             matchButton = BuildButton(swatch.transform.parent, "Match" + label.Replace(" ", ""), "Match Cards",
-                new Vector2(k_ControlLeft + 250f + 12f + 100f, 0f), new Vector2(200f, 40f));
+                new Vector2(k_ControlLeft + 250f + 12f + 100f, 0f), new Vector2(200f, UITheme.ControlHeight));
             matchButton.onClick.AddListener(() =>
             {
                 setHex("");
@@ -797,19 +796,12 @@ namespace MugsTech.Style
 
         void BuildBottomButtons()
         {
-            float y = -k_PanelHeight * 0.5f + 50f;
+            // Bottom-left, under the preview column (Close lives in the header).
             var reset = BuildButton(panelTf, "ResetTabButton", "Reset Background",
-                new Vector2(-150f, y), new Vector2(300f, 60f));
+                new Vector2(-k_PanelWidth * 0.5f + 40f + 140f, -k_PanelHeight * 0.5f + 50f),
+                new Vector2(280f, UITheme.ControlHeight));
             reset.onClick.AddListener(OnResetTab);
             resetButtonLabel = reset.GetComponentInChildren<Text>();
-            var close = BuildButton(panelTf, "CloseButton", "Close",
-                new Vector2(140f, y), new Vector2(220f, 60f));
-            close.onClick.AddListener(Close);
-            foreach (var t in new[] { reset, close })
-            {
-                var label = t.GetComponentInChildren<Text>();
-                label.fontSize = 24;
-            }
         }
 
         // -------------------------------------------------------------------
@@ -819,34 +811,34 @@ namespace MugsTech.Style
         void BuildSectionHeader(string text, ref float y)
         {
             var row = NewRow("Header_" + text, ref y, 36f);
-            var t = NewText("Label", row.transform, text, 22, FontStyle.Bold, TextAnchor.MiddleLeft, k_HeaderColor);
+            var t = NewText("Label", row.transform, text, UITheme.HeadingSize, FontStyle.Bold, TextAnchor.MiddleLeft, UITheme.Heading);
             Stretch(t.rectTransform);
         }
 
         Toggle BuildToggleHeader(string text, string hintText, ref float y, Action<bool> setVal)
         {
             var row = NewRow("ToggleHeader_" + text, ref y);
-            var label = NewText("Label", row.transform, text, 22, FontStyle.Bold, TextAnchor.MiddleLeft, k_HeaderColor);
+            var label = NewText("Label", row.transform, text, UITheme.HeadingSize, FontStyle.Bold, TextAnchor.MiddleLeft, UITheme.Heading);
             Place(label.rectTransform, new Vector2(-k_ControlsW * 0.5f + k_LabelW * 0.5f, 0f),
                   new Vector2(k_LabelW, k_RowHeight));
 
             var toggleGO = NewChild("Toggle", row.transform, stretch: false);
             Place((RectTransform)toggleGO.transform, new Vector2(k_ControlLeft + 18f, 0f), new Vector2(36f, 36f));
             var bgImg = toggleGO.AddComponent<Image>();
-            bgImg.color = k_TrackColor;
+            UITheme.Surface(bgImg, UITheme.Field, 6);
 
             var checkGO = NewChild("Checkmark", toggleGO.transform, stretch: false);
-            Place((RectTransform)checkGO.transform, Vector2.zero, new Vector2(24f, 24f));
+            Place((RectTransform)checkGO.transform, Vector2.zero, new Vector2(22f, 22f));
             var checkImg = checkGO.AddComponent<Image>();
-            checkImg.color = k_HeaderColor;
+            UITheme.Surface(checkImg, UITheme.Heading, 4);
 
             var toggle = toggleGO.AddComponent<Toggle>();
             toggle.targetGraphic = bgImg;
             toggle.graphic       = checkImg;
             toggle.onValueChanged.AddListener(v => setVal(v));
 
-            var hint = NewText("Hint", row.transform, hintText, 16,
-                               FontStyle.Italic, TextAnchor.MiddleLeft, k_MutedColor);
+            var hint = NewText("Hint", row.transform, hintText, UITheme.SmallSize,
+                               FontStyle.Italic, TextAnchor.MiddleLeft, UITheme.TextMuted);
             Place(hint.rectTransform, new Vector2(k_ControlLeft + 60f + 150f, 0f), new Vector2(300f, k_RowHeight));
             return toggle;
         }
@@ -856,6 +848,7 @@ namespace MugsTech.Style
             var swatchGO = NewChild("Swatch", row, stretch: false);
             Place((RectTransform)swatchGO.transform, new Vector2(k_ControlLeft + width * 0.5f, 0f), new Vector2(width, 36f));
             var swatch = swatchGO.AddComponent<Image>();
+            UITheme.Round(swatch, UITheme.ControlRadius);
 
             var btn = swatchGO.AddComponent<Button>();
             btn.targetGraphic = swatch;
@@ -876,8 +869,7 @@ namespace MugsTech.Style
             const float trackW = 360f;
             var trackGO = NewChild("Slider", row.transform, stretch: false);
             Place((RectTransform)trackGO.transform, new Vector2(k_ControlLeft + trackW * 0.5f, 0f), new Vector2(trackW, 28f));
-            var trackImg = trackGO.AddComponent<Image>();
-            trackImg.color = k_TrackColor;
+            var trackImg = trackGO.AddComponent<Image>(); // painted by UITheme.ApplyControls
 
             var slider = trackGO.AddComponent<Slider>();
             slider.minValue      = min;
@@ -893,7 +885,7 @@ namespace MugsTech.Style
             faRT.offsetMax = new Vector2(-8, 0);
 
             var fill = NewChild("Fill", fillArea.transform, stretch: true);
-            fill.AddComponent<Image>().color = k_HeaderColor;
+            fill.AddComponent<Image>();
             slider.fillRect = (RectTransform)fill.transform;
 
             var handleArea = NewChild("Handle Slide Area", trackGO.transform, stretch: false);
@@ -906,10 +898,10 @@ namespace MugsTech.Style
             var handle = NewChild("Handle", handleArea.transform, stretch: false);
             var handleRT = (RectTransform)handle.transform;
             handleRT.sizeDelta = new Vector2(18f, 32f);
-            handle.AddComponent<Image>().color = Color.white;
+            handle.AddComponent<Image>();
             slider.handleRect = handleRT;
 
-            valueText = NewText("Value", row.transform, "", 20, FontStyle.Normal, TextAnchor.MiddleLeft, k_LabelColor);
+            valueText = NewText("Value", row.transform, "", UITheme.BodySize, FontStyle.Normal, TextAnchor.MiddleLeft, UITheme.Text);
             Place(valueText.rectTransform, new Vector2(k_ControlLeft + trackW + 16f + 45f, 0f), new Vector2(90f, k_RowHeight));
 
             slider.onValueChanged.AddListener(v =>
@@ -972,7 +964,7 @@ namespace MugsTech.Style
 
         void BuildLabel(Transform row, string text)
         {
-            var t = NewText("Label", row, text, 20, FontStyle.Normal, TextAnchor.MiddleLeft, k_LabelColor);
+            var t = NewText("Label", row, text, UITheme.BodySize, FontStyle.Normal, TextAnchor.MiddleLeft, UITheme.Text);
             Place(t.rectTransform, new Vector2(-k_ControlsW * 0.5f + k_LabelW * 0.5f, 0f), new Vector2(k_LabelW, k_RowHeight));
         }
 
@@ -980,12 +972,11 @@ namespace MugsTech.Style
         {
             var go = NewChild(name, parent, stretch: false);
             Place((RectTransform)go.transform, pos, size);
-            var img = go.AddComponent<Image>();
-            img.color = k_ActiveColor;
+            var img = go.AddComponent<Image>(); // painted by UITheme.Apply (or the tab / direction state)
             var btn = go.AddComponent<Button>();
             btn.targetGraphic = img;
 
-            var t = NewText("Label", go.transform, label, 20, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+            var t = NewText("Label", go.transform, label, UITheme.BodySize, FontStyle.Bold, TextAnchor.MiddleCenter, UITheme.TextStrong);
             Stretch(t.rectTransform);
             return btn;
         }
@@ -1005,7 +996,7 @@ namespace MugsTech.Style
             var go = NewChild(name, parent, stretch: false);
             var t = go.AddComponent<Text>();
             t.text          = text;
-            t.font          = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            t.font          = UITheme.LegacyFont;
             t.fontSize      = size;
             t.fontStyle     = style;
             t.alignment     = anchor;

@@ -54,6 +54,11 @@ public class OutputLibraryController : MonoBehaviour
     /// <summary>Absolute path of the currently selected generation, or null if none.</summary>
     public string SelectedGeneration { get; private set; }
 
+    // The row's controls, for the main menu's layout pass (MainMenuController.Layout).
+    public TMP_Dropdown Dropdown          => generationDropdown;
+    public Button       RefreshButton     => refreshButton;
+    public TMP_Text     SelectedPathLabel => selectedPathLabel;
+
     void Start()
     {
         EnsureUI();   // generate the dropdown row if it wasn't wired in the Inspector
@@ -204,7 +209,7 @@ public class OutputLibraryController : MonoBehaviour
     // the dropdown wasn't already wired in the Inspector. Mirrors the runtime
     // row builders in MainMenuController so no scene setup is required.
     // -----------------------------------------------------------------------
-    void EnsureUI()
+    public void EnsureUI()
     {
         if (generationDropdown != null) return; // already wired — use as-is
 

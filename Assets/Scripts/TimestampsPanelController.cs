@@ -46,8 +46,18 @@ public class TimestampsPanelController : MonoBehaviour
     string     currentBlock = "";
     Coroutine  statusRoutine;
 
-    void Start()
+    /// <summary>The "YouTube Chapters" button; the main menu places it in its top bar.</summary>
+    public Button OpenButton { get; private set; }
+
+    // MainMenuController calls Build() straight after adding this component so
+    // its layout pass can place the button; Start is the fallback for scenes
+    // where the component was added some other way. Idempotent.
+    void Start() => Build();
+
+    public void Build()
     {
+        if (panelRoot != null) return;
+
         canvas = GetComponentInChildren<Canvas>();
         if (canvas == null) canvas = FindObjectOfType<Canvas>();
         if (canvas == null)
@@ -72,7 +82,8 @@ public class TimestampsPanelController : MonoBehaviour
         rt.anchoredPosition = new Vector2(-40f, -40f);
         rt.sizeDelta        = new Vector2(320f, 56f);
         go.GetComponent<Image>().color = Accent;
-        go.GetComponent<Button>().onClick.AddListener(Open);
+        OpenButton = go.GetComponent<Button>();
+        OpenButton.onClick.AddListener(Open);
         MakeStretchLabel(go.transform, "YouTube Chapters", 24f);
     }
 

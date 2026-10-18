@@ -161,18 +161,23 @@ namespace MugsTech.Style
         }
 
         // -------------------------------------------------------------------
-        // UI construction
+        // UI construction — header (title + Close), live preview, then a form:
+        // labels in one column, controls in the next. Rows are stacked from the
+        // panel top and the panel is sized to fit them afterwards.
         // -------------------------------------------------------------------
 
-        const float k_PanelWidth   = 760f;
-        const float k_PanelHeight  = 1020f;
-        const float k_PreviewH     = 150f;
-        const float k_RowHeight   = 50f;
-        const float k_RowGap      =  6f;
-        const float k_GroupGap    = 14f;
-        const float k_LabelLeft   = -k_PanelWidth * 0.5f + 30f; // label x within panel
-        const float k_ControlLeft = -10f;                       // controls x within panel
-        const float k_ControlW    = 360f;
+        const float k_PanelWidth = 760f;
+        const float k_Pad        = 30f;   // left / right / bottom padding
+        const float k_PreviewH   = 150f;
+        const float k_RowHeight  = 50f;
+        const float k_RowGap     =  6f;
+        const float k_GroupGap   = 14f;
+        const float k_LabelW     = 200f;
+        // Label column starts at the left padding; controls fill the rest.
+        const float k_LabelX     = -k_PanelWidth * 0.5f + k_Pad + k_LabelW * 0.5f;
+        const float k_ControlL   = -k_PanelWidth * 0.5f + k_Pad + k_LabelW + UITheme.Gap;
+        const float k_ControlW   = k_PanelWidth * 0.5f - k_Pad - k_ControlL;
+        const float k_ControlX   = k_ControlL + k_ControlW * 0.5f;
 
         Transform panelTf;
 
@@ -186,25 +191,21 @@ namespace MugsTech.Style
             selfRT.offsetMin = selfRT.offsetMax = Vector2.zero;
 
             var backdrop = NewChild("Backdrop", transform, stretch: true);
-            var bImg = backdrop.AddComponent<Image>();
-            bImg.color = new Color(0, 0, 0, 0.55f);
+            backdrop.AddComponent<Image>().color = UITheme.Backdrop;
 
             var panel = NewChild("Panel", transform, stretch: false);
             panelTf = panel.transform;
             var prt = (RectTransform)panel.transform;
             prt.anchorMin = prt.anchorMax = prt.pivot = new Vector2(0.5f, 0.5f);
-            prt.sizeDelta = new Vector2(k_PanelWidth, k_PanelHeight);
-            var pImg = panel.AddComponent<Image>();
-            pImg.color = new Color(0.10f, 0.12f, 0.16f, 0.98f);
+            UITheme.Surface(panel.AddComponent<Image>(), UITheme.Window, UITheme.PanelRadius);
 
-            float y = k_PanelHeight * 0.5f - 50f; // start near top, leaving room for title
+            float y = -20f; // from the panel top
 
-            BuildTitle("Big Text Style", ref y);
-            y -= 6f;
+            BuildHeader("Big Text Style", ref y);
             BuildPreviewArea(ref y);
             y -= k_GroupGap;
 
-            textColorSwatch = BuildSwatchRow("Text Color", ref y,
+            textColorSwatch = BuildSwatchRow("Text colour", ref y,
                 () => ParseHex(data.textColorHex, Color.white),
                 c => { data.textColorHex = HexOf(c); textColorSwatch.color = c; NotifyChanged(); });
 
@@ -212,7 +213,7 @@ namespace MugsTech.Style
             y -= k_GroupGap;
 
             BuildSectionHeader("Outline", ref y);
-            outlineColorSwatch = BuildSwatchRow("Color", ref y,
+            outlineColorSwatch = BuildSwatchRow("Colour", ref y,
                 () => ParseHex(data.outlineColorHex, new Color(0, 0, 0, 0.75f)),
                 c => { data.outlineColorHex = HexOf(c); outlineColorSwatch.color = c; NotifyChanged(); });
             outlineWidthSlider = BuildSliderRow("Width", ref y, 0f, 0.3f,
@@ -223,7 +224,7 @@ namespace MugsTech.Style
             shadowToggle = BuildToggleHeader("Shadow", ref y,
                 () => data.shadowEnabled,
                 v => { data.shadowEnabled = v; NotifyChanged(); });
-            shadowColorSwatch = BuildSwatchRow("Color", ref y,
+            shadowColorSwatch = BuildSwatchRow("Colour", ref y,
                 () => ParseHex(data.shadowColorHex, new Color(0, 0, 0, 0.75f)),
                 c => { data.shadowColorHex = HexOf(c); shadowColorSwatch.color = c; NotifyChanged(); });
             shadowSoftnessSlider = BuildSliderRow("Softness", ref y, 0f, 1f,
@@ -234,14 +235,18 @@ namespace MugsTech.Style
             backgroundToggle = BuildToggleHeader("Background", ref y,
                 () => data.backgroundEnabled,
                 v => { data.backgroundEnabled = v; NotifyChanged(); });
-            backgroundColorSwatch = BuildSwatchRow("Color", ref y,
+            backgroundColorSwatch = BuildSwatchRow("Colour", ref y,
                 () => ParseHex(data.backgroundColorHex, new Color(0, 0, 0, 0.60f)),
                 c => { data.backgroundColorHex = HexOf(c); backgroundColorSwatch.color = c; NotifyChanged(); });
-            backgroundCornerSlider = BuildSliderRow("Corner Radius", ref y, 0f, 60f,
+            backgroundCornerSlider = BuildSliderRow("Corner radius", ref y, 0f, 60f,
                 () => data.backgroundCornerRadius,
                 v => { data.backgroundCornerRadius = v; NotifyChanged(); });
 
-            BuildCloseButton();
+            // Fit the panel to the rows (minus the trailing gap) + bottom padding.
+            prt.sizeDelta = new Vector2(k_PanelWidth, -y - k_RowGap + k_Pad);
+
+            UITheme.Apply(gameObject);
+            UITheme.ApplyControls(gameObject);
         }
 
         // -------------------------------------------------------------------
@@ -255,15 +260,14 @@ namespace MugsTech.Style
             // Faux-recording backdrop so light text remains visible against
             // a dark scene. Sized to fill the row.
             var backdropGO = NewChild("Backdrop", rowGO.transform, stretch: true);
-            var backdrop   = backdropGO.AddComponent<Image>();
-            backdrop.color = new Color(0.10f, 0.12f, 0.15f, 1f);
+            UITheme.Surface(backdropGO.AddComponent<Image>(), new Color(0.06f, 0.07f, 0.09f, 1f), UITheme.ControlRadius);
 
             // Per-line-style background plate (mirrors BigTextCard).
             var bgGO = NewChild("LineBg", rowGO.transform, stretch: false);
             var bgRT = (RectTransform)bgGO.transform;
             bgRT.anchorMin = bgRT.anchorMax = bgRT.pivot = new Vector2(0.5f, 0.5f);
             bgRT.anchoredPosition = Vector2.zero;
-            bgRT.sizeDelta        = new Vector2(k_PanelWidth - 80f, k_PreviewH - 30f);
+            bgRT.sizeDelta        = new Vector2(k_PanelWidth - 2f * k_Pad - 40f, k_PreviewH - 30f);
             previewBackground = bgGO.AddComponent<Image>();
             previewBackground.raycastTarget = false;
             previewBackground.gameObject.SetActive(false);
@@ -275,7 +279,7 @@ namespace MugsTech.Style
             previewTmp.enableAutoSizing    = true;
             previewTmp.fontSizeMin         = 36f;
             previewTmp.fontSizeMax         = 110f;
-            previewTmp.enableWordWrapping  = false;
+            previewTmp.textWrappingMode    = TextWrappingModes.NoWrap;
             previewTmp.overflowMode        = TextOverflowModes.Truncate;
             previewTmp.raycastTarget       = false;
             // Padding so the preview rect doesn't crop large outlines / shadows.
@@ -290,22 +294,16 @@ namespace MugsTech.Style
             BuildLabel(rowGO.transform, "Style");
 
             var btnGO = NewChild("Cycle", rowGO.transform, stretch: false);
-            var rt = (RectTransform)btnGO.transform;
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = new Vector2(k_ControlLeft, 0f);
-            rt.sizeDelta        = new Vector2(k_ControlW, 36f);
+            PlaceControl(btnGO, UITheme.ControlHeight);
             var img = btnGO.AddComponent<Image>();
-            img.color = new Color(0.20f, 0.45f, 0.65f, 1f);
             var btn = btnGO.AddComponent<Button>();
             btn.targetGraphic = img;
 
             var labelGO = NewChild("Label", btnGO.transform, stretch: true);
             fontStyleLabel = labelGO.AddComponent<Text>();
-            fontStyleLabel.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            fontStyleLabel.fontSize  = 20;
-            fontStyleLabel.fontStyle = FontStyle.Bold;
+            fontStyleLabel.font      = UITheme.LegacyFont;
+            UITheme.Style(fontStyleLabel, UITheme.TextRole.Value);
             fontStyleLabel.alignment = TextAnchor.MiddleCenter;
-            fontStyleLabel.color     = Color.white;
 
             btn.onClick.AddListener(() =>
             {
@@ -327,65 +325,60 @@ namespace MugsTech.Style
             }
         }
 
-        void BuildTitle(string text, ref float y)
+        // Title on the left, Close on the right — like every other window.
+        void BuildHeader(string text, ref float y)
         {
-            var go = NewRow("Title", ref y, 56f);
-            var t = go.AddComponent<Text>();
-            t.text     = text;
-            t.font     = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            t.fontSize = 32;
-            t.fontStyle = FontStyle.Bold;
-            t.alignment = TextAnchor.MiddleCenter;
-            t.color     = new Color(0.95f, 0.97f, 1f, 1f);
+            var row = NewRow("Header", ref y, 56f);
+
+            var titleGO = NewChild("Title", row.transform, stretch: true);
+            NewText(titleGO, text, UITheme.TextRole.Title);
+            ((RectTransform)titleGO.transform).offsetMin = new Vector2(k_Pad - 20f, 0f); // align with the labels
+
+            var btnGO = NewChild("CloseButton", row.transform, stretch: false);
+            var rt = (RectTransform)btnGO.transform;
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 0.5f);
+            rt.anchoredPosition = new Vector2(-(k_Pad - 20f), 0f);
+            rt.sizeDelta = new Vector2(120f, UITheme.ControlHeight);
+            var img = btnGO.AddComponent<Image>();
+            var btn = btnGO.AddComponent<Button>();
+            btn.targetGraphic = img;
+            btn.onClick.AddListener(Close);
+            var label = NewText(NewChild("Label", btnGO.transform, stretch: true), "Close", UITheme.TextRole.Value);
+            label.alignment = TextAnchor.MiddleCenter;
         }
 
         void BuildSectionHeader(string text, ref float y)
         {
             var go = NewRow("Header_" + text, ref y, 36f);
-            var t = go.AddComponent<Text>();
-            t.text       = text;
-            t.font       = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            t.fontSize   = 22;
-            t.fontStyle  = FontStyle.Bold;
-            t.alignment  = TextAnchor.MiddleLeft;
-            t.color      = new Color(0.55f, 0.78f, 1f, 1f);
-            var rt = (RectTransform)go.transform;
-            rt.anchoredPosition = new Vector2(k_LabelLeft + (k_PanelWidth - 60f) * 0.5f, rt.anchoredPosition.y);
+            var labelGO = NewChild("Label", go.transform, stretch: false);
+            PlaceLabel(labelGO, 36f);
+            NewText(labelGO, text, UITheme.TextRole.Heading);
         }
 
+        // A section heading with its on / off toggle in the controls column.
         Toggle BuildToggleHeader(string text, ref float y, Func<bool> getVal, Action<bool> setVal)
         {
             var rowGO = NewRow("ToggleHeader_" + text, ref y, k_RowHeight);
 
             var headerLabel = NewChild("Label", rowGO.transform, stretch: false);
-            var hRT = (RectTransform)headerLabel.transform;
-            hRT.anchorMin = hRT.anchorMax = hRT.pivot = new Vector2(0.5f, 0.5f);
-            hRT.anchoredPosition = new Vector2(-k_PanelWidth * 0.5f + 100f, 0f);
-            hRT.sizeDelta = new Vector2(200f, k_RowHeight);
-            var ht = headerLabel.AddComponent<Text>();
-            ht.text       = text;
-            ht.font       = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            ht.fontSize   = 22;
-            ht.fontStyle  = FontStyle.Bold;
-            ht.alignment  = TextAnchor.MiddleLeft;
-            ht.color      = new Color(0.55f, 0.78f, 1f, 1f);
+            PlaceLabel(headerLabel, k_RowHeight);
+            NewText(headerLabel, text, UITheme.TextRole.Heading);
 
-            // Toggle on the right side of the row.
             var toggleGO = NewChild("Toggle", rowGO.transform, stretch: false);
             var tRT = (RectTransform)toggleGO.transform;
             tRT.anchorMin = tRT.anchorMax = tRT.pivot = new Vector2(0.5f, 0.5f);
-            tRT.anchoredPosition = new Vector2(-k_PanelWidth * 0.5f + 270f, 0f);
+            tRT.anchoredPosition = new Vector2(k_ControlL + 18f, 0f);
             tRT.sizeDelta = new Vector2(36f, 36f);
             var bgImg = toggleGO.AddComponent<Image>();
-            bgImg.color = new Color(0.18f, 0.20f, 0.24f, 1f);
+            UITheme.Surface(bgImg, UITheme.Field, 6);
 
             var checkGO = NewChild("Checkmark", toggleGO.transform, stretch: false);
             var cRT = (RectTransform)checkGO.transform;
             cRT.anchorMin = cRT.anchorMax = cRT.pivot = new Vector2(0.5f, 0.5f);
             cRT.anchoredPosition = Vector2.zero;
-            cRT.sizeDelta = new Vector2(24f, 24f);
+            cRT.sizeDelta = new Vector2(22f, 22f);
             var checkImg = checkGO.AddComponent<Image>();
-            checkImg.color = new Color(0.55f, 0.78f, 1f, 1f);
+            UITheme.Surface(checkImg, UITheme.Heading, 4);
 
             var toggle = toggleGO.AddComponent<Toggle>();
             toggle.targetGraphic = bgImg;
@@ -402,11 +395,9 @@ namespace MugsTech.Style
             BuildLabel(rowGO.transform, label);
 
             var swatchGO = NewChild("Swatch", rowGO.transform, stretch: false);
-            var srt = (RectTransform)swatchGO.transform;
-            srt.anchorMin = srt.anchorMax = srt.pivot = new Vector2(0.5f, 0.5f);
-            srt.anchoredPosition = new Vector2(k_ControlLeft, 0f);
-            srt.sizeDelta = new Vector2(k_ControlW, 36f);
+            PlaceControl(swatchGO, 36f);
             var swatch = swatchGO.AddComponent<Image>();
+            UITheme.Round(swatch, UITheme.ControlRadius);
             swatch.color = getColor();
 
             var btn = swatchGO.AddComponent<Button>();
@@ -425,12 +416,8 @@ namespace MugsTech.Style
             BuildLabel(rowGO.transform, label);
 
             var trackGO = NewChild("Slider", rowGO.transform, stretch: false);
-            var trt = (RectTransform)trackGO.transform;
-            trt.anchorMin = trt.anchorMax = trt.pivot = new Vector2(0.5f, 0.5f);
-            trt.anchoredPosition = new Vector2(k_ControlLeft, 0f);
-            trt.sizeDelta = new Vector2(k_ControlW, 28f);
+            PlaceControl(trackGO, 24f);
             var trackImg = trackGO.AddComponent<Image>();
-            trackImg.color = new Color(0.18f, 0.20f, 0.24f, 1f);
 
             var slider = trackGO.AddComponent<Slider>();
             slider.minValue = min;
@@ -448,8 +435,7 @@ namespace MugsTech.Style
             faRT.offsetMax = new Vector2(-8, 0);
 
             var fill = NewChild("Fill", fillArea.transform, stretch: true);
-            var fillImg = fill.AddComponent<Image>();
-            fillImg.color = new Color(0.55f, 0.78f, 1f, 1f);
+            fill.AddComponent<Image>();
             slider.fillRect = (RectTransform)fill.transform;
 
             var handleArea = NewChild("Handle Slide Area", trackGO.transform, stretch: false);
@@ -462,10 +448,10 @@ namespace MugsTech.Style
             var handle = NewChild("Handle", handleArea.transform, stretch: false);
             var handleRT = (RectTransform)handle.transform;
             handleRT.sizeDelta = new Vector2(18f, 32f);
-            var handleImg = handle.AddComponent<Image>();
-            handleImg.color = Color.white;
+            handle.AddComponent<Image>();
             slider.handleRect = handleRT;
 
+            UITheme.StyleSlider(slider);
             slider.onValueChanged.AddListener(v => setVal(v));
             return slider;
         }
@@ -473,48 +459,44 @@ namespace MugsTech.Style
         void BuildLabel(Transform rowParent, string text)
         {
             var labelGO = NewChild("Label", rowParent, stretch: false);
-            var lRT = (RectTransform)labelGO.transform;
-            lRT.anchorMin = lRT.anchorMax = lRT.pivot = new Vector2(0.5f, 0.5f);
-            lRT.anchoredPosition = new Vector2(-k_PanelWidth * 0.5f + 170f, 0f);
-            lRT.sizeDelta = new Vector2(280f, k_RowHeight);
-            var t = labelGO.AddComponent<Text>();
-            t.text       = text;
-            t.font       = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            t.fontSize   = 20;
-            t.alignment  = TextAnchor.MiddleLeft;
-            t.color      = new Color(0.85f, 0.88f, 0.93f, 1f);
+            PlaceLabel(labelGO, k_RowHeight);
+            NewText(labelGO, text, UITheme.TextRole.Label);
         }
 
-        void BuildCloseButton()
+        static void PlaceLabel(GameObject go, float height)
         {
-            var btnGO = NewChild("CloseButton", panelTf, stretch: false);
-            var rt = (RectTransform)btnGO.transform;
+            var rt = (RectTransform)go.transform;
             rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.anchoredPosition = new Vector2(0f, -k_PanelHeight * 0.5f + 50f);
-            rt.sizeDelta = new Vector2(220f, 60f);
-            var img = btnGO.AddComponent<Image>();
-            img.color = new Color(0.30f, 0.32f, 0.36f, 1f);
-            var btn = btnGO.AddComponent<Button>();
-            btn.targetGraphic = img;
-            btn.onClick.AddListener(Close);
-
-            var labelGO = NewChild("Label", btnGO.transform, stretch: true);
-            var t = labelGO.AddComponent<Text>();
-            t.text       = "Close";
-            t.font       = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            t.fontSize   = 26;
-            t.fontStyle  = FontStyle.Bold;
-            t.alignment  = TextAnchor.MiddleCenter;
-            t.color      = Color.white;
+            rt.anchoredPosition = new Vector2(k_LabelX, 0f);
+            rt.sizeDelta = new Vector2(k_LabelW, height);
         }
 
-        // Single 1-row container at panel-relative y; advances y for the next row.
+        static void PlaceControl(GameObject go, float height)
+        {
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(k_ControlX, 0f);
+            rt.sizeDelta = new Vector2(k_ControlW, height);
+        }
+
+        static Text NewText(GameObject go, string text, UITheme.TextRole role)
+        {
+            var t = go.AddComponent<Text>();
+            t.text      = text;
+            t.font      = UITheme.LegacyFont;
+            t.alignment = TextAnchor.MiddleLeft;
+            UITheme.Style(t, role);
+            return t;
+        }
+
+        // Single 1-row container stacked from the panel top; advances y.
         GameObject NewRow(string name, ref float y, float height)
         {
             var go = new GameObject(name, typeof(RectTransform));
             go.transform.SetParent(panelTf, false);
             var rt = (RectTransform)go.transform;
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 1f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
             rt.anchoredPosition = new Vector2(0f, y - height * 0.5f);
             rt.sizeDelta = new Vector2(k_PanelWidth - 40f, height);
             y -= height + k_RowGap;

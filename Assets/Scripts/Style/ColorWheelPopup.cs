@@ -167,16 +167,14 @@ namespace MugsTech.Style
             // Modal backdrop — full-parent, eats clicks so the editor below
             // doesn't react while the picker is up.
             var backdrop = NewChild("Backdrop", transform, stretch: true);
-            var bImg = backdrop.AddComponent<Image>();
-            bImg.color = new Color(0, 0, 0, 0.55f);
+            backdrop.AddComponent<Image>().color = UITheme.Backdrop;
 
             // Center panel
             var panel = NewChild("Panel", transform, stretch: false);
             var panelRT = (RectTransform)panel.transform;
             panelRT.anchorMin = panelRT.anchorMax = panelRT.pivot = new Vector2(0.5f, 0.5f);
             panelRT.sizeDelta = new Vector2(380, 580);
-            var panelImg = panel.AddComponent<Image>();
-            panelImg.color = new Color(0.10f, 0.12f, 0.16f, 0.98f);
+            UITheme.Surface(panel.AddComponent<Image>(), UITheme.Window, UITheme.PanelRadius);
 
             // Hue ring
             var hr = NewChild("HueRing", panel.transform, stretch: false);
@@ -231,14 +229,15 @@ namespace MugsTech.Style
             prRT.anchoredPosition = new Vector2(-90, -420);
             prRT.sizeDelta = new Vector2(80, 50);
             previewImage = preview.AddComponent<Image>();
+            UITheme.Round(previewImage, UITheme.ControlRadius);
 
             // Hex code field — shows the current color and takes a typed or
             // pasted code.
             BuildHexField(panel.transform);
 
-            // Buttons
-            BuildButton("OkButton",     panel.transform, "OK",     new Vector2(-80, -510), Apply,  new Color(0.20f, 0.55f, 0.32f, 1f));
-            BuildButton("CancelButton", panel.transform, "Cancel", new Vector2( 80, -510), Cancel, new Color(0.45f, 0.20f, 0.20f, 1f));
+            // Buttons — confirm on the right, like every other dialog.
+            BuildButton("CancelButton", panel.transform, "Cancel", new Vector2(-80, -510), Cancel, UIRole.Role.Neutral);
+            BuildButton("OkButton",     panel.transform, "OK",     new Vector2( 80, -510), Apply,  UIRole.Role.Positive);
         }
 
         void BuildHexField(Transform parent)
@@ -247,19 +246,16 @@ namespace MugsTech.Style
             var hexRT = (RectTransform)hex.transform;
             hexRT.anchorMin = hexRT.anchorMax = hexRT.pivot = new Vector2(0.5f, 1f);
             hexRT.anchoredPosition = new Vector2(60, -425);
-            hexRT.sizeDelta = new Vector2(180, 40);
-            var bg = hex.AddComponent<Image>();
-            bg.color = new Color(0.18f, 0.20f, 0.24f, 1f);
+            hexRT.sizeDelta = new Vector2(180, UITheme.ControlHeight);
+            var bg = hex.AddComponent<Image>(); // painted by UITheme.StyleInput below
 
             var textGO = NewChild("Text", hex.transform, stretch: true);
             var textRT = (RectTransform)textGO.transform;
             textRT.offsetMin = new Vector2(10, 2);
             textRT.offsetMax = new Vector2(-10, -2);
             var text = textGO.AddComponent<Text>();
-            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            text.fontSize = 22;
+            text.font = UITheme.LegacyFont;
             text.alignment = TextAnchor.MiddleLeft;
-            text.color = new Color(0.85f, 0.88f, 0.93f, 1f);
             text.supportRichText = false;
 
             var placeholderGO = NewChild("Placeholder", hex.transform, stretch: true);
@@ -268,10 +264,7 @@ namespace MugsTech.Style
             phRT.offsetMax = textRT.offsetMax;
             var placeholder = placeholderGO.AddComponent<Text>();
             placeholder.font = text.font;
-            placeholder.fontSize = 20;
-            placeholder.fontStyle = FontStyle.Italic;
             placeholder.alignment = TextAnchor.MiddleLeft;
-            placeholder.color = new Color(0.55f, 0.58f, 0.64f, 1f);
             placeholder.text = "#RRGGBB";
 
             hexInput = hex.AddComponent<InputField>();
@@ -284,6 +277,7 @@ namespace MugsTech.Style
                 Uri.IsHexDigit(ch) || ch == '#' ? char.ToUpperInvariant(ch) : '\0';
             hexInput.onValueChanged.AddListener(OnHexTyped);
             hexInput.onEndEdit.AddListener(OnHexCommitted);
+            UITheme.StyleInput(hexInput);
         }
 
         void BuildAlphaSlider(Transform parent)
@@ -294,8 +288,7 @@ namespace MugsTech.Style
             trackRT.anchorMin = trackRT.anchorMax = trackRT.pivot = new Vector2(0.5f, 1f);
             trackRT.anchoredPosition = new Vector2(0, -360);
             trackRT.sizeDelta = new Vector2(300, 28);
-            var trackImg = trackGO.AddComponent<Image>();
-            trackImg.color = new Color(0.18f, 0.20f, 0.24f, 1f);
+            var trackImg = trackGO.AddComponent<Image>(); // painted by UITheme.StyleSlider below
 
             alphaSlider = trackGO.AddComponent<Slider>();
             alphaSlider.minValue = 0f;
@@ -313,8 +306,7 @@ namespace MugsTech.Style
             faRT.offsetMax = new Vector2(-8, 0);
 
             var fill = NewChild("Fill", fillArea.transform, stretch: true);
-            var fillImg = fill.AddComponent<Image>();
-            fillImg.color = new Color(0.55f, 0.78f, 1f, 1f);
+            fill.AddComponent<Image>();
             alphaSlider.fillRect = (RectTransform)fill.transform;
 
             // Handle area
@@ -328,35 +320,34 @@ namespace MugsTech.Style
             var handle = NewChild("Handle", handleArea.transform, stretch: false);
             var handleRT = (RectTransform)handle.transform;
             handleRT.sizeDelta = new Vector2(18, 32);
-            var handleImg = handle.AddComponent<Image>();
-            handleImg.color = Color.white;
+            handle.AddComponent<Image>();
             alphaSlider.handleRect = handleRT;
 
+            UITheme.StyleSlider(alphaSlider);
             alphaSlider.onValueChanged.AddListener(OnAlphaChanged);
         }
 
-        void BuildButton(string name, Transform parent, string label, Vector2 anchoredPos, Action onClick, Color tint)
+        void BuildButton(string name, Transform parent, string label, Vector2 anchoredPos, Action onClick, UIRole.Role role)
         {
             var go = NewChild(name, parent, stretch: false);
             var rt = (RectTransform)go.transform;
             rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 1f);
             rt.anchoredPosition = anchoredPos;
-            rt.sizeDelta = new Vector2(140, 50);
+            rt.sizeDelta = new Vector2(140, UITheme.ControlHeight);
 
             var img = go.AddComponent<Image>();
-            img.color = tint;
+            UITheme.Round(img, UITheme.ControlRadius);
             var btn = go.AddComponent<Button>();
             btn.targetGraphic = img;
             btn.onClick.AddListener(() => onClick());
+            UITheme.Pin(btn, role);
 
             var labelGO = NewChild("Label", go.transform, stretch: true);
             var t = labelGO.AddComponent<Text>();
             t.text = label;
-            t.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            t.fontSize = 26;
-            t.fontStyle = FontStyle.Bold;
+            t.font = UITheme.LegacyFont;
             t.alignment = TextAnchor.MiddleCenter;
-            t.color = Color.white;
+            UITheme.StyleButtonLabel(btn);
         }
 
         // -------------------------------------------------------------------

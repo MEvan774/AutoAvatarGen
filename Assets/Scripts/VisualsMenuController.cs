@@ -26,11 +26,12 @@ using MugsTech.Style;
 /// import / export. Quick "Save" still writes the active state to PlayerPrefs
 /// so the editor restores between sessions even without a named save.
 ///
-/// All UI lives as authored GameObjects. To rebuild the layout from scratch:
-///   Tools -> AutoAvatarGen -> Build Visuals Menu UI
-/// (see Assets/Editor/VisualsMenuUIBuilder.cs).
+/// The controls are authored GameObjects (originally from Tools -> AutoAvatarGen
+/// -> Build Visuals Menu UI, see Assets/Editor/VisualsMenuUIBuilder.cs) plus a
+/// few rows built at runtime. Their on-screen layout is set at startup by
+/// ArrangeLayout (VisualsMenuController.Layout.cs).
 /// </summary>
-public class VisualsMenuController : MonoBehaviour
+public partial class VisualsMenuController : MonoBehaviour
 {
     public const string KeyPrefix         = "AutoAvatarGen.Visuals.";
     public const string CardBgColorKey    = KeyPrefix + "Card.BgColor";
@@ -214,6 +215,7 @@ public class VisualsMenuController : MonoBehaviour
     BackgroundMusicData musicData = new BackgroundMusicData();
 
     // Auto-built font picker controls (runtime, no scene wiring required).
+    RectTransform fontRow;
     Text   fontDisplayLabel;
     Button fontPrevButton;
     Button fontNextButton;
@@ -227,11 +229,6 @@ public class VisualsMenuController : MonoBehaviour
     string activeSaveName   = "";
     string selectedSaveName = "";
     Action pendingOverwriteAction;
-
-    static readonly Color FontButtonInactive = new Color(0.30f, 0.32f, 0.36f, 1f);
-    static readonly Color FontButtonActive   = new Color(0.20f, 0.55f, 0.85f, 1f);
-    static readonly Color RowUnselected      = new Color(0.16f, 0.18f, 0.22f, 1f);
-    static readonly Color RowSelected        = new Color(0.20f, 0.45f, 0.75f, 1f);
 
     Coroutine toastCoroutine;
 
@@ -299,6 +296,9 @@ public class VisualsMenuController : MonoBehaviour
         saveAsPromptRoot.SetActive(false);
         overwriteConfirmRoot.SetActive(false);
 
+        // Lay out + skin before loading: loading marks the chosen font-style
+        // button, which a later skin pass would paint over.
+        ArrangeLayout();
         LoadActivePresetOrDefaults();
     }
 
@@ -307,14 +307,16 @@ public class VisualsMenuController : MonoBehaviour
     {
         gameObject.SetActive(true);
         panelRoot.SetActive(true);
+
+        // Skin every button to the cohesive minimalist palette. Done on open so
+        // it also catches emotion rows added since the last time it ran — and
+        // before the load below, which marks the chosen font-style button.
+        UITheme.Apply(gameObject);
+
         // Always pull the latest state from the active save (or PlayerPrefs
         // fallback) so the editor reflects the currently-active preset rather
         // than whatever was left in memory from a previous open.
         LoadActivePresetOrDefaults();
-
-        // Skin every button to the cohesive minimalist palette. Done on open so
-        // it also catches emotion rows added since the last time it ran.
-        UITheme.Apply(gameObject);
     }
 
     // Loads the editor state from the named JSON save selected as active in
@@ -542,6 +544,8 @@ public class VisualsMenuController : MonoBehaviour
                 slot.removeButton.onClick.AddListener(() => OnRemoveEmotionClicked(capturedRemove));
             }
         }
+
+        LayoutEmotionRow(slot);
     }
 
     void RepositionEmotionRows()
@@ -863,8 +867,9 @@ public class VisualsMenuController : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
-    // Runtime row construction. Mirrors the layout produced by
-    // VisualsMenuUIBuilder.CreateEmotionSlot so dynamic rows look identical.
+    // Runtime row construction. Builds the same parts as
+    // VisualsMenuUIBuilder.CreateEmotionSlot; LayoutEmotionRow (called from
+    // WireEmotionSlot) then places and skins them like the authored rows.
     // -----------------------------------------------------------------------
 
     EmotionSlot BuildRuntimeEmotionRow(string emotionName)
@@ -997,7 +1002,7 @@ public class VisualsMenuController : MonoBehaviour
         go.transform.SetParent(parent, false);
         var t = go.AddComponent<Text>();
         t.text      = value;
-        t.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        t.font      = UITheme.LegacyFont;
         t.fontSize  = size;
         t.fontStyle = style;
         t.alignment = alignment;
@@ -1225,71 +1230,43 @@ public class VisualsMenuController : MonoBehaviour
     // Font picker (auto-built; not part of VisualsMenuUIBuilder)
     // -----------------------------------------------------------------------
 
+    // "Font   <  [ name ]  >  [Load font…]" — same shape as the other cycle
+    // pickers. ArrangeLayout slots it into the Cards card.
     void BuildFontRow()
     {
         if (panelRoot == null) return;
 
-        // Place in the gap between the live card preview (~y=-340 bottom) and
-        // the bottom action button row (top edge at y=-455). Anchor centered.
-        var row = new GameObject("FontRow", typeof(RectTransform));
-        row.transform.SetParent(panelRoot.transform, false);
-        var rt = (RectTransform)row.transform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = new Vector2(0f, -395f);
-        rt.sizeDelta        = new Vector2(1700f, 60f);
+        fontRow = UITheme.MakeRow(panelRoot.transform, "FontRow");
+        UITheme.Size(LegacyText(fontRow, "Label", "Font", UITheme.TextRole.Label), width: FormLabelWidth);
 
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(row.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = labelRT.anchorMax = labelRT.pivot = new Vector2(0.5f, 0.5f);
-        labelRT.anchoredPosition = new Vector2(-260f, 0f);
-        labelRT.sizeDelta        = new Vector2(1000f, 50f);
-        fontDisplayLabel = labelGO.AddComponent<Text>();
-        fontDisplayLabel.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        fontDisplayLabel.fontSize  = 22;
-        fontDisplayLabel.alignment = TextAnchor.MiddleLeft;
-        fontDisplayLabel.color     = new Color(0.85f, 0.88f, 0.93f, 1f);
-        fontDisplayLabel.text      = "Font:  (default)";
+        fontPrevButton = AddFontRowButton(fontRow, "Prev", "<", UITheme.ControlHeight);
 
-        fontPrevButton     = AddFontRowButton(row.transform, "Prev",  "<",  new Vector2( 350f, 0f), new Vector2(60f, 50f));
-        fontNextButton     = AddFontRowButton(row.transform, "Next",  ">",  new Vector2( 420f, 0f), new Vector2(60f, 50f));
-        fontLoadFileButton = AddFontRowButton(row.transform, "Load",  "Load Font File…",
-                                              new Vector2(640f, 0f), new Vector2(280f, 50f));
+        var box = UITheme.NewRect("ValueBox", fontRow);
+        UITheme.Surface(box.gameObject.AddComponent<Image>(), UITheme.Field);
+        UITheme.Size(box, width: 0f, height: UITheme.ControlHeight, flexWidth: 1f);
+        fontDisplayLabel = LegacyText(box, "Value", "(default)", UITheme.TextRole.Value);
+        fontDisplayLabel.alignment = TextAnchor.MiddleCenter;
+        UITheme.Fill(fontDisplayLabel.rectTransform, 4f);
+
+        fontNextButton     = AddFontRowButton(fontRow, "Next", ">", UITheme.ControlHeight);
+        fontLoadFileButton = AddFontRowButton(fontRow, "Load", "Load font…", 160f);
 
         fontPrevButton.onClick.AddListener(() => CycleFont(-1));
         fontNextButton.onClick.AddListener(() => CycleFont(+1));
         fontLoadFileButton.onClick.AddListener(OnLoadFontFileClicked);
     }
 
-    static Button AddFontRowButton(Transform parent, string name, string label,
-                                   Vector2 anchoredPos, Vector2 size)
+    static Button AddFontRowButton(Transform parent, string name, string label, float width)
     {
-        var go = new GameObject(name, typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var rt = (RectTransform)go.transform;
-        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.anchoredPosition = anchoredPos;
-        rt.sizeDelta        = size;
-
-        var img = go.AddComponent<Image>();
-        img.color = new Color(0.20f, 0.45f, 0.65f, 1f);
-        var btn = go.AddComponent<Button>();
+        var rt = UITheme.NewRect(name, parent);
+        var img = rt.gameObject.AddComponent<Image>();
+        var btn = rt.gameObject.AddComponent<Button>();
         btn.targetGraphic = img;
+        UITheme.Size(btn, width, UITheme.ControlHeight);
 
-        var labelGO = new GameObject("Label", typeof(RectTransform));
-        labelGO.transform.SetParent(go.transform, false);
-        var labelRT = (RectTransform)labelGO.transform;
-        labelRT.anchorMin = Vector2.zero;
-        labelRT.anchorMax = Vector2.one;
-        labelRT.offsetMin = Vector2.zero;
-        labelRT.offsetMax = Vector2.zero;
-        var t = labelGO.AddComponent<Text>();
-        t.text       = label;
-        t.font       = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        t.fontSize   = 22;
-        t.fontStyle  = FontStyle.Bold;
-        t.alignment  = TextAnchor.MiddleCenter;
-        t.color      = Color.white;
+        var t = LegacyText(rt, "Label", label, UITheme.TextRole.Value);
+        t.alignment = TextAnchor.MiddleCenter;
+        UITheme.Fill(t.rectTransform);
         return btn;
     }
 
@@ -1322,10 +1299,9 @@ public class VisualsMenuController : MonoBehaviour
         if (fontDisplayLabel != null)
         {
             if (string.IsNullOrEmpty(fontIdentifier))
-                fontDisplayLabel.text = "Font:  (default)";
+                fontDisplayLabel.text = "(default)";
             else
-                fontDisplayLabel.text = "Font:  " +
-                    (entry != null ? entry.DisplayName : fontIdentifier + "  (unresolved)");
+                fontDisplayLabel.text = entry != null ? entry.DisplayName : fontIdentifier + "  (unresolved)";
         }
 
         // Live preview reflects the current pick; null falls back to Inter
@@ -1390,10 +1366,8 @@ public class VisualsMenuController : MonoBehaviour
     {
         if (panelRoot == null) return;
 
-        // Place under the font row (font row is at y=-395, h=60). Put this
-        // one a bit lower-left so it doesn't visually crowd the action row.
-        bigTextEditButton = AddFontRowButton(panelRoot.transform, "BigTextEditButton",
-            "Edit Big Text…", new Vector2(-650f, -395f), new Vector2(280f, 50f));
+        // ArrangeLayout puts it in the Cards card's "Full-screen" row.
+        bigTextEditButton = AddFontRowButton(panelRoot.transform, "BigTextEditButton", "Edit Big Text…", 230f);
         bigTextEditButton.onClick.AddListener(OnBigTextEditClicked);
     }
 
@@ -1410,7 +1384,7 @@ public class VisualsMenuController : MonoBehaviour
             ? bigTextFallback
             : (FontRegistry.Resolve(fontIdentifier)?.Asset ?? bigTextFallback);
 
-        BigTextStylePopup.GetOrCreate(panelRoot.transform)
+        BigTextStylePopup.GetOrCreate(PopupHost)
                          .Show(bigTextStyle, font, OnBigTextStyleChanged);
     }
 
@@ -1437,10 +1411,8 @@ public class VisualsMenuController : MonoBehaviour
     {
         if (panelRoot == null) return;
 
-        // Stacked directly above "Edit Big Text…" (y=-395), in the free strip
-        // between the emotions list and the action row.
-        bigHeadlineEditButton = AddFontRowButton(panelRoot.transform, "BigHeadlineEditButton",
-            "Edit Big Headline…", new Vector2(-650f, -335f), new Vector2(280f, 50f));
+        // Next to "Edit Big Text…" in the "Full-screen" row (ArrangeLayout).
+        bigHeadlineEditButton = AddFontRowButton(panelRoot.transform, "BigHeadlineEditButton", "Edit Big Headline…", 230f);
         bigHeadlineEditButton.onClick.AddListener(OnBigHeadlineEditClicked);
     }
 
@@ -1459,7 +1431,7 @@ public class VisualsMenuController : MonoBehaviour
             HasActiveSave  = !string.IsNullOrEmpty(activeSaveName),
         };
 
-        BigHeadlineStylePopup.GetOrCreate(panelRoot.transform)
+        BigHeadlineStylePopup.GetOrCreate(PopupHost)
                              .Show(bigHeadlineStyle, context,
                                    current => TryPickImagePath("big headline pattern", current),
                                    TryPickFontPath,
@@ -1569,6 +1541,10 @@ public class VisualsMenuController : MonoBehaviour
         };
     }
 
+    // The style popups sit on the whole Visuals canvas (not the inset panel)
+    // so their dimmed backdrop covers the full screen.
+    Transform PopupHost => panelRoot.transform.parent != null ? panelRoot.transform.parent : panelRoot.transform;
+
     // -----------------------------------------------------------------------
     // Color-wheel picker
     // -----------------------------------------------------------------------
@@ -1581,7 +1557,7 @@ public class VisualsMenuController : MonoBehaviour
         btn.targetGraphic = swatch;
         btn.onClick.RemoveAllListeners();
         btn.onClick.AddListener(() =>
-            ColorWheelPopup.GetOrCreate(panelRoot.transform).Show(getCurrent(), onPicked));
+            ColorWheelPopup.GetOrCreate(PopupHost).Show(getCurrent(), onPicked));
     }
 
     void ApplyPickedBgColor(Color c)
@@ -1649,6 +1625,9 @@ public class VisualsMenuController : MonoBehaviour
         {
             Color bg = bgColor; bg.a = 1f;
             cardPreviewBackground.color = bg;
+            // Show the corner radius too — same generated sprite the cards use.
+            cardPreviewBackground.sprite = StyleSpriteFactory.GetRoundedRect(Mathf.RoundToInt(cornerRadius));
+            cardPreviewBackground.type   = Image.Type.Sliced;
         }
         if (cardPreviewText != null)
         {
@@ -1661,34 +1640,10 @@ public class VisualsMenuController : MonoBehaviour
             cardPreviewTmp.fontStyle = ToTmpFontStyles(fontStyle);
         }
 
-        SetButtonTint(fontNormalButton,     fontStyle == FontStyle.Normal);
-        SetButtonTint(fontBoldButton,       fontStyle == FontStyle.Bold);
-        SetButtonTint(fontItalicButton,     fontStyle == FontStyle.Italic);
-        SetButtonTint(fontBoldItalicButton, fontStyle == FontStyle.BoldAndItalic);
-
-        // Corner-radius value is shown numerically only — rendering an actual
-        // rounded-corner UI Image needs a custom shader / generated sprite,
-        // which lives in the recording scene's card system.
-    }
-
-    static void SetButtonTint(Button btn, bool active)
-    {
-        if (btn == null) return;
-        Color tint = active ? FontButtonActive : FontButtonInactive;
-        var img = btn.GetComponent<Image>();
-        if (img != null) img.color = tint;
-        var colors = btn.colors;
-        colors.normalColor      = tint;
-        colors.highlightedColor = new Color(
-            Mathf.Min(1f, tint.r + 0.10f),
-            Mathf.Min(1f, tint.g + 0.10f),
-            Mathf.Min(1f, tint.b + 0.10f), 1f);
-        colors.pressedColor     = new Color(
-            Mathf.Max(0f, tint.r - 0.12f),
-            Mathf.Max(0f, tint.g - 0.12f),
-            Mathf.Max(0f, tint.b - 0.12f), 1f);
-        colors.selectedColor    = colors.highlightedColor;
-        btn.colors = colors;
+        UITheme.SetSelected(fontNormalButton,     fontStyle == FontStyle.Normal);
+        UITheme.SetSelected(fontBoldButton,       fontStyle == FontStyle.Bold);
+        UITheme.SetSelected(fontItalicButton,     fontStyle == FontStyle.Italic);
+        UITheme.SetSelected(fontBoldItalicButton, fontStyle == FontStyle.BoldAndItalic);
     }
 
     // -----------------------------------------------------------------------
@@ -1940,15 +1895,11 @@ public class VisualsMenuController : MonoBehaviour
         row.transform.SetParent(savesListContent, false);
 
         var img = row.AddComponent<Image>();
-        img.color = (name == selectedSaveName) ? RowSelected : RowUnselected;
+        UITheme.Round(img, UITheme.ControlRadius);
 
         var btn = row.AddComponent<Button>();
-        var btnColors = btn.colors;
-        btnColors.normalColor      = img.color;
-        btnColors.highlightedColor = new Color(img.color.r + 0.04f, img.color.g + 0.04f, img.color.b + 0.04f, 1f);
-        btnColors.pressedColor     = new Color(img.color.r - 0.04f, img.color.g - 0.04f, img.color.b - 0.04f, 1f);
-        btn.colors = btnColors;
         btn.targetGraphic = img;
+        UITheme.SetSelected(btn, name == selectedSaveName, off: UITheme.Field);
 
         string captured = name;
         btn.onClick.AddListener(() => SelectSave(captured));
@@ -1961,10 +1912,10 @@ public class VisualsMenuController : MonoBehaviour
         labelGO.transform.SetParent(row.transform, false);
         var t = labelGO.AddComponent<Text>();
         t.text      = (name == activeSaveName) ? name + "   ★ active" : name;
-        t.font      = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        t.fontSize  = 22;
+        t.font      = UITheme.LegacyFont;
+        UITheme.Style(t, UITheme.TextRole.Label);
+        t.color     = UITheme.TextStrong;
         t.alignment = TextAnchor.MiddleLeft;
-        t.color     = Color.white;
         var trt = t.rectTransform;
         trt.anchorMin = Vector2.zero;
         trt.anchorMax = Vector2.one;
@@ -2221,12 +2172,12 @@ public class VisualsMenuController : MonoBehaviour
         if (string.IsNullOrEmpty(activeSaveName))
         {
             activeSaveLabel.text  = "Editing:  Untitled";
-            activeSaveLabel.color = new Color(0.55f, 0.58f, 0.64f, 1f);
+            activeSaveLabel.color = UITheme.TextMuted;
         }
         else
         {
             activeSaveLabel.text  = "Editing:  " + activeSaveName;
-            activeSaveLabel.color = new Color(0.85f, 0.88f, 0.93f, 1f);
+            activeSaveLabel.color = UITheme.Text;
         }
     }
 
