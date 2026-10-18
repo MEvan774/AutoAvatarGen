@@ -40,6 +40,9 @@ public class VisualsMenuController : MonoBehaviour
     public const string CardFontNameKey   = KeyPrefix + "Card.FontName";
     public const string BgVideoPathKey       = KeyPrefix + "BgVideoPath";   // editor working state only
     public const string BigTextStyleKey      = KeyPrefix + "BigText.Style"; // JSON-serialized BigTextStyleData
+    // JSON BigHeadlineStyleData minus the embedded image bytes (too big for
+    // PlayerPrefs) — the pattern is re-read from its path on restore.
+    public const string BigHeadlineStyleKey  = KeyPrefix + "BigHeadline.Style";
     // Music: list of paths (newline-separated) and volume — also working state only.
     // VisualsRuntimeApplier reads these as a fallback when no preset is active.
     public const string MusicListWorkingKey   = KeyPrefix + "MusicList";
@@ -194,6 +197,12 @@ public class VisualsMenuController : MonoBehaviour
     BigTextStyleData bigTextStyle = new BigTextStyleData();
     Button           bigTextEditButton;
 
+    // Fullscreen headline style — edited via BigHeadlineStylePopup,
+    // persisted like bigTextStyle (pattern image embedded in the JSON save).
+    BigHeadlineStyleData bigHeadlineStyle = new BigHeadlineStyleData();
+    Button               bigHeadlineEditButton;
+    Coroutine            bigHeadlineMirror;
+
     // Background mp4 path persisted with the preset. The editing UI was
     // removed, but the field is kept so existing saves keep round-tripping and
     // VisualsRuntimeApplier can still apply a path baked into an older save.
@@ -260,6 +269,7 @@ public class VisualsMenuController : MonoBehaviour
         EnsureTmpCardPreview();
         BuildFontRow();
         BuildBigTextEditButton();
+        BuildBigHeadlineEditButton();
 
         // Bottom row.
         saveButton.onClick.AddListener(OnQuickSave);
@@ -313,6 +323,7 @@ public class VisualsMenuController : MonoBehaviour
     // — the implicit "untitled" working state from a Quick Save.
     void LoadActivePresetOrDefaults()
     {
+        FlushBigHeadlineMirror();
         activeSaveName = PlayerPrefs.GetString(ActiveSaveNameKey, "");
 
         if (!string.IsNullOrEmpty(activeSaveName))
@@ -1418,6 +1429,129 @@ public class VisualsMenuController : MonoBehaviour
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Big headline (BigCenterCard) style editor
+    // -----------------------------------------------------------------------
+
+    void BuildBigHeadlineEditButton()
+    {
+        if (panelRoot == null) return;
+
+        // Stacked directly above "Edit Big Text…" (y=-395), in the free strip
+        // between the emotions list and the action row.
+        bigHeadlineEditButton = AddFontRowButton(panelRoot.transform, "BigHeadlineEditButton",
+            "Edit Big Headline…", new Vector2(-650f, -335f), new Vector2(280f, 50f));
+        bigHeadlineEditButton.onClick.AddListener(OnBigHeadlineEditClicked);
+    }
+
+    void OnBigHeadlineEditClicked()
+    {
+        if (panelRoot == null) return;
+        // The preview mirrors what a recording derives from this editor's
+        // card style: the "match cards" color, corner sprite and text style.
+        var context = new BigHeadlineStylePopup.PreviewContext
+        {
+            CardBackground = bgColor,
+            CornerRadius   = cornerRadius,
+            TextColor      = textColor,
+            Font           = string.IsNullOrEmpty(fontIdentifier) ? null : FontRegistry.Resolve(fontIdentifier)?.Asset,
+            FontStyle      = fontStyle,
+            HasActiveSave  = !string.IsNullOrEmpty(activeSaveName),
+        };
+
+        BigHeadlineStylePopup.GetOrCreate(panelRoot.transform)
+                             .Show(bigHeadlineStyle, context,
+                                   current => TryPickImagePath("big headline pattern", current),
+                                   TryPickFontPath,
+                                   OnBigHeadlineStyleChanged);
+    }
+
+    // Same mirroring as BigText, but debounced: every slider tick would
+    // otherwise re-embed every image and rewrite the whole save JSON.
+    void OnBigHeadlineStyleChanged()
+    {
+        if (bigHeadlineMirror != null) StopCoroutine(bigHeadlineMirror);
+        bigHeadlineMirror = StartCoroutine(MirrorBigHeadlineSoon());
+    }
+
+    IEnumerator MirrorBigHeadlineSoon()
+    {
+        yield return new WaitForSecondsRealtime(0.35f);
+        bigHeadlineMirror = null;
+        PersistBigHeadlineStyle();
+    }
+
+    // Writes a pending debounced edit now — before the state is replaced by a
+    // load, and when the panel closes (closing deactivates this object, which
+    // would otherwise drop the coroutine with the edit).
+    void FlushBigHeadlineMirror()
+    {
+        if (bigHeadlineMirror == null) return;
+        StopCoroutine(bigHeadlineMirror);
+        bigHeadlineMirror = null;
+        PersistBigHeadlineStyle();
+    }
+
+    void OnDisable() => FlushBigHeadlineMirror();
+
+    void PersistBigHeadlineStyle()
+    {
+        PlayerPrefs.SetString(BigHeadlineStyleKey, BigHeadlineWorkingJson());
+        PlayerPrefs.Save();
+
+        if (!string.IsNullOrEmpty(activeSaveName) && VisualsSaveStore.Exists(activeSaveName))
+        {
+            try { VisualsSaveStore.Save(CaptureCurrentState(activeSaveName)); }
+            catch (Exception e) { Debug.LogWarning($"[VisualsMenu] Big headline mirror failed: {e.Message}"); }
+        }
+    }
+
+    string BigHeadlineWorkingJson()
+    {
+        BigHeadlineStyleData working = CloneBigHeadlineStyle(bigHeadlineStyle);
+        working.patternImageBase64 = "";
+        return JsonUtility.ToJson(working);
+    }
+
+    // The PlayerPrefs working copy keeps only the pattern's path; re-embed
+    // it so a later Save As still carries the image.
+    void EmbedBigHeadlinePatternFromPath()
+    {
+        string path = bigHeadlineStyle.patternOriginalPath;
+        if (!string.IsNullOrEmpty(bigHeadlineStyle.patternImageBase64)
+            || string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+        try { bigHeadlineStyle.patternImageBase64 = Convert.ToBase64String(File.ReadAllBytes(path)); }
+        catch (Exception e) { Debug.LogWarning($"[VisualsMenu] Big headline pattern unreadable: {e.Message}"); }
+    }
+
+    static BigHeadlineStyleData CloneBigHeadlineStyle(BigHeadlineStyleData src)
+    {
+        return new BigHeadlineStyleData
+        {
+            backgroundColorHex     = src.backgroundColorHex,
+            patternEnabled         = src.patternEnabled,
+            patternImageBase64     = src.patternImageBase64,
+            patternExtension       = src.patternExtension,
+            patternOriginalPath    = src.patternOriginalPath,
+            patternTintHex         = src.patternTintHex,
+            patternOpacity         = src.patternOpacity,
+            patternTileScale       = src.patternTileScale,
+            patternTilePadding     = src.patternTilePadding,
+            patternScrollSpeed     = src.patternScrollSpeed,
+            patternScrollDirection = src.patternScrollDirection,
+            headlineColorHex       = src.headlineColorHex,
+            sourceColorHex         = src.sourceColorHex,
+            fontName               = src.fontName,
+            fontStyle              = src.fontStyle,
+            outlineEnabled         = src.outlineEnabled,
+            outlineColorHex        = src.outlineColorHex,
+            outlineWidth           = src.outlineWidth,
+            shadowEnabled          = src.shadowEnabled,
+            shadowColorHex         = src.shadowColorHex,
+            shadowSoftness         = src.shadowSoftness,
+        };
+    }
+
     static BigTextStyleData CloneBigTextStyle(BigTextStyleData src)
     {
         return new BigTextStyleData
@@ -1579,6 +1713,7 @@ public class VisualsMenuController : MonoBehaviour
         PlayerPrefs.SetString(MusicListWorkingKey,   MugsTech.Background.BackgroundMusicPlayer.SerializePathList(musicData.filePaths));
         PlayerPrefs.SetFloat (MusicVolumeWorkingKey, musicData.volume);
         PlayerPrefs.SetString(BigTextStyleKey,       JsonUtility.ToJson(bigTextStyle));
+        PlayerPrefs.SetString(BigHeadlineStyleKey,   BigHeadlineWorkingJson());
         PlayerPrefs.Save();
 
         // Mirror into the active named save's JSON so edits flow through to the
@@ -1627,6 +1762,15 @@ public class VisualsMenuController : MonoBehaviour
         {
             try { JsonUtility.FromJsonOverwrite(bigJson, bigTextStyle); }
             catch { /* fall back to defaults already on the field */ }
+        }
+
+        bigHeadlineStyle = new BigHeadlineStyleData();
+        string headlineJson = PlayerPrefs.GetString(BigHeadlineStyleKey, "");
+        if (!string.IsNullOrEmpty(headlineJson))
+        {
+            try { JsonUtility.FromJsonOverwrite(headlineJson, bigHeadlineStyle); }
+            catch { bigHeadlineStyle = new BigHeadlineStyleData(); }
+            EmbedBigHeadlinePatternFromPath();
         }
 
         bgColorInput.text          = ColorToHex(bgColor);
@@ -1703,6 +1847,7 @@ public class VisualsMenuController : MonoBehaviour
                 fontName     = fontIdentifier ?? "",
             },
             bigText = CloneBigTextStyle(bigTextStyle),
+            bigHeadline = CloneBigHeadlineStyle(bigHeadlineStyle),
             music   = CloneMusicData(musicData),
         };
 
@@ -1887,6 +2032,10 @@ public class VisualsMenuController : MonoBehaviour
 
     void ApplySaveToUI(VisualsSaveFile data)
     {
+        // A pending debounced big-headline edit belongs to the state about to
+        // be replaced — write it out before anything below changes.
+        FlushBigHeadlineMirror();
+
         if (TryParseHex(data.card.bgColorHex,   out Color bg)) bgColor   = bg;
         if (TryParseHex(data.card.textColorHex, out Color tx)) textColor = tx;
         cornerRadius   = data.card.cornerRadius;
@@ -1896,6 +2045,8 @@ public class VisualsMenuController : MonoBehaviour
 
         // BigText round-trip — fall back to defaults if the save predates this field.
         bigTextStyle = data.bigText != null ? CloneBigTextStyle(data.bigText) : new BigTextStyleData();
+
+        bigHeadlineStyle = data.bigHeadline != null ? CloneBigHeadlineStyle(data.bigHeadline) : new BigHeadlineStyleData();
 
         backgroundVideoPath = data.backgroundVideoPath ?? "";
 

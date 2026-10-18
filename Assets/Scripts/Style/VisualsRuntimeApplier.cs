@@ -63,6 +63,25 @@ namespace MugsTech.Style
             }
         }
 
+        /// <summary>
+        /// Fullscreen headline (BigCenterCard) style, read by the card
+        /// when it builds. Reset = the card's original hard-coded look, which
+        /// is also what renders when no named save is active.
+        /// </summary>
+        public static class BigHeadline
+        {
+            public static BigHeadlineLook Look = BigHeadlineLook.Legacy;
+
+            public static void Reset() => Look = BigHeadlineLook.Legacy;
+        }
+
+        // Pattern texture decoded from the active save, kept across applies
+        // so the menu → recording scene swap doesn't decode the same image
+        // twice. Keyed by the embedded bytes (or the path when nothing is
+        // embedded).
+        static string    s_PatternKey;
+        static Texture2D s_PatternTexture;
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Bootstrap()
         {
@@ -89,6 +108,7 @@ namespace MugsTech.Style
             CardFontStyleOverride = null;
             CardFontOverride      = null;
             BigText.Reset();
+            BigHeadline.Reset();
             // Clear preset prefs unconditionally — the Apply* methods below
             // re-write them from whichever source has a value.
             PlayerPrefs.DeleteKey(MugsTech.Background.BackgroundVideoOverride.PresetPathPrefKey);
@@ -99,6 +119,7 @@ namespace MugsTech.Style
             {
                 ApplyCardStyle(save);
                 ApplyBigTextStyle(save);
+                ApplyBigHeadlineStyle(save);
                 ApplyAvatarSprites(save);
             }
             else
@@ -205,6 +226,80 @@ namespace MugsTech.Style
             BigText.BackgroundEnabled      = s.backgroundEnabled;
             if (TryParseHex(s.backgroundColorHex) is Color bc) BigText.BackgroundColor = bc;
             BigText.BackgroundCornerRadius = s.backgroundCornerRadius;
+        }
+
+        static void ApplyBigHeadlineStyle(VisualsSaveFile save)
+        {
+            BigHeadlineStyleData s = save.bigHeadline;
+            if (s == null) return;
+            BigHeadline.Look = BigHeadlineLook.FromStyle(s, ResolvePatternTexture(s));
+        }
+
+        static Texture2D ResolvePatternTexture(BigHeadlineStyleData s)
+        {
+            string key = !string.IsNullOrEmpty(s.patternImageBase64) ? s.patternImageBase64
+                       : !string.IsNullOrEmpty(s.patternOriginalPath) ? "path:" + s.patternOriginalPath
+                       : "";
+            if (key.Length == 0) return null; // built-in default pattern
+            if (key == s_PatternKey && s_PatternTexture != null) return s_PatternTexture;
+
+            byte[] bytes = ReadPatternBytes(s);
+            Texture2D tex = bytes != null ? DecodePatternTexture(bytes) : null;
+            if (tex == null)
+                Debug.LogWarning("[VisualsRuntimeApplier] Big headline pattern image unreadable — using the built-in pattern.");
+
+            // The previous texture is deliberately not destroyed: a card built
+            // before this apply may still be drawing it. Once nothing holds
+            // it, the next single-mode scene load's UnloadUnusedAssets frees it.
+            s_PatternKey     = tex != null ? key : null;
+            s_PatternTexture = tex;
+            return tex;
+        }
+
+        /// <summary>
+        /// Raw bytes of a save's pattern image. The embedded copy wins so a
+        /// recording always matches what the visuals menu previewed; the
+        /// original path is only a fallback for data with nothing embedded.
+        /// </summary>
+        public static byte[] ReadPatternBytes(BigHeadlineStyleData s)
+        {
+            if (s == null) return null;
+            if (!string.IsNullOrEmpty(s.patternImageBase64))
+            {
+                try { return Convert.FromBase64String(s.patternImageBase64); }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[VisualsRuntimeApplier] Pattern base64 decode failed: {e.Message}");
+                }
+            }
+            if (!string.IsNullOrEmpty(s.patternOriginalPath) && File.Exists(s.patternOriginalPath))
+            {
+                try { return File.ReadAllBytes(s.patternOriginalPath); }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[VisualsRuntimeApplier] Pattern read failed '{s.patternOriginalPath}': {e.Message}");
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// PNG/JPG bytes → a texture ready for Custom/UIScrollingPattern
+        /// (Repeat wrap, no mips — matching the built-in pattern's import).
+        /// Returns null when the bytes don't decode.
+        /// </summary>
+        public static Texture2D DecodePatternTexture(byte[] bytes)
+        {
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, false);
+            if (!tex.LoadImage(bytes, markNonReadable: true))
+            {
+                UnityEngine.Object.Destroy(tex);
+                return null;
+            }
+            tex.name       = "BigHeadlinePattern";
+            tex.wrapMode   = TextureWrapMode.Repeat;
+            tex.filterMode = FilterMode.Bilinear;
+            return tex;
         }
 
         /// <summary>
@@ -380,6 +475,94 @@ namespace MugsTech.Style
         // -------------------------------------------------------------------
 
         static Color? TryParseHex(string hex)
+        {
+            if (string.IsNullOrEmpty(hex)) return null;
+            string s = hex.Trim();
+            if (s.Length > 0 && s[0] != '#') s = "#" + s;
+            return ColorUtility.TryParseHtmlString(s, out Color c) ? (Color?)c : null;
+        }
+    }
+
+    /// <summary>
+    /// Decoded big-headline style, consumed by BigCenterCard's drawing
+    /// code — both the recording card and the visuals-menu preview build one
+    /// from <see cref="BigHeadlineStyleData"/> via <see cref="FromStyle"/>, so
+    /// the two can't interpret the data differently.
+    /// </summary>
+    public struct BigHeadlineLook
+    {
+        public Color?    BackgroundColor;  // null = side-card background (original look)
+        public bool      PatternEnabled;
+        public Texture2D PatternTexture;   // null = built-in Resources/Patterns/Default
+        public Color     PatternTint;      // alpha = pattern opacity
+        public float     TileScale;
+        public float     TilePadding;
+        public float     ScrollSpeed;
+        public float     ScrollAngle;      // degrees the pattern travels toward
+
+        // Text — null / false = the side cards' text style (original look).
+        public Color?        HeadlineColor;
+        public Color?        SourceColor;
+        public TMP_FontAsset Font;
+        public FontStyle?    FontStyle;      // headline's style; source adds italic
+        public bool          OutlineEnabled;
+        public Color         OutlineColor;
+        public float         OutlineWidth;
+        public bool          ShadowEnabled;
+        public Color         ShadowColor;
+        public float         ShadowSoftness;
+
+        /// <summary>The card's original hard-coded look.</summary>
+        public static BigHeadlineLook Legacy => new BigHeadlineLook
+        {
+            BackgroundColor = null,
+            PatternEnabled  = true,
+            PatternTexture  = null,
+            PatternTint     = new Color(1f, 1f, 1f, 0.35f),
+            TileScale       = 12f,
+            TilePadding     = 0.05f,
+            ScrollSpeed     = 0.36f,
+            ScrollAngle     = 135f,
+            OutlineColor    = Color.black,
+            OutlineWidth    = 0.15f,
+            ShadowColor     = new Color(0f, 0f, 0f, 0.75f),
+            ShadowSoftness  = 0.5f,
+        };
+
+        public static BigHeadlineLook FromStyle(BigHeadlineStyleData s, Texture2D patternTexture)
+        {
+            BigHeadlineLook look = Legacy;
+            if (s == null) return look;
+
+            look.BackgroundColor = ParseHex(s.backgroundColorHex);
+            look.PatternEnabled  = s.patternEnabled;
+            look.PatternTexture  = patternTexture;
+            Color tint = ParseHex(s.patternTintHex) ?? Color.white;
+            tint.a = Mathf.Clamp01(s.patternOpacity);
+            look.PatternTint     = tint;
+            look.TileScale       = Mathf.Max(0.5f, s.patternTileScale);
+            look.TilePadding     = Mathf.Clamp(s.patternTilePadding, 0f, 0.49f);
+            look.ScrollSpeed     = s.patternScrollSpeed;
+            look.ScrollAngle     = s.patternScrollDirection;
+
+            look.HeadlineColor   = ParseHex(s.headlineColorHex);
+            look.SourceColor     = ParseHex(s.sourceColorHex);
+            look.Font            = FontRegistry.Resolve(s.fontName)?.Asset; // null when unset or unresolvable
+            look.FontStyle       = s.fontStyle >= 0 ? (FontStyle?)(FontStyle)s.fontStyle : null;
+            look.OutlineEnabled  = s.outlineEnabled;
+            look.OutlineColor    = ParseHex(s.outlineColorHex) ?? look.OutlineColor;
+            look.OutlineWidth    = Mathf.Clamp01(s.outlineWidth);
+            look.ShadowEnabled   = s.shadowEnabled;
+            look.ShadowColor     = ParseHex(s.shadowColorHex) ?? look.ShadowColor;
+            look.ShadowSoftness  = Mathf.Clamp01(s.shadowSoftness);
+            return look;
+        }
+
+        /// <summary>Unit vector the pattern visibly travels along (UV space, +y up).</summary>
+        public Vector2 ScrollDirection =>
+            new Vector2(Mathf.Cos(ScrollAngle * Mathf.Deg2Rad), Mathf.Sin(ScrollAngle * Mathf.Deg2Rad));
+
+        static Color? ParseHex(string hex)
         {
             if (string.IsNullOrEmpty(hex)) return null;
             string s = hex.Trim();

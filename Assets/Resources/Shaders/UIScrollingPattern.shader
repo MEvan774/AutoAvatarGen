@@ -3,9 +3,12 @@
 // the texture UVs along a configurable direction over time.
 //
 // Used by BigCenterCard to put a subtly-animated pattern on top of the
-// overlay panel. The texture's wrap mode must be Repeat (set at runtime by
-// the card). The scroll direction is the direction the visual pattern moves;
-// default (1, -1) scrolls diagonally down and to the right.
+// overlay panel (and by the visuals menu's Big Headline preview). Lives under
+// Resources because nothing references it from an asset — only Resources
+// placement gets it into a build. The texture's wrap mode must be Repeat
+// (set at runtime by the card). The scroll direction is the direction the
+// visual pattern moves; default (1, -1) scrolls diagonally down and to the
+// right.
 // ============================================================================
 Shader "Custom/UIScrollingPattern"
 {

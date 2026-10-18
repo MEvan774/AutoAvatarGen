@@ -8,8 +8,8 @@ namespace MugsTech.Style
     /// <summary>
     /// Self-contained HSV color picker overlay. Generates its own UI on first
     /// use — a hue ring with a saturation/value square inside, an alpha
-    /// slider, hex readout, and OK / Cancel buttons. Callers point Show() at
-    /// a parent transform and pass an initial color + callback.
+    /// slider, an editable hex code field, and OK / Cancel buttons. Callers
+    /// point Show() at a parent transform and pass an initial color + callback.
     ///
     /// Usage:
     ///   ColorWheelPopup.GetOrCreate(panelRoot.transform)
@@ -17,8 +17,10 @@ namespace MugsTech.Style
     ///
     /// Picks: clicking anywhere on the hue ring snaps the hue to that angle;
     /// clicking the inner square sets saturation (x) and value (y); the alpha
-    /// slider sets transparency. The square's texture is regenerated on hue
-    /// change so the user sees the gamut for the selected hue.
+    /// slider sets transparency; typing a code (#RRGGBB keeps the current
+    /// transparency, #RRGGBBAA sets it) moves the picker to that color. The
+    /// square's texture is regenerated on hue change so the user sees the
+    /// gamut for the selected hue.
     /// </summary>
     public class ColorWheelPopup : MonoBehaviour
     {
@@ -38,7 +40,7 @@ namespace MugsTech.Style
         RectTransform  svIndicator;
         Image          previewImage;
         Slider         alphaSlider;
-        Text           hexLabel;
+        InputField     hexInput;
         Texture2D      svTexture;
         Sprite         svSprite;
 
@@ -90,8 +92,52 @@ namespace MugsTech.Style
             UpdatePreview();
         }
 
+        // While typing: a complete 6/8-digit code moves the picker at once.
+        void OnHexTyped(string text)
+        {
+            int digits = text.TrimStart('#').Length;
+            if (digits == 6 || digits == 8) TrySetFromHex(text);
+        }
+
+        // On leaving the field (Enter, click elsewhere): take any valid code,
+        // short forms included, then show the canonical one — which also
+        // restores the current color after an invalid entry.
+        void OnHexCommitted(string text)
+        {
+            TrySetFromHex(text);
+            hexInput.SetTextWithoutNotify(CurrentHex());
+        }
+
+        bool TrySetFromHex(string text)
+        {
+            string digits = (text ?? "").Trim().TrimStart('#');
+            if (!ColorUtility.TryParseHtmlString("#" + digits, out Color c)) return false;
+            // A code without its own alpha keeps the current transparency.
+            if (digits.Length == 3 || digits.Length == 6) c.a = alpha;
+
+            Color.RGBToHSV(c, out hue, out sat, out val);
+            alpha = c.a;
+            RegenSVTexture();
+            UpdateIndicators();
+            UpdatePreview();
+            return true;
+        }
+
+        // #RRGGBB for opaque colors, #RRGGBBAA otherwise.
+        string CurrentHex()
+        {
+            Color c = Color.HSVToRGB(hue, sat, val);
+            c.a = alpha;
+            return Mathf.RoundToInt(alpha * 255f) >= 255
+                ? "#" + ColorUtility.ToHtmlStringRGB(c)
+                : "#" + ColorUtility.ToHtmlStringRGBA(c);
+        }
+
         void Apply()
         {
+            // A code still being typed counts (OK clicked straight from the field).
+            if (hexInput != null && hexInput.isFocused) TrySetFromHex(hexInput.text);
+
             Color c = Color.HSVToRGB(hue, sat, val);
             c.a = alpha;
             gameObject.SetActive(false);
@@ -186,21 +232,58 @@ namespace MugsTech.Style
             prRT.sizeDelta = new Vector2(80, 50);
             previewImage = preview.AddComponent<Image>();
 
-            // Hex label
-            var hex = NewChild("Hex", panel.transform, stretch: false);
-            var hexRT = (RectTransform)hex.transform;
-            hexRT.anchorMin = hexRT.anchorMax = hexRT.pivot = new Vector2(0.5f, 1f);
-            hexRT.anchoredPosition = new Vector2(60, -425);
-            hexRT.sizeDelta = new Vector2(180, 40);
-            hexLabel = hex.AddComponent<Text>();
-            hexLabel.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            hexLabel.fontSize = 22;
-            hexLabel.alignment = TextAnchor.MiddleLeft;
-            hexLabel.color = new Color(0.85f, 0.88f, 0.93f, 1f);
+            // Hex code field — shows the current color and takes a typed or
+            // pasted code.
+            BuildHexField(panel.transform);
 
             // Buttons
             BuildButton("OkButton",     panel.transform, "OK",     new Vector2(-80, -510), Apply,  new Color(0.20f, 0.55f, 0.32f, 1f));
             BuildButton("CancelButton", panel.transform, "Cancel", new Vector2( 80, -510), Cancel, new Color(0.45f, 0.20f, 0.20f, 1f));
+        }
+
+        void BuildHexField(Transform parent)
+        {
+            var hex = NewChild("Hex", parent, stretch: false);
+            var hexRT = (RectTransform)hex.transform;
+            hexRT.anchorMin = hexRT.anchorMax = hexRT.pivot = new Vector2(0.5f, 1f);
+            hexRT.anchoredPosition = new Vector2(60, -425);
+            hexRT.sizeDelta = new Vector2(180, 40);
+            var bg = hex.AddComponent<Image>();
+            bg.color = new Color(0.18f, 0.20f, 0.24f, 1f);
+
+            var textGO = NewChild("Text", hex.transform, stretch: true);
+            var textRT = (RectTransform)textGO.transform;
+            textRT.offsetMin = new Vector2(10, 2);
+            textRT.offsetMax = new Vector2(-10, -2);
+            var text = textGO.AddComponent<Text>();
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.fontSize = 22;
+            text.alignment = TextAnchor.MiddleLeft;
+            text.color = new Color(0.85f, 0.88f, 0.93f, 1f);
+            text.supportRichText = false;
+
+            var placeholderGO = NewChild("Placeholder", hex.transform, stretch: true);
+            var phRT = (RectTransform)placeholderGO.transform;
+            phRT.offsetMin = textRT.offsetMin;
+            phRT.offsetMax = textRT.offsetMax;
+            var placeholder = placeholderGO.AddComponent<Text>();
+            placeholder.font = text.font;
+            placeholder.fontSize = 20;
+            placeholder.fontStyle = FontStyle.Italic;
+            placeholder.alignment = TextAnchor.MiddleLeft;
+            placeholder.color = new Color(0.55f, 0.58f, 0.64f, 1f);
+            placeholder.text = "#RRGGBB";
+
+            hexInput = hex.AddComponent<InputField>();
+            hexInput.targetGraphic  = bg;
+            hexInput.textComponent  = text;
+            hexInput.placeholder    = placeholder;
+            hexInput.characterLimit = 9;
+            // Hex digits and '#' only, uppercased as typed.
+            hexInput.onValidateInput = (current, index, ch) =>
+                Uri.IsHexDigit(ch) || ch == '#' ? char.ToUpperInvariant(ch) : '\0';
+            hexInput.onValueChanged.AddListener(OnHexTyped);
+            hexInput.onEndEdit.AddListener(OnHexCommitted);
         }
 
         void BuildAlphaSlider(Transform parent)
@@ -302,8 +385,9 @@ namespace MugsTech.Style
             Color c = Color.HSVToRGB(hue, sat, val);
             c.a = alpha;
             if (previewImage != null) previewImage.color = c;
-            if (hexLabel != null)
-                hexLabel.text = "#" + ColorUtility.ToHtmlStringRGBA(c);
+            // Leave the field alone while the user is typing in it.
+            if (hexInput != null && !hexInput.isFocused)
+                hexInput.SetTextWithoutNotify(CurrentHex());
         }
 
         // -------------------------------------------------------------------

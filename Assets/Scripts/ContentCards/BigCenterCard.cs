@@ -21,7 +21,9 @@ public class BigCenterCard : ContentCard
     private RectTransform headlineContainer;
     private TextMeshProUGUI headlineText;
     private TextMeshProUGUI sourceText;
+    private RawImage patternImage;
     private Material patternMaterial;
+    private BigHeadlineLook look;
 
     // Tracked separately from currentSequence: managing two parallel tweens
     // directly avoids the DOTween bug where Sequence.Join silently drops an
@@ -57,74 +59,46 @@ public class BigCenterCard : ContentCard
     private CardEntryAnimator.BigCenterSettings BigCenterCfg
         => CardEntryAnimator.Instance.bigCenter;
 
-    // Pattern texture is loaded from Resources at runtime. Drop a seamlessly
-    // tileable texture at Assets/Resources/Patterns/Default.png (or change
-    // PATTERN_RESOURCE_PATH) to enable the scrolling pattern overlay.
-    private const string PATTERN_RESOURCE_PATH = "Patterns/Default";
-    private const float PATTERN_TINT_ALPHA = 0.35f;
-    private const float PATTERN_TILE_SCALE = 12f;
-    private const float PATTERN_TILE_PADDING = 0.05f;
-    private const float PATTERN_SCROLL_SPEED = -0.36f;
-
     protected override void BuildUI()
     {
+        // Background style from the active Visuals save; the static default
+        // (no save applied, e.g. the recording scene run without the menu) is
+        // the original hard-coded look.
+        look = VisualsRuntimeApplier.BigHeadline.Look;
+
         // 1. Fullscreen overlay panel (first child → drawn behind the headline).
-        //    Uses the same preset-aware background as every other card, but
-        //    forced to full alpha — BigCenter takes over the whole screen and
-        //    the character behind should be fully masked. No drop shadow: the
-        //    panel slides independently of the card root, and a fullscreen
-        //    cover has no elevation to express anyway.
+        //    Uses the same preset-aware background as every other card (so it
+        //    keeps the cards' corner sprite), recolored by the big-headline
+        //    style and forced to full alpha — BigCenter takes over the whole
+        //    screen and the character behind should be fully masked. No drop
+        //    shadow: the panel slides independently of the card root, and a
+        //    fullscreen cover has no elevation to express.
         Image panelImg = ContentCardUIBuilder.CreateBackground(rectTransform, withShadow: false);
         panelImg.gameObject.name = "OverlayPanel";
-        Color panelColor = panelImg.color;
-        panelColor.a = 1f;
-        panelImg.color = panelColor;
+        panelImg.color = ResolvePanelColor(look, panelImg.color);
         overlayPanel = panelImg.rectTransform;
 
         // 1b. Scrolling pattern layer — sits on top of the solid overlay and
         //     inside the HeadlineContainer's z-order (child of overlayPanel,
         //     HeadlineContainer is a later sibling at the card level so it
-        //     still renders above the pattern).
-        BuildPatternLayer(overlayPanel);
+        //     still renders above the pattern). Skipped entirely when off.
+        if (look.PatternEnabled)
+        {
+            patternImage = CreatePatternLayer(overlayPanel);
+            if (patternImage != null)
+            {
+                patternMaterial = patternImage.material;
+                ApplyPatternLook(patternImage, look);
+            }
+        }
 
-        // 2. Centered headline container — sized for comfortable wrapping on a
-        //    1920×1080 canvas, but auto-sizing will adapt to the rendered text.
-        GameObject containerGO = new GameObject("HeadlineContainer", typeof(RectTransform));
-        containerGO.transform.SetParent(rectTransform, false);
-        headlineContainer = containerGO.GetComponent<RectTransform>();
-        headlineContainer.anchorMin = new Vector2(0.5f, 0.5f);
-        headlineContainer.anchorMax = new Vector2(0.5f, 0.5f);
-        headlineContainer.pivot = new Vector2(0.5f, 0.5f);
-        headlineContainer.anchoredPosition = Vector2.zero;
-        headlineContainer.sizeDelta = new Vector2(1600f, 640f);
+        // 2. Centered headline + source, built in the side cards' text style,
+        //    then restyled by whatever the big-headline style overrides.
+        headlineContainer = CreateHeadlineBlock(rectTransform,
+            ContentCardUIBuilder.TextPrimary, ContentCardUIBuilder.TextTertiary,
+            out headlineText, out sourceText);
+        ApplyTextLook(headlineText, sourceText, look, CardTextStyle.Capture(headlineText, sourceText));
         headlineGroup = EnsureGroup(headlineContainer);
-
-        // Big headline — auto-sizes between 72 and 200 px.
-        headlineText = ContentCardUIBuilder.CreateText(
-            headlineContainer, "BigHeadlineText",
-            ContentCardUIBuilder.TextPrimary,
-            160f, TextAlignmentOptions.Center,
-            FontStyles.Bold);
-        ContentCardUIBuilder.SetStretch(headlineText.rectTransform, 40f, 40f, 40f, 96f);
-        headlineText.enableAutoSizing = true;
-        headlineText.fontSizeMin = 72f;
-        headlineText.fontSizeMax = 200f;
-        headlineText.maxVisibleLines = 4;
-        headlineText.overflowMode = TextOverflowModes.Ellipsis;
-        headlineText.enableWordWrapping = true;
-
-        // Source attribution, pinned to the bottom of the container.
-        sourceText = ContentCardUIBuilder.CreateText(
-            headlineContainer, "SourceText",
-            ContentCardUIBuilder.TextTertiary,
-            40f, TextAlignmentOptions.Center,
-            FontStyles.Italic);
-        RectTransform srt = sourceText.rectTransform;
-        srt.anchorMin = new Vector2(0f, 0f);
-        srt.anchorMax = new Vector2(1f, 0f);
-        srt.pivot = new Vector2(0.5f, 0f);
-        srt.anchoredPosition = new Vector2(0f, 24f);
-        srt.sizeDelta = new Vector2(-80f, 48f);
     }
 
     public override void Initialize(ContentCardEvent data, ContentCardAssets assets)
@@ -146,6 +120,10 @@ public class BigCenterCard : ContentCard
         // straight, same rationale as BigMediaCard.
         rectTransform.localEulerAngles = Vector3.zero;
         headlineContainer.localEulerAngles = Vector3.zero;
+
+        // Re-apply now the card is surely laid out — a custom pattern's tile
+        // aspect is derived from the panel's rect.
+        if (patternImage != null) ApplyPatternLook(patternImage, look);
 
         var cfg = BigCenterCfg;
 
@@ -213,26 +191,51 @@ public class BigCenterCard : ContentCard
         }
     }
 
-    // Adds a RawImage child that fills the parent and samples a repeating
-    // pattern texture through the UIScrollingPattern shader. Silently skips
-    // if the shader or texture can't be found — the plain overlay still works.
-    private void BuildPatternLayer(RectTransform parent)
-    {
-        Texture2D patternTex = Resources.Load<Texture2D>(PATTERN_RESOURCE_PATH);
-        if (patternTex == null)
-        {
-            Debug.Log($"[BigCenter] No pattern texture at Resources/{PATTERN_RESOURCE_PATH} — skipping pattern layer.");
-            return;
-        }
+    // =====================================================================
+    // Shared drawing code — BigHeadlineStylePopup builds its live preview
+    // from these same calls (on a 1920×1080 rect scaled down), so the menu
+    // preview can't drift from what the recording renders.
+    // =====================================================================
 
-        Shader shader = Shader.Find("Custom/UIScrollingPattern");
+    // Default pattern, used when the style names no custom image. Drop a
+    // seamlessly tileable texture at Assets/Resources/Patterns/Default.png.
+    private const string PATTERN_RESOURCE_PATH = "Patterns/Default";
+
+    // The shader lives under Resources so it ships in builds: nothing
+    // references it from an asset, and a bare Shader.Find comes back null in
+    // the player (same story as MugsTech/SpriteShadowBlur).
+    private const string PATTERN_SHADER_RESOURCE = "Shaders/UIScrollingPattern";
+    private const string PATTERN_SHADER_NAME = "Custom/UIScrollingPattern";
+
+    // Requested text styles; the user's card font style is ORed on top.
+    public const FontStyles HeadlineFontStyles = FontStyles.Bold;
+    public const FontStyles SourceFontStyles   = FontStyles.Italic;
+
+    /// <summary>
+    /// The overlay panel color: the style's own color, else the side cards'
+    /// background (the original look). Always fully opaque.
+    /// </summary>
+    public static Color ResolvePanelColor(BigHeadlineLook look, Color cardBackground)
+    {
+        Color c = look.BackgroundColor ?? cardBackground;
+        c.a = 1f;
+        return c;
+    }
+
+    /// <summary>
+    /// Adds a RawImage child that fills <paramref name="parent"/> with its
+    /// own UIScrollingPattern material instance (the caller destroys it).
+    /// Returns null if the shader is missing — the plain panel still works.
+    /// </summary>
+    public static RawImage CreatePatternLayer(RectTransform parent)
+    {
+        Shader shader = Resources.Load<Shader>(PATTERN_SHADER_RESOURCE);
+        if (shader == null) shader = Shader.Find(PATTERN_SHADER_NAME);
         if (shader == null)
         {
-            Debug.LogWarning("[BigCenter] Shader \"Custom/UIScrollingPattern\" not found — skipping pattern layer.");
-            return;
+            Debug.LogWarning($"[BigCenter] Shader \"{PATTERN_SHADER_NAME}\" not found — skipping pattern layer.");
+            return null;
         }
-
-        patternTex.wrapMode = TextureWrapMode.Repeat;
 
         GameObject patternGO = new GameObject("OverlayPattern", typeof(RectTransform));
         patternGO.transform.SetParent(parent, false);
@@ -244,15 +247,215 @@ public class BigCenterCard : ContentCard
 
         RawImage patternImg = patternGO.AddComponent<RawImage>();
         patternImg.raycastTarget = false;
-        patternImg.texture = patternTex;
-        patternImg.color = new Color(1f, 1f, 1f, PATTERN_TINT_ALPHA);
-
         // Per-instance material so tweaking one card doesn't mutate a shared asset.
-        patternMaterial = new Material(shader);
-        patternMaterial.SetFloat("_TileScale", PATTERN_TILE_SCALE);
-        patternMaterial.SetFloat("_TilePadding", PATTERN_TILE_PADDING);
-        patternMaterial.SetFloat("_ScrollSpeed", PATTERN_SCROLL_SPEED);
-        patternImg.material = patternMaterial;
+        patternImg.material = new Material(shader);
+        return patternImg;
+    }
+
+    /// <summary>
+    /// Pushes a look onto a layer from <see cref="CreatePatternLayer"/>.
+    /// Hides the layer when the pattern is off or no texture resolves.
+    /// </summary>
+    public static void ApplyPatternLook(RawImage patternImg, BigHeadlineLook look)
+    {
+        Texture2D patternTex = look.PatternEnabled ? look.PatternTexture : null;
+        if (look.PatternEnabled && patternTex == null)
+        {
+            patternTex = Resources.Load<Texture2D>(PATTERN_RESOURCE_PATH);
+            if (patternTex == null)
+                Debug.Log($"[BigCenter] No pattern texture at Resources/{PATTERN_RESOURCE_PATH} — skipping pattern layer.");
+            else
+                patternTex.wrapMode = TextureWrapMode.Repeat;
+        }
+
+        patternImg.enabled = patternTex != null;
+        if (!patternImg.enabled) return;
+
+        patternImg.texture = patternTex;
+        patternImg.color   = look.PatternTint;
+        patternImg.uvRect  = PatternUvRect(patternImg.rectTransform.rect, look.PatternTexture);
+
+        Material mat = patternImg.material;
+        mat.SetFloat("_TileScale", look.TileScale);
+        mat.SetFloat("_TilePadding", look.TilePadding);
+        mat.SetFloat("_ScrollSpeed", look.ScrollSpeed);
+        mat.SetVector("_ScrollDir", look.ScrollDirection);
+    }
+
+    // The shader tiles UVs TileScale times on both axes. The built-in pattern
+    // keeps that original stretch (its cells are panel-shaped); a custom
+    // image gets a longer/shorter V range so its tiles keep the image's own
+    // aspect ratio and a picked icon isn't squashed to 16:9.
+    private static Rect PatternUvRect(Rect panel, Texture2D customTex)
+    {
+        if (customTex == null || panel.width <= 0f || panel.height <= 0f || customTex.height <= 0)
+            return new Rect(0f, 0f, 1f, 1f);
+        float v = (panel.height / panel.width) * ((float)customTex.width / customTex.height);
+        return new Rect(0f, 0f, 1f, v);
+    }
+
+    /// <summary>
+    /// Builds the centered headline + source block in 1920×1080 canvas units
+    /// (sized for comfortable wrapping; auto-sizing adapts to the text).
+    /// </summary>
+    public static RectTransform CreateHeadlineBlock(RectTransform parent,
+        Color primary, Color tertiary,
+        out TextMeshProUGUI headline, out TextMeshProUGUI source)
+    {
+        GameObject containerGO = new GameObject("HeadlineContainer", typeof(RectTransform));
+        containerGO.transform.SetParent(parent, false);
+        RectTransform container = containerGO.GetComponent<RectTransform>();
+        container.anchorMin = new Vector2(0.5f, 0.5f);
+        container.anchorMax = new Vector2(0.5f, 0.5f);
+        container.pivot = new Vector2(0.5f, 0.5f);
+        container.anchoredPosition = Vector2.zero;
+        container.sizeDelta = new Vector2(1600f, 640f);
+
+        // Big headline — auto-sizes between 72 and 200 px.
+        headline = ContentCardUIBuilder.CreateText(
+            container, "BigHeadlineText",
+            primary,
+            160f, TextAlignmentOptions.Center,
+            HeadlineFontStyles);
+        ContentCardUIBuilder.SetStretch(headline.rectTransform, 40f, 40f, 40f, 96f);
+        headline.enableAutoSizing = true;
+        headline.fontSizeMin = 72f;
+        headline.fontSizeMax = 200f;
+        headline.maxVisibleLines = 4;
+        headline.overflowMode = TextOverflowModes.Ellipsis;
+        headline.enableWordWrapping = true;
+
+        // Source attribution, pinned to the bottom of the container.
+        source = ContentCardUIBuilder.CreateText(
+            container, "SourceText",
+            tertiary,
+            40f, TextAlignmentOptions.Center,
+            SourceFontStyles);
+        RectTransform srt = source.rectTransform;
+        srt.anchorMin = new Vector2(0f, 0f);
+        srt.anchorMax = new Vector2(1f, 0f);
+        srt.pivot = new Vector2(0.5f, 0f);
+        srt.anchoredPosition = new Vector2(0f, 24f);
+        srt.sizeDelta = new Vector2(-80f, 48f);
+        return container;
+    }
+
+    /// <summary>
+    /// The side cards' text style as the headline block would use it — what
+    /// every unset big-headline text option falls back to.
+    /// </summary>
+    public struct CardTextStyle
+    {
+        public TMP_FontAsset Font;
+        public FontStyles    HeadlineStyle;
+        public FontStyles    SourceStyle;
+        public Color         HeadlineColor;
+        public Color         SourceColor;
+
+        /// <summary>Reads it back from a block just built by <see cref="CreateHeadlineBlock"/>.</summary>
+        public static CardTextStyle Capture(TMP_Text headline, TMP_Text source) => new CardTextStyle
+        {
+            Font          = headline.font,
+            HeadlineStyle = headline.fontStyle,
+            SourceStyle   = source.fontStyle,
+            HeadlineColor = headline.color,
+            SourceColor   = source.color,
+        };
+    }
+
+    /// <summary>
+    /// Applies the look's text options over the card text style. With
+    /// nothing set this re-applies the card style unchanged and leaves the
+    /// font's shared material alone, so the default look renders as before.
+    /// </summary>
+    public static void ApplyTextLook(TextMeshProUGUI headline, TextMeshProUGUI source,
+                                     BigHeadlineLook look, CardTextStyle card)
+    {
+        TMP_FontAsset font = look.Font != null ? look.Font : card.Font;
+        if (headline.font != font) headline.font = font;
+        if (source.font   != font) source.font   = font;
+
+        if (look.FontStyle.HasValue)
+        {
+            // The pick replaces the headline's style outright; the source
+            // line keeps its italic attribution look on top of it.
+            FontStyles picked = ToTmpFontStyles(look.FontStyle.Value);
+            headline.fontStyle = picked;
+            source.fontStyle   = SourceFontStyles | picked;
+        }
+        else
+        {
+            headline.fontStyle = card.HeadlineStyle;
+            source.fontStyle   = card.SourceStyle;
+        }
+
+        headline.color = look.HeadlineColor ?? card.HeadlineColor;
+        source.color   = look.SourceColor   ?? card.SourceColor;
+
+        ApplyTextEffects(headline, look);
+        ApplyTextEffects(source, look);
+    }
+
+    // Letter outline + drop shadow, done the same way as BigTextCard: touching
+    // fontMaterial clones the shared material so only this text changes, and
+    // OUTLINE_ON / UNDERLAY_ON are the shader toggles that make the values
+    // take effect on every shader variant.
+    private static void ApplyTextEffects(TMP_Text text, BigHeadlineLook look)
+    {
+        Material fontDefault = text.font.material;
+
+        // Neither effect: (back to) the font's own shared material, i.e.
+        // exactly the original look — also undoes a previous preview edit.
+        if (!look.OutlineEnabled && !look.ShadowEnabled)
+        {
+            if (text.fontSharedMaterial != fontDefault) text.fontSharedMaterial = fontDefault;
+            return;
+        }
+
+        Material mat = text.fontMaterial;
+
+        // An effect that's off takes the font material's own values back
+        // rather than zero: the SDF shader draws _OutlineWidth even without
+        // the keyword, so "off" must mean "as the font ships".
+        Color outlineColor = look.OutlineEnabled ? look.OutlineColor : fontDefault.GetColor("_OutlineColor");
+        float outlineWidth = look.OutlineEnabled ? look.OutlineWidth : fontDefault.GetFloat("_OutlineWidth");
+        SetKeyword(mat, "OUTLINE_ON", look.OutlineEnabled || fontDefault.IsKeywordEnabled("OUTLINE_ON"));
+        mat.SetColor("_OutlineColor", outlineColor);
+        mat.SetFloat("_OutlineWidth", outlineWidth);
+        text.outlineColor = outlineColor;
+        text.outlineWidth = outlineWidth;
+
+        if (look.ShadowEnabled)
+        {
+            mat.EnableKeyword("UNDERLAY_ON");
+            mat.SetColor("_UnderlayColor",    look.ShadowColor);
+            mat.SetFloat("_UnderlayOffsetX",  1.0f);
+            mat.SetFloat("_UnderlayOffsetY", -1.0f);
+            mat.SetFloat("_UnderlayDilate",   0.5f);
+            mat.SetFloat("_UnderlaySoftness", look.ShadowSoftness);
+        }
+        else
+        {
+            SetKeyword(mat, "UNDERLAY_ON", fontDefault.IsKeywordEnabled("UNDERLAY_ON"));
+        }
+        text.UpdateMeshPadding();
+    }
+
+    private static void SetKeyword(Material mat, string keyword, bool on)
+    {
+        if (on) mat.EnableKeyword(keyword);
+        else    mat.DisableKeyword(keyword);
+    }
+
+    private static FontStyles ToTmpFontStyles(FontStyle s)
+    {
+        switch (s)
+        {
+            case FontStyle.Bold:          return FontStyles.Bold;
+            case FontStyle.Italic:        return FontStyles.Italic;
+            case FontStyle.BoldAndItalic: return FontStyles.Bold | FontStyles.Italic;
+            default:                      return FontStyles.Normal;
+        }
     }
 
     public override void Hide(bool fast = false)
