@@ -1,5 +1,8 @@
 using System;
+using System.Collections;
 using System.IO;
+using System.Threading.Tasks;
+using MugsTech.Style;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -76,6 +79,19 @@ namespace MugsTech.Tts
         Action onClosed;
         bool   busy;
 
+        // Tag-only edits. Built at runtime from the Generate button (see
+        // BuildTagEditRow) so the hand-tweaked panel in MainMenu.unity is
+        // never re-baked.
+        Button loadGenerationButton;
+        Button updateTagsButton;
+        float  loadConfirmUntil;   // unscaledTime; a second Load click before this replaces the draft
+
+        // Saved copies (GenerationSave): "Save copies to" + "Video name" rows,
+        // cloned from the output folder row at runtime (see BuildSaveRows).
+        TMP_InputField saveFolderInput;
+        Button         saveFolderBrowseButton;
+        TMP_InputField videoNameInput;
+
         // Two-value animation model: the job feeds `targetProgress` (the real
         // value we want to reach), Update() smoothly walks `displayedProgress`
         // toward it. Decoupling these two means the bar always animates even
@@ -104,12 +120,23 @@ namespace MugsTech.Tts
             if (backButton != null)
                 backButton.onClick.AddListener(Close);
 
+            BuildSaveRows();     // first: it moves the status line the tag row is placed under
+            BuildTagEditRow();
+
             // Auto-save script + output folder fields as the user types.
             if (scriptInput != null)
                 scriptInput.onValueChanged.AddListener(v =>
                     PlayerPrefs.SetString(ScriptPrefKey, v));
             if (outputInput != null)
                 outputInput.onValueChanged.AddListener(OnOutputFolderChanged);
+            if (saveFolderInput != null)
+                saveFolderInput.onValueChanged.AddListener(v =>
+                    PlayerPrefs.SetString(GenerationSave.FolderPrefKey, v.Trim()));
+            if (saveFolderBrowseButton != null)
+                saveFolderBrowseButton.onClick.AddListener(OnBrowseSaveFolderClicked);
+            if (videoNameInput != null)
+                videoNameInput.onValueChanged.AddListener(v =>
+                    PlayerPrefs.SetString(GenerationSave.VideoNamePrefKey, v));
 
             // Hide on load — panel only shows when Show() is called.
             panelRoot.SetActive(false);
@@ -126,6 +153,10 @@ namespace MugsTech.Tts
             if (outputInput != null)
                 outputInput.text = PlayerPrefs.GetString(OutputFolderPrefKey,
                     MainMenuController.DefaultPythonOutputFolder);
+            if (saveFolderInput != null)
+                saveFolderInput.text = GenerationSave.ConfiguredFolder;
+            if (videoNameInput != null)
+                videoNameInput.text = PlayerPrefs.GetString(GenerationSave.VideoNamePrefKey, "");
 
             RefreshApiKeyDisplay();
             SetStatus("Ready.", neutral: true);
@@ -168,6 +199,19 @@ namespace MugsTech.Tts
             }
         }
 
+        void OnBrowseSaveFolderClicked()
+        {
+            // The default folder doesn't exist until the first copy, so start
+            // the picker at its nearest existing parent.
+            string start = saveFolderInput != null ? saveFolderInput.text.Trim() : "";
+            while (!string.IsNullOrEmpty(start) && !Directory.Exists(start))
+                start = Path.GetDirectoryName(start);
+            string picked = PickFolder("Pick a folder to keep copies of generations in", start ?? "");
+            if (string.IsNullOrEmpty(picked) || saveFolderInput == null) return;
+            saveFolderInput.text = picked;   // onValueChanged saves it
+            PlayerPrefs.Save();
+        }
+
         void OnEditKeyClicked()
         {
             if (apiKeyPopup == null)
@@ -180,6 +224,272 @@ namespace MugsTech.Tts
         }
 
         void OnDryTestClicked()   => StartJob(dryRun: true);
+
+        // ---- tag-only edits ---------------------------------------------
+        //
+        // Load fills the script box with the active generation's script; Update
+        // writes the box's tags back into that generation, re-timed against the
+        // voice it already has (TagOnlyUpdate). No ElevenLabs call either way.
+
+        void OnLoadFromGenerationClicked()
+        {
+            if (busy) return;
+
+            string folder = TagOnlyUpdate.ResolveActiveGeneration();
+            if (folder == null)
+            {
+                SetStatus("No generation found — generate one or pick one in the output library.", error: true);
+                return;
+            }
+            if (!TagOnlyUpdate.TryLoadScript(folder, out string script, out string error))
+            {
+                SetStatus(error, error: true);
+                return;
+            }
+
+            // The script box may be the only copy of an unsaved draft, so
+            // replacing different text takes a second click.
+            string current = scriptInput != null ? scriptInput.text : "";
+            bool replacesDraft = !string.IsNullOrWhiteSpace(current) &&
+                TtsScriptProcessor.NormaliseLineEndings(current).Trim() != script.Trim();
+            if (replacesDraft && Time.unscaledTime > loadConfirmUntil)
+            {
+                loadConfirmUntil = Time.unscaledTime + 5f;
+                SetStatus($"Click Load From Generation again to replace the script box with " +
+                          $"{Path.GetFileName(folder)}'s script.", warning: true);
+                return;
+            }
+            loadConfirmUntil = 0f;
+
+            if (scriptInput != null) scriptInput.text = script;   // onValueChanged saves the draft
+            SetStatus($"Loaded {Path.GetFileName(folder)} — move, edit or remove tags, then click " +
+                      "Update Tags Only.", success: true);
+        }
+
+        void OnUpdateTagsClicked()
+        {
+            if (busy)
+            {
+                SetStatus("Already running — wait for the current run to finish.", error: true);
+                return;
+            }
+
+            string folder = TagOnlyUpdate.ResolveActiveGeneration();
+            if (folder == null)
+            {
+                SetStatus("No generation found — generate one or pick one in the output library.", error: true);
+                return;
+            }
+
+            var outcome = TagOnlyUpdate.Apply(folder, scriptInput != null ? scriptInput.text : "");
+            foreach (string w in outcome.Warnings) Debug.LogWarning("[TagOnly] " + w);
+
+            if (!outcome.Success)
+                SetStatus(outcome.Message, error: true);
+            else if (outcome.Warnings.Count > 0)
+                SetStatus(outcome.Message + "\nWarning: " + string.Join(" ", outcome.Warnings), warning: true);
+            else
+                SetStatus(outcome.Message, success: true);
+        }
+
+        // A second action row under the status line: Load on the left and
+        // Update on the right, mirroring Dry Test / Generate above. The buttons
+        // are clones of Generate, so they pick up its look and the menu theme.
+        void BuildTagEditRow()
+        {
+            if (generateButton == null || statusText == null || updateTagsButton != null) return;
+
+            RectTransform status = statusText.rectTransform;
+            var row = new GameObject("TagEditRow", typeof(RectTransform)).GetComponent<RectTransform>();
+            row.SetParent(status.parent, false);
+            row.anchorMin = row.anchorMax = status.anchorMin;
+            row.pivot     = new Vector2(0.5f, 0.5f);
+            row.sizeDelta = new Vector2(status.rect.width, 50f);
+            row.anchoredPosition = new Vector2(status.anchoredPosition.x,
+                status.anchoredPosition.y - status.rect.height * status.pivot.y - 8f - 25f);
+
+            RectTransform leftTemplate = dryTestButton != null
+                ? (RectTransform)dryTestButton.transform
+                : (RectTransform)generateButton.transform;
+            loadGenerationButton = CloneGenerateButton(row, "LoadFromGenerationButton",
+                "Load From Generation", leftTemplate);
+            updateTagsButton = CloneGenerateButton(row, "UpdateTagsOnlyButton",
+                "Update Tags Only", (RectTransform)generateButton.transform);
+
+            loadGenerationButton.onClick.AddListener(OnLoadFromGenerationClicked);
+            updateTagsButton.onClick.AddListener(OnUpdateTagsClicked);
+
+            UITheme.Apply(row.gameObject);
+        }
+
+        Button CloneGenerateButton(RectTransform row, string objectName, string label, RectTransform placeLike)
+        {
+            var go = Instantiate(generateButton.gameObject, row, false);
+            go.name = objectName;
+
+            var btn = go.GetComponent<Button>();
+            btn.onClick = new Button.ButtonClickedEvent();   // nothing copied from Generate
+            btn.interactable = true;
+
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = placeLike.anchorMin;
+            rt.anchorMax = placeLike.anchorMax;
+            rt.pivot     = placeLike.pivot;
+            rt.anchoredPosition = new Vector2(placeLike.anchoredPosition.x, 0f);
+            rt.sizeDelta = new Vector2(260f, ((RectTransform)generateButton.transform).sizeDelta.y);
+
+            var text = go.GetComponentInChildren<TMP_Text>(true);
+            if (text != null)
+            {
+                text.text = label;
+                text.enableAutoSizing = true;
+                text.fontSizeMax = text.fontSize;
+                text.fontSizeMin = 14f;
+            }
+            return btn;
+        }
+
+        // ---- saved copies -----------------------------------------------
+        //
+        // Two rows above the action row — "Save copies to" (folder + Browse)
+        // and "Video name" right above Generate — cloned from the output
+        // folder row so they match the hand-tweaked panel. The panel grows by
+        // the two rows: what sits above the action row moves up, the action
+        // row and everything below it move down, so all spacing is kept.
+
+        void BuildSaveRows()
+        {
+            if (outputInput == null || generateButton == null || saveFolderInput != null) return;
+            var outputRow = outputInput.transform.parent as RectTransform;
+            var actionRow = generateButton.transform.parent as RectTransform;
+            var panel     = actionRow != null ? actionRow.parent as RectTransform : null;
+            if (outputRow == null || panel == null || outputRow.parent != panel) return;
+
+            float rowHeight = outputRow.sizeDelta.y;
+            float step      = rowHeight + 8f;
+            float split     = actionRow.anchoredPosition.y + actionRow.sizeDelta.y * (1f - actionRow.pivot.y);
+            MakeRoom(panel, split, 2f * step);
+
+            // Stacked up from the action row's new top edge, 8 px apart.
+            float nameY = split - step + 8f + rowHeight * 0.5f;
+            saveFolderInput = CloneOutputRow(outputRow, "SaveFolderRow", "Save copies to",
+                "Folder for named copies — empty turns saving off", nameY + step,
+                keepBrowse: true, out saveFolderBrowseButton);
+            videoNameInput = CloneOutputRow(outputRow, "VideoNameRow", "Video name",
+                "Names the saved copy — empty uses the first chapter title", nameY,
+                keepBrowse: false, out _);
+            if (videoNameInput != null) videoNameInput.characterLimit = 60;
+        }
+
+        // Grows 'panel' by 'added' and opens a gap of that height at splitY.
+        // Only centre-anchored items are moved: top/bottom-anchored ones already
+        // follow the panel's edges. Siblings laid over the panel (the debug
+        // toggle by the action row) share its centre and follow the same rule.
+        static void MakeRoom(RectTransform panel, float splitY, float added)
+        {
+            panel.sizeDelta += new Vector2(0f, added);
+            foreach (Transform t in panel)
+                if (t is RectTransform child) Shift(child, 0f, splitY, added);
+
+            if (panel.parent == null) return;
+            foreach (Transform t in panel.parent)
+                if (t is RectTransform sibling && sibling != panel && sibling.anchorMin == panel.anchorMin)
+                    Shift(sibling, panel.anchoredPosition.y, splitY, added);
+        }
+
+        static void Shift(RectTransform rt, float originY, float splitY, float added)
+        {
+            if (rt.anchorMin != rt.anchorMax || !Mathf.Approximately(rt.anchorMin.y, 0.5f)) return;
+            float y = rt.anchoredPosition.y - originY;
+            rt.anchoredPosition += new Vector2(0f, y > splitY ? added * 0.5f : -added * 0.5f);
+        }
+
+        TMP_InputField CloneOutputRow(RectTransform template, string objectName, string label,
+                                      string placeholder, float y, bool keepBrowse, out Button browse)
+        {
+            var row = (RectTransform)Instantiate(template.gameObject, template.parent, false).transform;
+            row.name = objectName;
+            row.anchoredPosition = new Vector2(template.anchoredPosition.x, y);
+
+            var input = row.GetComponentInChildren<TMP_InputField>(true);
+            browse    = row.GetComponentInChildren<Button>(true);
+            if (input == null) { Destroy(row.gameObject); browse = null; return null; }
+
+            foreach (var text in row.GetComponentsInChildren<TMP_Text>(true))
+                if (!text.transform.IsChildOf(input.transform) &&
+                    (browse == null || !text.transform.IsChildOf(browse.transform)))
+                {
+                    text.text = label;
+                    break;
+                }
+
+            // Nothing carried over from the output folder field.
+            input.onValueChanged = new TMP_InputField.OnChangeEvent();
+            input.onEndEdit      = new TMP_InputField.SubmitEvent();
+            input.onSubmit       = new TMP_InputField.SubmitEvent();
+            input.text           = "";
+            if (input.placeholder is TMP_Text hint) hint.text = placeholder;
+
+            // The input runs from where it starts to the Browse button (or, with
+            // the button dropped, to where the button ended).
+            var field = (RectTransform)input.transform;
+            float left  = field.localPosition.x + field.rect.xMin;
+            float right = row.rect.xMax - 20f;
+            if (browse != null)
+            {
+                var b = (RectTransform)browse.transform;
+                right = keepBrowse ? b.localPosition.x + b.rect.xMin - 12f : b.localPosition.x + b.rect.xMax;
+            }
+            field.anchorMin = field.anchorMax = new Vector2(0.5f, 0.5f);
+            field.pivot            = new Vector2(0f, 0.5f);
+            field.anchoredPosition = new Vector2(left, field.anchoredPosition.y);
+            field.sizeDelta        = new Vector2(Mathf.Max(120f, right - left), field.sizeDelta.y);
+
+            if (browse != null)
+            {
+                if (keepBrowse) browse.onClick = new Button.ButtonClickedEvent();
+                else { Destroy(browse.gameObject); browse = null; }
+            }
+
+            UITheme.Apply(row.gameObject);
+            return input;
+        }
+
+        // Copies the finished generation into the save folder off the main
+        // thread (the raw takes run to tens of MB), then makes the copy the
+        // selected generation, so tag edits and recordings land in the named
+        // folder the user comes back to; the original stays in the output
+        // folder. The panel stays busy until then — a tag edit mid-copy would
+        // race it.
+        IEnumerator SaveCopy(string genFolder, string saveRoot, string folderName,
+                             string doneMessage, bool doneIsError)
+        {
+            SetStatus(doneMessage + $"\nSaving a copy as \"{folderName}\"…",
+                      error: doneIsError, neutral: !doneIsError);
+
+            var copy = Task.Run(() => GenerationSave.Copy(genFolder, saveRoot, folderName));
+            while (!copy.IsCompleted) yield return null;
+
+            busy = false;
+            SetButtonsInteractable(true);
+
+            if (copy.IsFaulted)
+            {
+                string why = copy.Exception?.GetBaseException().Message ?? "unknown error";
+                Debug.LogWarning($"[Tts] Could not save a copy to {saveRoot}: {why}");
+                SetStatus(doneMessage + $"\nCouldn't save a copy to {saveRoot}: {why}",
+                          error: doneIsError, warning: !doneIsError);
+                yield break;
+            }
+
+            string saved = copy.Result;
+            PlayerPrefs.SetString(SelectedGenerationPrefKey, saved);
+            PlayerPrefs.Save();
+            Debug.Log($"[Tts] Saved a copy of {genFolder} to {saved}");
+            SetStatus(doneMessage + $"\nCopy saved: {Path.GetFileName(saveRoot.TrimEnd('/', '\\'))}/{Path.GetFileName(saved)} " +
+                      "(now the selected generation).", error: doneIsError, success: !doneIsError);
+        }
+
         void OnGenerateClicked()  => StartJob(dryRun: false);
 
         void StartJob(bool dryRun)
@@ -192,6 +502,8 @@ namespace MugsTech.Tts
 
             string script    = scriptInput  != null ? scriptInput.text  : "";
             string outFolder = outputInput  != null ? outputInput.text  : "";
+            string videoName = videoNameInput != null ? videoNameInput.text : "";
+            DateTime started = DateTime.Now;
             string apiKey    = TtsApiKeyPopup.LoadKey();
 
             if (string.IsNullOrWhiteSpace(script))
@@ -219,7 +531,7 @@ namespace MugsTech.Tts
             {
                 string rootAbs    = TtsGenerationJob.ResolveOutputFolder(outFolder);
                 string baseFolder = Path.Combine(rootAbs,
-                    DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss"));
+                    started.ToString("yyyy-MM-dd_HH-mm-ss"));
                 genFolder = baseFolder;
                 for (int n = 1; Directory.Exists(genFolder); n++)   // avoid same-second clashes
                     genFolder = $"{baseFolder}_{n}";
@@ -237,9 +549,17 @@ namespace MugsTech.Tts
                 status:   s => SetStatus(s, neutral: true),
                 complete: r =>
                 {
-                    busy       = false;
                     jobRunning = false; // disarms idle creep; bar lerps to wherever target lands
-                    SetButtonsInteractable(true);
+
+                    // A real generation is copied to the save folder before the
+                    // panel frees up (SaveCopy); anything else frees it now.
+                    string saveRoot = r.Success && !r.WasDryRun ? GenerationSave.ResolvedFolder : null;
+                    if (saveRoot == null)
+                    {
+                        busy = false;
+                        SetButtonsInteractable(true);
+                    }
+
                     if (r.Success)
                     {
                         SetProgress(1f);   // target → 100%, Update() animates the rest of the way
@@ -267,6 +587,10 @@ namespace MugsTech.Tts
                         {
                             PlayerPrefs.SetString(SelectedGenerationPrefKey, genFolder);
                             PlayerPrefs.Save();
+                            if (saveRoot != null)
+                                CoroutineHost.Instance.StartCoroutine(SaveCopy(genFolder, saveRoot,
+                                    GenerationSave.FolderName(started, videoName, script),
+                                    statusText != null ? statusText.text : "", stalled));
                         }
                     }
                     else
@@ -299,12 +623,14 @@ namespace MugsTech.Tts
             }
         }
 
-        void SetStatus(string msg, bool error = false, bool success = false, bool neutral = false)
+        void SetStatus(string msg, bool error = false, bool success = false, bool neutral = false,
+                       bool warning = false)
         {
             if (statusText == null) return;
             statusText.text = msg;
             if (error)        statusText.color = new Color(0.95f, 0.40f, 0.40f);
             else if (success) statusText.color = new Color(0.55f, 0.85f, 0.60f);
+            else if (warning) statusText.color = new Color(0.95f, 0.75f, 0.35f);
             else              statusText.color = new Color(0.65f, 0.70f, 0.78f);
         }
 
@@ -378,6 +704,8 @@ namespace MugsTech.Tts
             if (dryTestButton  != null) dryTestButton.interactable  = on;
             if (generateButton != null) generateButton.interactable = on;
             if (backButton     != null) backButton.interactable     = on;
+            if (loadGenerationButton != null) loadGenerationButton.interactable = on;
+            if (updateTagsButton     != null) updateTagsButton.interactable     = on;
         }
 
         // ---- folder picker ----------------------------------------------

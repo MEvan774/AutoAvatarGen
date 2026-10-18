@@ -349,6 +349,9 @@ namespace MugsTech.Tts
                     File.WriteAllText(manifestPath,
                         BuildManifestJson(manifestEntries),
                         new UTF8Encoding(false));
+                    // The source script, for the TTS panel's tag-only edits.
+                    File.WriteAllText(Path.Combine(outDir, TagOnlyUpdate.ScriptFileName),
+                        TtsScriptProcessor.NormaliseLineEndings(cfg.ScriptText), new UTF8Encoding(false));
                 }
                 catch (Exception e)
                 {

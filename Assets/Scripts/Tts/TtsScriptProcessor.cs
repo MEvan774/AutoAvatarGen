@@ -66,7 +66,10 @@ namespace MugsTech.Tts
         // tags — those are tried as later alternatives.)
         private const string EmotionTag = @"\{[A-Za-z]\w*(?:,(?:" + StyleAlt + @"))?\}";
 
-        private static readonly Regex AllMarkers = new Regex(
+        // Every tag shape the pipeline knows. AllMarkers adds the catch-all on
+        // top; KnownMarker is the same list without it, so a tag that only the
+        // catch-all stripped can be reported as unrecognised.
+        private const string KnownMarkers =
             EmotionTag +                                   // emotion states — ANY bare {Word} / {Word,Style}
             @"|\{Timestamp:""[^""]*""\}" +                  // YouTube chapter markers — never voiced/shown
             @"|\{Position:\w+(?:,\w+)?\}" +
@@ -104,7 +107,10 @@ namespace MugsTech.Tts
             // inflated the audio and pushed every later word (and every T=
             // timestamp derived from it) seconds late. Kept in lockstep with
             // the runtime strip in MediaPresentationSystem (\[[^\]]*\]).
-            @"|\[[^\]]*\]" +
+            @"|\[[^\]]*\]";
+
+        private static readonly Regex AllMarkers = new Regex(
+            KnownMarkers +
             // SAFETY NET — last alternative, so every pattern above still wins
             // first. Anything else wrapped in {...} on a single line is a tag we
             // don't know (new syntax, a typo, a mis-capitalised keyword). Strip
@@ -112,6 +118,16 @@ namespace MugsTech.Tts
             // out loud in the finished video. Bounded to one line so an unclosed
             // brace in prose can swallow at most the rest of that line.
             @"|\{[^{}\n]*\}");
+
+        private static readonly Regex KnownMarker = new Regex(@"^(?:" + KnownMarkers + @")$");
+
+        /// <summary>
+        /// False for a tag only the catch-all stripped — a typo, a stray space
+        /// after a comma, a mis-capitalised keyword. Such a tag is never read
+        /// aloud, but it does nothing at playback either.
+        /// </summary>
+        public static bool IsRecognisedMarker(string markerText)
+            => !string.IsNullOrEmpty(markerText) && KnownMarker.IsMatch(markerText);
 
         private static readonly Regex SectionHeader = new Regex(
             @"^##\s+(.+)$", RegexOptions.Multiline);

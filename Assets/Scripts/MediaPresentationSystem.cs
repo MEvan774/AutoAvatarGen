@@ -2145,6 +2145,14 @@ public class MediaPresentationSystem : MonoBehaviour
     public static readonly string[] DefaultMediaSubfolders =
         { "BRoll", "Images", "CEO", "TwitterPosts", "Flags", "Logos" };
 
+    // The same default names split by kind, in search order — what the fields
+    // above default to (and what SampleScene keeps).
+    static readonly string[] DefaultImageSubfolders = { "Images", "CEO", "TwitterPosts", "Flags", "Logos" };
+    static readonly string[] DefaultVideoSubfolders = { "BRoll" };
+
+    // mediaFolderPath's default — the Resources fallback both lookups end at.
+    const string DefaultResourcesMediaFolder = "Media";
+
     /// <summary>Image subfolders in {Image:} / {BigImage:} search order.</summary>
     string[] ImageSubfolders =>
         new[] { imagesSubfolder, ceoSubfolder, twitterPostsSubfolder, flagsSubfolder, logosSubfolder };
@@ -2196,31 +2204,60 @@ public class MediaPresentationSystem : MonoBehaviour
     }
 
     string ResolveImagePath(string mediaName)
-        => FindInMediaRoot(mediaName, ImageExtensions, ImageSubfolders, VideoSubfolders);
+        => FindInMediaRoot(externalMediaRoot, mediaName, ImageExtensions, ImageSubfolders, VideoSubfolders);
 
     string ResolveVideoPath(string mediaName)
-        => FindInMediaRoot(mediaName, VideoExtensions, VideoSubfolders, ImageSubfolders);
+        => FindInMediaRoot(externalMediaRoot, mediaName, VideoExtensions, VideoSubfolders, ImageSubfolders);
 
-    // Preferred subfolders first, then the remaining ones, then the root.
-    string FindInMediaRoot(string mediaName, string[] extensions, string[] preferred, string[] others)
+    /// <summary>
+    /// Whether a media name would find something to show — the {Image:} /
+    /// {BigImage:} lookup, or {Video:}'s when <paramref name="video"/> — under
+    /// <paramref name="root"/>, then in Resources/Media. For code that runs with
+    /// no instance to ask (the TTS panel's tag check), so it uses the default
+    /// folder names; the Resources fallback may load the asset to find it.
+    /// </summary>
+    public static bool MediaNameResolves(string root, string mediaName, bool video)
     {
-        if (string.IsNullOrWhiteSpace(externalMediaRoot) || string.IsNullOrWhiteSpace(mediaName)) return null;
+        if (string.IsNullOrWhiteSpace(mediaName)) return false;
+        try
+        {
+            string hit = video
+                ? FindInMediaRoot(root, mediaName, VideoExtensions, DefaultVideoSubfolders, DefaultImageSubfolders)
+                : FindInMediaRoot(root, mediaName, ImageExtensions, DefaultImageSubfolders, DefaultVideoSubfolders);
+            if (hit != null) return true;
 
-        string hit = FindInSubfolders(preferred, mediaName, extensions);
-        if (hit != null) return hit;
-
-        hit = FindInSubfolders(others, mediaName, extensions);
-        if (hit != null) return hit;
-
-        return FindFileInFolder(externalMediaRoot, mediaName, extensions);
+            string resource = $"{DefaultResourcesMediaFolder}/{mediaName}";
+            return video
+                ? Resources.Load<VideoClip>(resource) != null
+                : Resources.Load<Texture2D>(resource) != null;
+        }
+        catch (System.ArgumentException)
+        {
+            return false; // a character no path may hold — nothing can match it
+        }
     }
 
-    string FindInSubfolders(string[] subfolders, string mediaName, string[] extensions)
+    // Preferred subfolders first, then the remaining ones, then the root.
+    static string FindInMediaRoot(string root, string mediaName, string[] extensions,
+                                  string[] preferred, string[] others)
+    {
+        if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(mediaName)) return null;
+
+        string hit = FindInSubfolders(root, preferred, mediaName, extensions);
+        if (hit != null) return hit;
+
+        hit = FindInSubfolders(root, others, mediaName, extensions);
+        if (hit != null) return hit;
+
+        return FindFileInFolder(root, mediaName, extensions);
+    }
+
+    static string FindInSubfolders(string root, string[] subfolders, string mediaName, string[] extensions)
     {
         foreach (string sub in subfolders)
         {
             if (string.IsNullOrWhiteSpace(sub)) continue;
-            string hit = FindFileInFolder(Path.Combine(externalMediaRoot, sub.Trim()), mediaName, extensions);
+            string hit = FindFileInFolder(Path.Combine(root, sub.Trim()), mediaName, extensions);
             if (hit != null) return hit;
         }
         return null;

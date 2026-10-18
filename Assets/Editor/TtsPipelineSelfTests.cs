@@ -34,6 +34,22 @@ public static class TtsPipelineSelfTests
         Splitter_DiscardsTheOverlap(log);
         Alignment_FromWordsInterpolates(log);
         Wav_RoundTrips(log);
+        TagOnly_UnstampRoundTrips(log);
+        TagOnly_UnchangedScriptIsANoOp(log);
+        TagOnly_MovedTagTakesItsNewTime(log);
+        TagOnly_DeletedLineKeepsItsNeighbours(log);
+        TagOnly_EditedTagKeepsItsSlot(log);
+        TagOnly_WhitespaceOnlyMovesAreAllowed(log);
+        TagOnly_SwappedTagsStayInTextOrder(log);
+        TagOnly_NarrationAndHeadingsAreLocked(log);
+        TagOnly_TransitionsAreLocked(log);
+        TagOnly_VoicedStageDirectionsAreLocked(log);
+        TagOnly_BakedTimesAreRefused(log);
+        TagOnly_UnrecognisedTagWarns(log);
+        TagOnly_MediaNamesAreReadLikeThePlayer(log);
+        TagOnly_UnknownMediaNameWarns(log);
+        SavedCopy_IsNamedAfterTheVideo(log);
+        SavedCopy_HoldsTheWholeGeneration(log);
 
         log.Report();
     }
@@ -331,6 +347,358 @@ public static class TtsPipelineSelfTests
         log.IsTrue(worst < 0.001f, $"samples survive 16-bit quantisation (worst delta {worst:F5})");
 
         try { File.Delete(path); } catch { }
+    }
+
+    // -----------------------------------------------------------------------
+    // Tag-only edits (TagOnlyRetimer)
+    // -----------------------------------------------------------------------
+
+    // Every tag form StampMarker knows, so the un-stamp round trip covers them all.
+    const string TagScript =
+@"## COLD OPEN
+{Timestamp:""Cold Open""}
+{Position:Center,Cut} {Neutral}
+[deadpan] Remember when a light bulb was simple. You flipped a switch.
+{Smirk}
+It got bright. That was the whole relationship.
+
+## SETUP
+{Transition:Wipe} {Position:Left} {Neutral} {Mood:Calm}
+Here's what happened.
+{Headline:""Lumora Caps Free Bulbs"",""MugsTech Test Desk"",Start,Right}
+{PointCard}
+Lumora pushed a firmware update this week.
+{Frowned}
+After the update, every bulb tops out at sixty percent.
+{Headline:End}
+{Stat:""$3.99"",""Per Month"",""Daylight plan"",5,Win,Right}
+Four dollars a month unlocks the rest.
+{Image:bulb_box,Start,Left}
+{Zoom:In,Cut,D=4}
+{Black:2}
+Yes. Daylight.
+{Image:End}
+{BigText:ONE LINE+TWO,3} {Logo:Google,Start} {Logo:End} {BRoll:server room,4}
+{Video:clip} That is it. {Video:End} {Image:shot} {Image:shot2,4,Right}
+{Excerpt:""a passage"",""phrase"",""Attribution"",6} {Quote:""q"",""Person"",""Role"",Start} {Quote:End}
+{BigMedia:Google+Brave,4} {BigImage:article,5} {BigText:LINE} words here {BigText:End}
+{Black:Start} more words {Black:End} {Shocked,Shrink} {Zoom:ExtremeIn} punch {Zoom:ExtremeOut}
+";
+
+    static void TagOnly_UnstampRoundTrips(Log log)
+    {
+        foreach (var section in TagGeneration(TagScript, keepCues: false))
+        {
+            var times = new List<float>();
+            string raw = TagOnlyRetimer.Unstamp(section.TimedScript, times);
+            var segment = Segments(("X", raw))[0];
+            var (markers, _) = TtsScriptProcessor.ExtractMarkers(raw);
+
+            log.AreEqual(OriginalRaw(section), raw, $"{section.Name}: un-stamping gives back the script");
+            log.AreEqual(markers.Count, times.Count, $"{section.Name}: one T= recovered per tag");
+            log.IsTrue(!raw.Contains("T="), $"{section.Name}: no T= survives un-stamping");
+            log.IsTrue(segment.Raw == raw, $"{section.Name}: the un-stamped text re-splits unchanged");
+        }
+    }
+
+    static void TagOnly_UnchangedScriptIsANoOp(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        var r = TagOnlyRetimer.Retime(TagScript, gen);
+        log.IsTrue(r.Success, $"the generation's own script passes ({r.Error})");
+        log.AreEqual(0, r.ChangedCount, "re-applying the unchanged script rewrites nothing");
+    }
+
+    static void TagOnly_MovedTagTakesItsNewTime(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        string statLine = "{Stat:\"$3.99\",\"Per Month\",\"Daylight plan\",5,Win,Right}\n";
+        string edited = TagScript.Replace(statLine, "")
+            .Replace("unlocks the rest.\n", "unlocks the rest.\n" + statLine);
+
+        var r = TagOnlyRetimer.Retime(edited, gen);
+        log.IsTrue(r.Success, $"moving a card down a sentence is allowed ({r.Error})");
+        if (!r.Success) return;
+
+        log.AreEqual(false, r.Sections[0].Changed, "an untouched section is left alone");
+        log.AreEqual(1, r.Sections[1].Retimed, "only the moved card is re-timed");
+
+        float oldStat  = TimeOf(gen[1].TimedScript, "{Stat:");
+        float newStat  = TimeOf(r.Sections[1].TimedScript, "{Stat:");
+        float oldImage = TimeOf(gen[1].TimedScript, "{Image:bulb_box");
+        log.IsTrue(newStat > oldStat, $"the card now fires later ({oldStat:F3} -> {newStat:F3})");
+        log.Near(oldImage, newStat, 0.0005f, "it fires in the pause it was moved into");
+        log.Near(oldImage, TimeOf(r.Sections[1].TimedScript, "{Image:bulb_box"), 0.0005f,
+            "the tag it now sits beside keeps its own time");
+        log.Near(TimeOf(gen[1].TimedScript, "{Frowned"), TimeOf(r.Sections[1].TimedScript, "{Frowned"),
+            0.0005f, "tags elsewhere keep their exact times");
+    }
+
+    static void TagOnly_DeletedLineKeepsItsNeighbours(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        string edited = TagScript.Replace(
+            "{Headline:\"Lumora Caps Free Bulbs\",\"MugsTech Test Desk\",Start,Right}\n", "");
+
+        var r = TagOnlyRetimer.Retime(edited, gen);
+        log.IsTrue(r.Success, $"removing a card is allowed ({r.Error})");
+        if (!r.Success) return;
+
+        log.Near(TimeOf(gen[1].TimedScript, "{PointCard"), TimeOf(r.Sections[1].TimedScript, "{PointCard"),
+            0.0005f, "the tag on the line below keeps its time, though it moved up a line");
+        log.AreEqual(-1f, TimeOf(r.Sections[1].TimedScript, "{Headline:\""), "the card is gone");
+        log.AreEqual(0, r.Sections[1].Retimed, "nothing else needed re-timing");
+    }
+
+    static void TagOnly_EditedTagKeepsItsSlot(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        string edited = TagScript.Replace("Lumora Caps Free Bulbs", "Lumora Puts Brightness Behind A Paywall");
+
+        var r = TagOnlyRetimer.Retime(edited, gen);
+        log.IsTrue(r.Success, $"rewording a card is allowed ({r.Error})");
+        if (!r.Success) return;
+
+        log.AreEqual(true, r.Sections[1].Changed, "the section is rewritten");
+        log.IsTrue(r.Sections[1].TimedScript.Contains("Behind A Paywall"), "with the new card text");
+        log.Near(TimeOf(gen[1].TimedScript, "{Headline:\""), TimeOf(r.Sections[1].TimedScript, "{Headline:\""),
+            0.0005f, "a reworded card that didn't move keeps its time");
+    }
+
+    static void TagOnly_WhitespaceOnlyMovesAreAllowed(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        string edited = TagScript.Replace("You flipped a switch.\n{Smirk}\nIt got", "You flipped a switch. {Smirk} It got");
+
+        var r = TagOnlyRetimer.Retime(edited, gen);
+        log.IsTrue(r.Success, $"pulling an own-line tag inline only changes whitespace ({r.Error})");
+        if (!r.Success) return;
+        log.Near(TimeOf(gen[0].TimedScript, "{Smirk"), TimeOf(r.Sections[0].TimedScript, "{Smirk"),
+            0.0005f, "it stays in the same pause, so it keeps its time");
+    }
+
+    static void TagOnly_SwappedTagsStayInTextOrder(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        string headline = "{Headline:\"Lumora Caps Free Bulbs\",\"MugsTech Test Desk\",Start,Right}\n";
+        string edited = TagScript.Replace(headline + "{PointCard}\n", "{PointCard}\n" + headline);
+
+        var r = TagOnlyRetimer.Retime(edited, gen);
+        log.IsTrue(r.Success, $"swapping two tags in a pause is allowed ({r.Error})");
+        if (!r.Success) return;
+
+        float point    = TimeOf(r.Sections[1].TimedScript, "{PointCard");
+        float headline2 = TimeOf(r.Sections[1].TimedScript, "{Headline:\"");
+        log.IsTrue(point <= headline2, $"the tag written first never fires later ({point:F3} vs {headline2:F3})");
+    }
+
+    static void TagOnly_NarrationAndHeadingsAreLocked(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+
+        var words = TagOnlyRetimer.Retime(TagScript.Replace("sixty percent", "seventy percent"), gen);
+        log.IsTrue(!words.Success, "changing a spoken word is refused");
+        log.IsTrue(words.Error != null && words.Error.Contains("SETUP") && words.Error.Contains("seventy"),
+            $"the error names the section and shows the change ({words.Error})");
+
+        var heading = TagOnlyRetimer.Retime(TagScript.Replace("## SETUP", "## SET UP"), gen);
+        log.IsTrue(!heading.Success, "renaming a section is refused");
+
+        var unclosed = TagOnlyRetimer.Retime(TagScript.Replace("{Frowned}", "{Frowned"), gen);
+        log.IsTrue(!unclosed.Success && unclosed.Error.Contains("isn't closed"),
+            $"a tag missing its brace is caught as narration, with a hint ({unclosed.Error})");
+    }
+
+    static void TagOnly_TransitionsAreLocked(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+
+        log.IsTrue(!TagOnlyRetimer.Retime(TagScript.Replace("{Transition:Wipe}", "{Transition:Iris}"), gen).Success,
+            "changing a transition is refused");
+        log.IsTrue(!TagOnlyRetimer.Retime(TagScript.Replace("{Transition:Wipe} ", ""), gen).Success,
+            "removing a transition is refused");
+        log.IsTrue(!TagOnlyRetimer.Retime(TagScript.Replace("Yes. Daylight.", "{Transition:Iris} Yes. Daylight."), gen).Success,
+            "adding a transition is refused");
+
+        var r = TagOnlyRetimer.Retime(TagScript.Replace("{Mood:Calm}", "{Mood:Calm} {Excited}"), gen);
+        log.IsTrue(r.Success, $"other tags on the transition's line can still change ({r.Error})");
+    }
+
+    static void TagOnly_VoicedStageDirectionsAreLocked(Log log)
+    {
+        string edited = TagScript.Replace("[deadpan]", "[dry]");
+
+        var voiced = TagOnlyRetimer.Retime(edited, TagGeneration(TagScript, keepCues: true));
+        log.IsTrue(!voiced.Success && voiced.Error.Contains("[Stage directions]"),
+            $"a stage direction that was sent to v3 can't change, and the error says why ({voiced.Error})");
+
+        var stripped = TagOnlyRetimer.Retime(edited, TagGeneration(TagScript, keepCues: false));
+        log.IsTrue(stripped.Success, $"one that was stripped before the request can ({stripped.Error})");
+
+        var unchanged = TagOnlyRetimer.Retime(TagScript, TagGeneration(TagScript, keepCues: true));
+        log.IsTrue(unchanged.Success && unchanged.ChangedCount == 0,
+            $"voiced stage directions round-trip as part of the narration ({unchanged.Error})");
+    }
+
+    static void TagOnly_BakedTimesAreRefused(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        string pasted = "## COLD OPEN\n" + gen[0].TimedScript + "\n\n## SETUP\n" + gen[1].TimedScript;
+        var r = TagOnlyRetimer.Retime(pasted, gen);
+        log.IsTrue(!r.Success && r.Error.Contains("baked"),
+            $"a pasted _timed.txt is refused rather than double-stamped ({r.Error})");
+    }
+
+    static void TagOnly_UnrecognisedTagWarns(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        var r = TagOnlyRetimer.Retime(
+            TagScript.Replace("{Frowned}", "{Frowned}\n{Quote:\"a\", \"b\", \"c\", 5}"), gen);
+        log.IsTrue(r.Success, $"an unrecognised tag doesn't block the update ({r.Error})");
+        log.IsTrue(r.Warnings.Count > 0 && r.Warnings[0].Contains("not recognised"),
+            "but it is reported, since it will do nothing");
+    }
+
+    static void TagOnly_MediaNamesAreReadLikeThePlayer(Log log)
+    {
+        string Name(string tag) => TagOnlyRetimer.TryGetMediaName(tag, out string kind, out string name)
+            ? kind + ":" + name : null;
+
+        log.AreEqual("Image:bulb_box", Name("{Image:bulb_box,Start,Left}"), "{Image:} reads up to the first comma");
+        log.AreEqual("Video:clip", Name("{Video:clip,Right}"), "{Video:} too");
+        log.AreEqual("BigImage:article", Name("{BigImage:article,5}"), "{BigImage:} too");
+        log.AreEqual("Image:spaced name", Name("{Image: spaced name ,4}"), "the name is trimmed, as the player trims it");
+        log.AreEqual(null, Name("{Image:End}"), "{Image:End} closes media, it names none");
+        log.AreEqual(null, Name("{Video:stop}"), "nor do the End spellings the player tolerates");
+        log.AreEqual("BigImage:End", Name("{BigImage:End,5}"), "BigImage has no End keyword, so End is a name there");
+        log.AreEqual(null, Name("{Logo:Google,4}"), "asset-backed tags (Logo/BigMedia/BRoll) aren't file lookups");
+        log.AreEqual(null, Name("{Headline:\"Image:x\",\"y\",4}"), "a card that merely mentions Image: isn't one");
+    }
+
+    static void TagOnly_UnknownMediaNameWarns(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        var known = new HashSet<string> { "bulb_box", "clip", "shot", "shot2", "article" };
+        var asked = new List<string>();
+        Func<string, string, bool> exists = (kind, name) => { asked.Add(kind + ":" + name); return known.Contains(name); };
+
+        var real = TagOnlyRetimer.Retime(TagScript, gen, exists);
+        log.IsTrue(real.Success && real.Warnings.Count == 0 && real.MissingMedia.Count == 0,
+            $"real media names raise no warning ({string.Join(" ", real.Warnings)})");
+        log.AreEqual("Image:bulb_box Video:clip Image:shot Image:shot2 BigImage:article", string.Join(" ", asked),
+            "each Image/Video/BigImage name is asked about once — End keywords and asset tags never");
+
+        var typo = TagOnlyRetimer.Retime(TagScript.Replace("{Image:bulb_box,", "{Image:bulb_bx,"), gen, exists);
+        log.IsTrue(typo.Success, $"a misspelled media name doesn't block the update ({typo.Error})");
+        log.IsTrue(typo.Warnings.Count == 1 && typo.Warnings[0].Contains("1 media name") &&
+                   typo.Warnings[0].Contains("SETUP: {Image:bulb_bx}"),
+            $"but it is reported by section and name ({string.Join(" ", typo.Warnings)})");
+
+        var none = TagOnlyRetimer.Retime(TagScript.Replace("{Frowned}", "{Frowned} {Image:shot,3}"), gen, (k, n) => false);
+        log.AreEqual(5, none.MissingMedia.Count, "a name used twice is reported once");
+        log.IsTrue(none.Warnings.Count == 1 && none.Warnings[0].StartsWith("5 media name") &&
+                   none.Warnings[0].Contains("{Image:shot}") && !none.Warnings[0].Contains("{BigImage:article}") &&
+                   none.Warnings[0].EndsWith("; …"),
+            $"at most three are listed ({string.Join(" ", none.Warnings)})");
+    }
+
+    // -----------------------------------------------------------------------
+    // Saved copies (GenerationSave)
+    // -----------------------------------------------------------------------
+
+    static void SavedCopy_IsNamedAfterTheVideo(Log log)
+    {
+        var at = new DateTime(2026, 10, 18, 9, 34, 12);
+        log.AreEqual("2026-10-18_09-34 Tesla Recall", GenerationSave.FolderName(at, "Tesla Recall", TagScript),
+            "the typed name follows the date");
+        log.AreEqual("2026-10-18_09-34 Cold Open", GenerationSave.FolderName(at, "  ", TagScript),
+            "left blank, the first chapter title is used");
+        log.AreEqual("2026-10-18_09-34 SETUP", GenerationSave.FolderName(at, "", "## SETUP\n{Timestamp:\"\"} Hi."),
+            "with no chapter title, the first section heading");
+        log.AreEqual("2026-10-18_09-34", GenerationSave.FolderName(at, null, "Just words."),
+            "with neither, the date alone");
+        log.AreEqual("AT&T Q3 Q4", GenerationSave.SanitiseName("AT&T: Q3 / Q4?"),
+            "characters Windows refuses in a folder name are dropped");
+        log.AreEqual("Ends here", GenerationSave.SanitiseName("  Ends\there.  "),
+            "whitespace is collapsed and a trailing dot removed");
+        log.AreEqual(60, GenerationSave.SanitiseName(new string('x', 80)).Length, "names are capped at 60 characters");
+    }
+
+    static void SavedCopy_HoldsTheWholeGeneration(Log log)
+    {
+        string root = Path.Combine(Path.GetTempPath(), "mugs_selftest_save_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string gen = Path.Combine(root, "output", "2026-10-18_09-34-12");
+            Directory.CreateDirectory(Path.Combine(gen, "chunks"));
+            File.WriteAllText(Path.Combine(gen, "manifest.json"), "{}");
+            File.WriteAllText(Path.Combine(gen, "01_COLD_OPEN.mp3"), "audio");
+            File.WriteAllText(Path.Combine(gen, "01_COLD_OPEN_timed.txt"), "timed");
+            File.WriteAllText(Path.Combine(gen, TagOnlyUpdate.ScriptFileName), "script");
+            File.WriteAllText(Path.Combine(gen, "chunks", "A_text.txt"), "take");
+
+            string saves = Path.Combine(root, "Saves");   // doesn't exist yet
+            string first = GenerationSave.Copy(gen, saves, "2026-10-18_09-34 Tesla Recall");
+            log.AreEqual(Path.Combine(saves, "2026-10-18_09-34 Tesla Recall"), first, "the copy lands under the save folder");
+            foreach (string f in new[] { "manifest.json", "01_COLD_OPEN.mp3", "01_COLD_OPEN_timed.txt",
+                                         TagOnlyUpdate.ScriptFileName, Path.Combine("chunks", "A_text.txt") })
+                log.IsTrue(File.Exists(Path.Combine(first, f)), $"the copy holds {f}");
+
+            string second = GenerationSave.Copy(gen, saves, "2026-10-18_09-34 Tesla Recall");
+            log.AreEqual(Path.Combine(saves, "2026-10-18_09-34 Tesla Recall (2)"), second,
+                "a second copy with the same name doesn't overwrite the first");
+            log.IsTrue(File.Exists(Path.Combine(gen, "manifest.json")), "the original is left in place");
+        }
+        finally
+        {
+            try { Directory.Delete(root, true); } catch { }
+        }
+    }
+
+    // A generation made from 'script': synthetic alignment per section, every
+    // tag stamped at the time that alignment gives its position.
+    static List<TagOnlyRetimer.Section> TagGeneration(string script, bool keepCues)
+    {
+        var sections = new List<TagOnlyRetimer.Section>();
+        foreach (var seg in Segments(SplitHeadings(script)))
+        {
+            var (markers, clean) = TtsScriptProcessor.ExtractMarkers(seg.Raw, keepCues);
+            var alignment = SyntheticAlignment(clean, 0.05f, 0.3f);
+            Func<int, float> timeAt = at => (float)Math.Round(alignment.StartAt(at), 3);
+
+            var timed = markers.ConvertAll(m => new TtsScriptProcessor.TimedMarker {
+                Marker = m, TriggerTime = timeAt(m.CleanIndex) });
+            sections.Add(new TagOnlyRetimer.Section {
+                Slug                  = seg.Slug,
+                Name                  = seg.Name,
+                TimedScript           = TtsScriptProcessor.RebuildTimedScript(seg.Raw, timed),
+                Spoken                = clean,
+                StageDirectionsVoiced = keepCues,
+                TimeAt                = timeAt,
+            });
+        }
+        return sections;
+    }
+
+    static (string name, string body)[] SplitHeadings(string script)
+        => TtsScriptProcessor.SplitIntoSegments(script).ConvertAll(s => (s.Name, s.Raw)).ToArray();
+
+    static string OriginalRaw(TagOnlyRetimer.Section section)
+    {
+        foreach (var seg in TtsScriptProcessor.SplitIntoSegments(TagScript))
+            if (seg.Name == section.Name) return seg.Raw;
+        return null;
+    }
+
+    // The T= of the first tag starting with 'prefix', or -1 when there is none.
+    static float TimeOf(string timedScript, string prefix)
+    {
+        var times = new List<float>();
+        string raw = TagOnlyRetimer.Unstamp(timedScript, times);
+        var (markers, _) = TtsScriptProcessor.ExtractMarkers(raw);
+        for (int i = 0; i < markers.Count && i < times.Count; i++)
+            if (markers[i].Text.StartsWith(prefix, StringComparison.Ordinal)) return times[i];
+        return -1f;
     }
 
     // -----------------------------------------------------------------------

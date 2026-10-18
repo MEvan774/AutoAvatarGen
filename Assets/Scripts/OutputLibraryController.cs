@@ -101,7 +101,8 @@ public class OutputLibraryController : MonoBehaviour
         if (generationDropdown != null)
         {
             generationDropdown.ClearOptions();
-            generationDropdown.AddOptions(generations.Select(LabelFor).ToList());
+            string saveRoot = GenerationSave.ResolvedFolder;
+            generationDropdown.AddOptions(generations.Select(g => LabelFor(g, saveRoot)).ToList());
         }
 
         if (generations.Count == 0)
@@ -141,13 +142,16 @@ public class OutputLibraryController : MonoBehaviour
         => File.Exists(Path.Combine(dir, "manifest.json")) ||
            Directory.GetFiles(dir, "*_timed.txt").Length > 0;
 
-    // Folders to scan for generations: the chosen output folder, plus the
-    // folder that holds the last selected generation. Both are places the user
-    // has used, so a generation stays discoverable even if the chosen-folder
+    // Folders to scan for generations: the chosen output folder, the TTS
+    // panel's save folder (its named copies, GenerationSave), plus the folder
+    // that holds the last selected generation. All are places the user has
+    // used, so a generation stays discoverable even if the chosen-folder
     // setting no longer matches where files were created.
     IEnumerable<string> CandidateRoots(string selectedGeneration)
     {
         yield return LibraryRoot;
+        string saveRoot = GenerationSave.ResolvedFolder;
+        if (saveRoot != null) yield return saveRoot;
         if (!string.IsNullOrEmpty(selectedGeneration))
         {
             string parent = null;
@@ -167,13 +171,29 @@ public class OutputLibraryController : MonoBehaviour
             if (HasOutput(d)) into.Add(d);
     }
 
-    // Dropdown label: folder name, plus the segment count when it's a multi-part
-    // generation, so a stitched render is easy to spot.
-    static string LabelFor(string dir)
+    // Dropdown label: folder name, "saved" for a copy in the save folder, plus
+    // the segment count when it's a multi-part generation, so a stitched render
+    // is easy to spot.
+    static string LabelFor(string dir, string saveRoot)
     {
         string name  = Path.GetFileName(dir);
         int    pairs = Directory.GetFiles(dir, "*_timed.txt").Length;
-        return pairs > 1 ? $"{name}  ({pairs} segments)" : name;
+        bool   saved = saveRoot != null && SamePath(Path.GetDirectoryName(dir), saveRoot);
+
+        var notes = new List<string>();
+        if (saved)     notes.Add("saved");
+        if (pairs > 1) notes.Add($"{pairs} segments");
+        return notes.Count > 0 ? $"{name}  ({string.Join(", ", notes)})" : name;
+    }
+
+    static bool SamePath(string a, string b)
+    {
+        try
+        {
+            return string.Equals(Path.GetFullPath(a).TrimEnd('/', '\\'), Path.GetFullPath(b).TrimEnd('/', '\\'),
+                                 StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
     }
 
     // -----------------------------------------------------------------------

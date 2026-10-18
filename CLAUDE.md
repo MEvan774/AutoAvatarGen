@@ -23,6 +23,24 @@ in a recording scene while Evereal VideoCapture records → muxed mp4.
    `CrossPlatformRecorder` (Evereal). Terminal outcome lands in the static
    `RecordingSession.LastResult` (Saved + path, or Failed + error).
 
+**Tag-only updates** (no credits): the TTS panel's *Load From Generation* /
+*Update Tags Only* buttons (cloned from Generate at runtime in
+`TtsPanelController.BuildTagEditRow`) re-time an edited script's tags against
+the active generation's existing voice — `TagOnlyRetimer` (pure) +
+`TagOnlyUpdate` (folder IO). Only `_timed.txt` and `script.txt` are rewritten;
+the old ones go to `tag_edits/<time>/`. Narration, `## SECTION` headings,
+`{Transition:…}` tags and voiced `[stage directions]` are locked. Times come
+from `chunks/` + `render_manifest.json` (exact) or `word_timestamps/`.
+
+**Saved copies**: after a real Generate, the TTS panel copies the whole
+generation folder to its *Save copies to* folder (PlayerPref
+`AutoAvatarGen.GenerationSaveFolder`, default `Documents/AutoAvatarGen Saves`,
+empty = off) as `<yyyy-MM-dd_HH-mm> <Video name>` (`GenerationSave`), then
+makes the **copy** the selected generation so tag edits and recordings stay
+with it. The output library lists the save folder too. The two extra panel rows
+are cloned from the output folder row at runtime (`BuildSaveRows`), which grows
+the panel by two rows instead of touching the scene.
+
 ## Headless-style automation (Claude Cowork)
 
 `AutoAvatarGen.exe --auto-script <file>` runs the full pipeline unattended and
@@ -41,7 +59,9 @@ credits. One run at a time.
 
 Tags (`{Timestamp:"..."}`, emotions, media, …) are documented in
 `Assets/Python/script/SCRIPT_TAG_GUIDE.md`. A new tag must be handled in the
-parser AND both TTS marker processors AND the guide, or it breaks silently.
+parser AND both TTS marker processors AND the guide, or it breaks silently —
+and if `StampMarker` gives it a `D=` slot, `TagOnlyRetimer.UnstampDuration`
+must turn that back into the authored form.
 
 ## Hard-won constraints (do not undo)
 
