@@ -17,6 +17,16 @@ using Diag = System.Diagnostics;
 ///   AutoAvatarGen.exe --auto-script C:\jobs\ep12.txt
 ///                     [--auto-result C:\jobs\ep12.result.json]
 ///                     [--auto-timeout-sec 5400]
+///                     [--auto-reuse-generation &lt;generation folder&gt;]
+///
+/// With --auto-reuse-generation the TTS phase is replaced by the TTS panel's
+/// "Update Tags Only" (<see cref="TagOnlyUpdate.Apply"/>): the script's tags
+/// are re-timed against that generation's EXISTING voice, its _timed.txt
+/// files are rewritten (previous ones backed up to tag_edits/), and the take
+/// is recorded from it. No ElevenLabs call, no API key needed. The same rules
+/// as the button apply — the spoken words, [stage directions], section
+/// headings and {Transition:} tags must match the voice, or the run fails at
+/// stage "tags" before anything is recorded.
 ///
 /// Flow (mirrors what the menus do, via the same code paths):
 ///   1. TTS      — TtsGenerationJob renders the script into a fresh
@@ -45,6 +55,10 @@ public class AutomationRunner : MonoBehaviour
     const string ScriptArg  = "--auto-script";
     const string ResultArg  = "--auto-result";
     const string TimeoutArg = "--auto-timeout-sec";
+    // Tag-only re-render: reuse this generation's voice (see class summary).
+    // run_pipeline.py looks for this exact string in Assembly-CSharp.dll to
+    // tell whether the build supports it — keep the spelling.
+    const string ReuseArg   = "--auto-reuse-generation";
 
     const float DefaultTimeoutSec = 5400f; // 90 min — TTS + realtime take + mux headroom
 
@@ -65,6 +79,8 @@ public class AutomationRunner : MonoBehaviour
     string scriptPath;
     string resultPath;
     string progressPath;
+    string reuseGeneration;      // null = normal run (fresh TTS)
+    string tagUpdateMessage;     // TagOnlyUpdate's outcome line, for the report
     float  timeoutSec = DefaultTimeoutSec;
 
     DateTime startedUtc;
@@ -118,6 +134,10 @@ public class AutomationRunner : MonoBehaviour
             timeoutSec = t;
         }
 
+        string reuse = GetArgValue(args, ReuseArg);
+        if (!string.IsNullOrWhiteSpace(reuse))
+            reuseGeneration = Path.GetFullPath(reuse.TrimEnd('/', '\\'));
+
         startedUtc      = DateTime.UtcNow;
         startedRealtime = Time.realtimeSinceStartup;
 
@@ -131,7 +151,8 @@ public class AutomationRunner : MonoBehaviour
         TryDelete(progressPath);
 
         Debug.Log($"[Automation] Run started. script='{scriptPath}' result='{resultPath}' " +
-                  $"timeout={timeoutSec}s");
+                  $"timeout={timeoutSec}s" +
+                  (reuseGeneration != null ? $" reuse-generation='{reuseGeneration}'" : ""));
         StartCoroutine(RunPipeline());
     }
 
@@ -186,7 +207,7 @@ public class AutomationRunner : MonoBehaviour
         string apiKey = TtsApiKeyPopup.LoadKey();
         if (string.IsNullOrWhiteSpace(apiKey))
             apiKey = Environment.GetEnvironmentVariable("ELEVENLABS_API_KEY");
-        if (string.IsNullOrWhiteSpace(apiKey) && !replaying)
+        if (string.IsNullOrWhiteSpace(apiKey) && !replaying && reuseGeneration == null)
         {
             Finish(false, "setup",
                 "No ElevenLabs API key. Open the app once and save it via the TTS panel's " +
@@ -203,6 +224,52 @@ public class AutomationRunner : MonoBehaviour
             PlayerPrefs.Save();
         }
 
+        // ---- phase 1 (tag-only): reuse an existing generation's voice ------
+        if (reuseGeneration != null)
+        {
+            WriteProgress("tags", "Re-timing tags against the existing voice (no ElevenLabs)");
+            yield return null;
+
+            if (!Directory.Exists(reuseGeneration))
+            {
+                Finish(false, "tags", $"Generation folder not found: '{reuseGeneration}'.");
+                yield break;
+            }
+
+            TagOnlyUpdate.Outcome outcome;
+            try
+            {
+                outcome = TagOnlyUpdate.Apply(reuseGeneration, scriptText);
+            }
+            catch (Exception e)
+            {
+                Finish(false, "tags", $"Update Tags Only crashed: {e.Message}");
+                yield break;
+            }
+            foreach (string w in outcome.Warnings) Debug.LogWarning("[TagOnly] " + w);
+            if (!outcome.Success)
+            {
+                Finish(false, "tags", outcome.Message);
+                yield break;
+            }
+
+            tagUpdateMessage = outcome.Warnings.Count > 0
+                ? outcome.Message + " Warning: " + string.Join(" ", outcome.Warnings)
+                : outcome.Message;
+            Debug.Log($"[Automation] Tags only: {tagUpdateMessage}");
+
+            int sections = TtsScriptProcessor.SplitIntoSegments(scriptText).Count;
+            generationFolder = reuseGeneration;
+            ttsResult = new TtsGenerationJob.Result
+            {
+                Success           = true,
+                SegmentsProcessed = sections,
+                SegmentsTotal     = sections,
+                ManifestPath      = Path.Combine(reuseGeneration, "manifest.json"),
+            };
+        }
+        else
+        {
         // ---- phase 1: TTS -------------------------------------------------
         // Same per-generation folder naming as TtsPanelController.StartJob so
         // the output library lists automated runs alongside manual ones.
@@ -254,11 +321,13 @@ public class AutomationRunner : MonoBehaviour
                 ". Re-run the job; eleven_v3 is non-deterministic so a retry usually clears it.");
             yield break;
         }
+        }   // end of the fresh-TTS branch
 
         // ---- phase 2: make the fresh generation the active one ------------
         PlayerPrefs.SetString(TtsPanelController.SelectedGenerationPrefKey, generationFolder);
         PlayerPrefs.Save();
-        Debug.Log($"[Automation] TTS done ({ttsResult.SegmentsProcessed}/{ttsResult.SegmentsTotal} " +
+        Debug.Log($"[Automation] {(reuseGeneration != null ? "Tags updated" : "TTS done")} " +
+                  $"({ttsResult.SegmentsProcessed}/{ttsResult.SegmentsTotal} " +
                   $"segments) -> '{generationFolder}'. Starting recording.");
 
         // ---- phase 3: record ---------------------------------------------
@@ -370,6 +439,8 @@ public class AutomationRunner : MonoBehaviour
         sb.Append("  \"manifestPath\": ").Append(JsonStr(ttsResult != null ? ttsResult.ManifestPath : null)).Append(",\n");
         sb.Append("  \"segmentsProcessed\": ").Append(ttsResult != null ? ttsResult.SegmentsProcessed : 0).Append(",\n");
         sb.Append("  \"segmentsTotal\": ").Append(ttsResult != null ? ttsResult.SegmentsTotal : 0).Append(",\n");
+        sb.Append("  \"reusedGeneration\": ").Append(reuseGeneration != null ? "true" : "false").Append(",\n");
+        sb.Append("  \"tagUpdate\": ").Append(JsonStr(tagUpdateMessage)).Append(",\n");
         sb.Append("  \"videoPath\": ").Append(JsonStr(videoPath)).Append(",\n");
         sb.Append("  \"videoSizeBytes\": ").Append(videoSize).Append(",\n");
 
