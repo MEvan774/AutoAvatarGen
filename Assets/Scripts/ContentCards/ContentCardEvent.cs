@@ -59,7 +59,7 @@ public class ContentCardEvent
 
     // The closing edge of a held pair — {BigText:End} for the persistent
     // BigText stack, or {Headline:End}/{Quote:End}/{Logo:End}/… for a side
-    // card opened with ",Start" in its duration slot. The event shows nothing;
+    // card (or a ",bigCenter" headline) opened with ",Start" in its duration slot. The event shows nothing;
     // ContentZoneController closes the active card of the same type. See
     // ContentZoneTagParser.ExtractBigTexts / ExtractCardEnds.
     // A duration-less (duration <= 0) event WITHOUT this flag is the held

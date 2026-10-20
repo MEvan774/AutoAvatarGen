@@ -35,6 +35,7 @@ public static class TtsPipelineSelfTests
         Alignment_FromWordsInterpolates(log);
         Wav_RoundTrips(log);
         TagOnly_UnstampRoundTrips(log);
+        TagOnly_HeldBigHeadlineKeepsItsPair(log);
         TagOnly_UnchangedScriptIsANoOp(log);
         TagOnly_MovedTagTakesItsNewTime(log);
         TagOnly_DeletedLineKeepsItsNeighbours(log);
@@ -358,9 +359,11 @@ public static class TtsPipelineSelfTests
 @"## COLD OPEN
 {Timestamp:""Cold Open""}
 {Position:Center,Cut} {Neutral}
+{Headline:""Bulbs Used To Be Simple"",""MugsTech Test Desk"",Start,bigCenter}
 [deadpan] Remember when a light bulb was simple. You flipped a switch.
 {Smirk}
 It got bright. That was the whole relationship.
+{Headline:End}
 
 ## SETUP
 {Transition:Wipe} {Position:Left} {Neutral} {Mood:Calm}
@@ -399,6 +402,20 @@ Yes. Daylight.
             log.IsTrue(!raw.Contains("T="), $"{section.Name}: no T= survives un-stamping");
             log.IsTrue(segment.Raw == raw, $"{section.Name}: the un-stamped text re-splits unchanged");
         }
+    }
+
+    static void TagOnly_HeldBigHeadlineKeepsItsPair(Log log)
+    {
+        string timed = TagGeneration(TagScript, keepCues: false)[0].TimedScript;
+        log.IsTrue(timed.Contains(",D=0,bigCenter}"),
+            "a held big headline is stamped D=0 with its bigCenter kept, so the player holds it");
+
+        float open  = TimeOf(timed, "{Headline:\"");
+        float close = TimeOf(timed, "{Headline:End");
+        log.IsTrue(open >= 0f && close > open,
+            $"its {{Headline:End}} is stamped after the opener ({open:F3} -> {close:F3})");
+        log.IsTrue(TagOnlyRetimer.Unstamp(timed, new List<float>()).Contains(",Start,bigCenter}"),
+            "and it un-stamps back to the Start form");
     }
 
     static void TagOnly_UnchangedScriptIsANoOp(Log log)

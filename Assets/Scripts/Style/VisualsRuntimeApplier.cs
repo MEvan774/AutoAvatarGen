@@ -512,6 +512,13 @@ namespace MugsTech.Style
         public Color         ShadowColor;
         public float         ShadowSoftness;
 
+        // Vignette over panel + pattern — off in the original look.
+        public bool          VignetteEnabled;
+        public Color         VignetteColor;    // alpha = strength
+        public float         VignetteSize;
+        public float         VignetteSoftness;
+        public float         VignetteShape;    // 0 = round, 1 = follows the frame
+
         /// <summary>The card's original hard-coded look.</summary>
         public static BigHeadlineLook Legacy => new BigHeadlineLook
         {
@@ -527,6 +534,11 @@ namespace MugsTech.Style
             OutlineWidth    = 0.15f,
             ShadowColor     = new Color(0f, 0f, 0f, 0.75f),
             ShadowSoftness  = 0.5f,
+            VignetteEnabled  = false,
+            VignetteColor    = new Color(0f, 0f, 0f, 0.6f),
+            VignetteSize     = 0.35f,
+            VignetteSoftness = 0.6f,
+            VignetteShape    = 0.5f,
         };
 
         public static BigHeadlineLook FromStyle(BigHeadlineStyleData s, Texture2D patternTexture)
@@ -555,6 +567,14 @@ namespace MugsTech.Style
             look.ShadowEnabled   = s.shadowEnabled;
             look.ShadowColor     = ParseHex(s.shadowColorHex) ?? look.ShadowColor;
             look.ShadowSoftness  = Mathf.Clamp01(s.shadowSoftness);
+
+            look.VignetteEnabled  = s.vignetteEnabled;
+            Color vignette = ParseHex(s.vignetteColorHex) ?? Color.black;
+            vignette.a = Mathf.Clamp01(s.vignetteStrength);
+            look.VignetteColor    = vignette;
+            look.VignetteSize     = Mathf.Clamp01(s.vignetteSize);
+            look.VignetteSoftness = Mathf.Clamp(s.vignetteSoftness, 0.01f, 1f);
+            look.VignetteShape    = Mathf.Clamp01(s.vignetteShape);
             return look;
         }
 

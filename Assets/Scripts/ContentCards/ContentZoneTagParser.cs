@@ -24,7 +24,8 @@ public static class ContentZoneTagParser
     // pair form ({Quote:...,Start}…{Quote:End}), mirroring
     // {Black:Start}…{Black:End}; the bare {Tag:End} closing edge is its own
     // alternative below. (The TTS processors stamp a held opener as D=0, so the
-    // keyword only reaches this parser in legacy/unstamped scripts.)
+    // keyword only reaches this parser in legacy/unstamped scripts.) A
+    // ",bigCenter" headline holds the same way, closed by the same {Headline:End}.
     // Stat may carry an arrow keyword (",Win"/",Loss"/",NoArrow") as well as a
     // side, in either order — hence up to two trailing modifiers.
     private static readonly Regex StripAllRegex = new Regex(
@@ -134,8 +135,8 @@ public static class ContentZoneTagParser
         return float.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 
-    // The side cards' duration slot: a number, or the "Start" keyword — the
-    // held pair's opening edge, which parses as 0 (the same "no timer" value a
+    // The side cards' (and the big headline's) duration slot: a number, or the
+    // "Start" keyword — the held pair's opening edge, which parses as 0 (the same "no timer" value a
     // stamped D=0 carries; duration <= 0 is what ContentZoneController treats
     // as a held card).
     private static float ParseDuration(string s)
@@ -321,7 +322,9 @@ public static class ContentZoneTagParser
     // {Headline:End} / {Excerpt:End} / {Quote:End} / {Stat:End} / {Logo:End} /
     // {BRoll:End} — the closing edge of a held card opened with ",Start". The
     // event carries only the type and the dismiss flag; ContentZoneController
-    // closes the matching active card (or warns when there is none).
+    // closes the matching active card (or warns when there is none). A
+    // {Headline:End} stays a Headline event even when it closes a ",bigCenter"
+    // headline — the controller matches it to the BigCenter card.
     private static void ExtractCardEnds(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
     {
         foreach (Match match in CardEndRegex.Matches(script))

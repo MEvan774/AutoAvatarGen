@@ -75,12 +75,25 @@ public class MediaPresentationSystem : MonoBehaviour
     [Header("Camera Zoom")]
     [Tooltip("Main camera — used for zoom in/out.")]
     public Camera mainCamera;
-    [Tooltip("Length of the eased glide for {Zoom:In} / {Zoom:Out} and the auto-reset. " +
+    [Tooltip("Length of the eased glide for each {Zoom:In} step, {Zoom:Out}, the ,D= release, and " +
+             "the glide back when a BigText / BigMedia / BigImage ends a zoom run. " +
              "Ignored by ,Cut / Reset / Pullback / ExtremeIn / ExtremeOut, which snap.")]
     public float zoomDuration = 0.7f;
-    [Tooltip("How much to zoom in (1.12 = 112% zoom, blueprint says 110-115%).")]
-    [Range(1.01f, 1.25f)]
-    public float zoomInMultiplier = 1.12f;
+
+    // {Zoom:In} stacks: each one leans in a step further until something ends
+    // the run (see EndZoomRun). Step 1 keeps the old single multiplier's
+    // serialized value, so existing scenes push in exactly as before.
+    [Tooltip("Step 1 of a {Zoom:In} run — the first push-in (1.12 = 112% zoom, blueprint says 110-115%).")]
+    [UnityEngine.Serialization.FormerlySerializedAs("zoomInMultiplier")]
+    [Range(1.01f, 1.6f)]
+    public float zoomStep1Multiplier = 1.12f;
+    [Tooltip("Step 2 — a second {Zoom:In} before the run ends (1.24 = 124%). Never less than step 1.")]
+    [Range(1.01f, 1.6f)]
+    public float zoomStep2Multiplier = 1.24f;
+    [Tooltip("Step 3 — the last step (1.36 = 136%). Never less than step 2. A fourth {Zoom:In} " +
+             "in the same run is ignored.")]
+    [Range(1.01f, 1.6f)]
+    public float zoomStep3Multiplier = 1.36f;
 
     [Header("Extreme Zoom ({Zoom:ExtremeIn} / {Zoom:ExtremeOut})")]
     [Tooltip("How far in the extreme zoom punches (2 = 200%). Much harder than {Zoom:In} — " +
@@ -297,6 +310,25 @@ public class MediaPresentationSystem : MonoBehaviour
     private float defaultCameraSize;
     private Coroutine zoomCoroutine;
     private Coroutine pendingResetCoroutine;
+
+    // Where the running AnimateZoom glide is heading; NaN when no glide runs.
+    // Lets an ExtremeIn tell a run still gliding home from a camera at rest.
+    private float zoomEaseTarget = float.NaN;
+
+    // The {Zoom:In} run: 0 = normal framing, 1..MaxZoomSteps = steps leaned in.
+    const int MaxZoomSteps = 3;
+    private int zoomStep;
+
+    // The run's ,D= release time. Set by the latest step that carried a D=,
+    // and every later step restarts the countdown with it, so the release
+    // always lands that long after the last push-in.
+    private float zoomRunHold;
+
+    /// <summary>
+    /// How far the current {Zoom:In} run has leaned in: 0 = normal framing,
+    /// 1-3 = the step. Reset to 0 by anything that ends the run.
+    /// </summary>
+    public int ZoomStep => zoomStep;
 
     // Framing captured the moment {Zoom:ExtremeIn} fired, restored verbatim by
     // {Zoom:ExtremeOut}. NaN means "no close-up currently held" — which is also
@@ -1036,14 +1068,29 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         if (mainCamera == null) return;
 
+        // A run already at its last step has nowhere left to lean. Drop the tag
+        // before it touches anything — no sound, and the glide in progress and
+        // the run's release timer carry on as if it weren't there.
+        if (type == ZoomType.In && zoomStep >= MaxZoomSteps)
+        {
+            Debug.Log($"[Zoom] {{Zoom:In}} ignored — the run is already at step {MaxZoomSteps} " +
+                      $"of {MaxZoomSteps}. Release it ({{Zoom:Out}}, ,D=, a transition, black or a " +
+                      "big card) before leaning in again.");
+            return;
+        }
+
         // Per-tag sound effect ({Zoom:In/Out/Reset/Pullback/Extreme}).
         TagSfxPlayer.Instance.Play(type);
 
-        // Stop any in-progress zoom + any pending auto-reset from a previous marker.
-        // Also pop the pullback mask off — if the new zoom is itself a Pullback,
-        // AnimatePullback will switch it back on at the start.
-        if (zoomCoroutine != null) StopCoroutine(zoomCoroutine);
-        if (pendingResetCoroutine != null) StopCoroutine(pendingResetCoroutine);
+        // Read before StopZoomEase clears it: a camera still gliding home from
+        // a released run counts as part of that run for an ExtremeIn below.
+        bool glidingHome = zoomCoroutine != null && zoomEaseTarget == defaultCameraSize;
+
+        // Stop any in-progress zoom + any pending ,D= release (an In restarts
+        // it below). Also pop the pullback mask off — if the new zoom is itself
+        // a Pullback, AnimatePullback will switch it back on at the start.
+        StopZoomEase();
+        CancelZoomRelease();
         SetPullbackMaskActive(false);
 
         // An ordinary zoom supersedes a held close-up. Those paths only drive
@@ -1058,8 +1105,10 @@ public class MediaPresentationSystem : MonoBehaviour
         }
 
         // Pullback is a self-contained multi-stage effect — handle it on its own.
+        // It takes the camera wide and cuts back to default, so it ends a run.
         if (type == ZoomType.Pullback)
         {
+            ClearZoomRun("{Zoom:Pullback}");
             float drift = holdDuration > 0f ? holdDuration : pullbackDuration;
             zoomCoroutine = StartCoroutine(AnimatePullback(drift));
             return;
@@ -1080,9 +1129,20 @@ public class MediaPresentationSystem : MonoBehaviour
             // overwrite the real framing with the already-zoomed one.
             if (float.IsNaN(extremeRestoreSize))
             {
-                extremeRestoreSize      = mainCamera.orthographicSize;
+                // The close-up ends a {Zoom:In} run, so ExtremeOut comes back
+                // to normal framing, not to the push-in. A run only ever drives
+                // orthographicSize (an In hands a held close-up's camera back
+                // first), so the position on screen now is already the normal
+                // one. A run still gliding home counts too — capturing its
+                // mid-glide size would strand the camera there after ExtremeOut.
+                bool endsRun = zoomStep > 0 || glidingHome;
+                extremeRestoreSize      = endsRun ? defaultCameraSize : mainCamera.orthographicSize;
                 extremeRestoreCameraPos = mainCamera.transform.position;
+                if (endsRun)
+                    Debug.Log($"[Zoom] ExtremeIn ended the zoom run (step {zoomStep}) — " +
+                              "ExtremeOut returns to normal framing.");
             }
+            ClearZoomRun(null); // logged just above
 
             mainCamera.orthographicSize = defaultCameraSize / Mathf.Max(1.01f, extremeZoomMultiplier);
 
@@ -1134,14 +1194,25 @@ public class MediaPresentationSystem : MonoBehaviour
         switch (type)
         {
             case ZoomType.In:
-                targetSize = defaultCameraSize / zoomInMultiplier;
+                // One step further in, from wherever the camera is now — the
+                // glide above was stopped, so a step that lands mid-glide
+                // carries straight on from that frame.
+                zoomStep++;
+                targetSize = defaultCameraSize / ZoomStepMultiplier(zoomStep);
+                if (holdDuration > 0f) zoomRunHold = holdDuration;
+                Debug.Log($"[Zoom] In — step {zoomStep} of {MaxZoomSteps} " +
+                          $"({ZoomStepMultiplier(zoomStep) * 100f:F0}%)" +
+                          (zoomRunHold > 0f ? $", run releases in {zoomRunHold:F2}s" : ""));
                 break;
             case ZoomType.Out:
+                // All the way back from any step, in one glide.
+                ClearZoomRun("{Zoom:Out}");
                 targetSize = defaultCameraSize;
                 break;
             case ZoomType.Reset:
                 // Reset is always an instant snap regardless of the cut flag —
                 // that's its whole purpose.
+                ClearZoomRun("{Zoom:Reset}");
                 mainCamera.orthographicSize = defaultCameraSize;
                 return;
             default:
@@ -1151,12 +1222,75 @@ public class MediaPresentationSystem : MonoBehaviour
         if (cut)
             mainCamera.orthographicSize = targetSize;
         else
-            zoomCoroutine = StartCoroutine(AnimateZoom(targetSize));
+            StartZoomEase(targetSize);
 
-        // Auto-reset timer — only meaningful when we've actually changed away
-        // from default (i.e. zoomed In). For Out we're already at default.
-        if (holdDuration > 0f && type == ZoomType.In)
-            pendingResetCoroutine = StartCoroutine(AutoResetAfter(holdDuration, cut));
+        // ,D= releases the whole run, not just this step. Every step restarts
+        // the countdown (a later D= replaces its length), so the release
+        // always lands that long after the latest push-in.
+        if (type == ZoomType.In && zoomRunHold > 0f)
+            pendingResetCoroutine = StartCoroutine(ReleaseZoomRunAfter(zoomRunHold));
+    }
+
+    // Each step never sits wider than the one before it, so a mis-set
+    // Inspector value can't turn a push-in into a pull-out.
+    float ZoomStepMultiplier(int step)
+    {
+        float m = Mathf.Max(1.01f, zoomStep1Multiplier);
+        if (step >= 2) m = Mathf.Max(m, zoomStep2Multiplier);
+        if (step >= 3) m = Mathf.Max(m, zoomStep3Multiplier);
+        return m;
+    }
+
+    /// <summary>
+    /// Ends the {Zoom:In} run, if one is active: the step goes back to 0, the
+    /// run's ,D= timer is cancelled and the camera returns to normal framing.
+    /// <paramref name="hiddenBehindCover"/> = true when something opaque covers
+    /// the whole frame on this very frame (black panel, transition cover, a
+    /// big headline's panel) — the camera snaps back unseen behind it.
+    /// Otherwise (BigText, BigMedia, BigImage — the scene stays visible) it
+    /// glides back over zoomDuration as the visual appears. No-op when no run
+    /// is active, so it never disturbs a held close-up or a pullback.
+    /// </summary>
+    public void EndZoomRun(string reason, bool hiddenBehindCover)
+    {
+        if (mainCamera == null || zoomStep == 0) return;
+
+        Debug.Log($"[Zoom] {reason} ended the zoom run at step {zoomStep} — " +
+                  (hiddenBehindCover ? "snapped back behind it." : $"gliding back over {zoomDuration:F2}s."));
+
+        ClearZoomRun(null); // logged just above
+        CancelZoomRelease();
+
+        if (hiddenBehindCover)
+        {
+            StopZoomEase();
+            mainCamera.orthographicSize = defaultCameraSize;
+        }
+        else
+        {
+            StartZoomEase(defaultCameraSize);
+        }
+    }
+
+    // Step back to 0 and forget the run's ,D= length. Callers own the camera
+    // and the release timer.
+    void ClearZoomRun(string reason)
+    {
+        if (zoomStep > 0 && reason != null)
+            Debug.Log($"[Zoom] Run ended at step {zoomStep} by {reason}.");
+        zoomStep = 0;
+        zoomRunHold = 0f;
+    }
+
+    // A side card, {Image:} or {Video:} isn't meant to come in while the camera
+    // is leaned in — the script should release the run first. Logged only; the
+    // visual still shows as normal.
+    public void WarnIfZoomRunActive(string what)
+    {
+        if (zoomStep > 0)
+            Debug.LogWarning($"[Zoom] {what} came due during a {{Zoom:In}} run (step {zoomStep}) — " +
+                             "release the run first ({Zoom:Out}, a transition, black or a big card). " +
+                             "Shown anyway.");
     }
 
     // Pullback: snap to a wide framing, drift slightly wider over `drift` seconds
@@ -1195,28 +1329,46 @@ public class MediaPresentationSystem : MonoBehaviour
         }
     }
 
-    IEnumerator AutoResetAfter(float delay, bool cut)
+    // The run's ,D= release. Always a glide back, even when the steps were
+    // ,Cut — a step applied under a transition cover is forced to a cut, and
+    // a snap back seconds later would land in plain view.
+    IEnumerator ReleaseZoomRunAfter(float delay)
     {
         yield return new WaitForSeconds(delay);
 
-        if (mainCamera == null) yield break;
+        pendingResetCoroutine = null; // EndZoomRun must not stop this coroutine
+        EndZoomRun("the ,D= timer", hiddenBehindCover: false);
+    }
 
-        if (zoomCoroutine != null) StopCoroutine(zoomCoroutine);
-
-        if (cut)
-            mainCamera.orthographicSize = defaultCameraSize;
-        else
-            zoomCoroutine = StartCoroutine(AnimateZoom(defaultCameraSize));
-
+    void CancelZoomRelease()
+    {
+        if (pendingResetCoroutine != null) StopCoroutine(pendingResetCoroutine);
         pendingResetCoroutine = null;
     }
 
-    // Ease-in-out glide shared by every animated zoom (In, Out and the
-    // auto-reset): the camera accelerates gently out of its current framing
-    // and decelerates into the target, so the push reads as one slow,
-    // deliberate motion. (The earlier ease-out cubic put half the travel in
-    // the first fifth of the timeline and still read as a snap on camera; the
-    // card-entry overshoot curve before it was worse.)
+    // Starts an AnimateZoom glide from the camera's current size, replacing
+    // any glide (or pullback) already running.
+    void StartZoomEase(float targetSize)
+    {
+        StopZoomEase();
+        zoomEaseTarget = targetSize;
+        zoomCoroutine = StartCoroutine(AnimateZoom(targetSize));
+    }
+
+    void StopZoomEase()
+    {
+        if (zoomCoroutine != null) StopCoroutine(zoomCoroutine);
+        zoomCoroutine = null;
+        zoomEaseTarget = float.NaN;
+    }
+
+    // Ease-in-out glide shared by every animated zoom (each In step, Out, the
+    // ,D= release and a run ended by a big card): the camera accelerates
+    // gently out of its current framing and decelerates into the target, so
+    // the push reads as one slow, deliberate motion. (The earlier ease-out
+    // cubic put half the travel in the first fifth of the timeline and still
+    // read as a snap on camera; the card-entry overshoot curve before it was
+    // worse.) Start it through StartZoomEase.
     IEnumerator AnimateZoom(float targetSize)
     {
         float startSize = mainCamera.orthographicSize;
@@ -1235,6 +1387,8 @@ public class MediaPresentationSystem : MonoBehaviour
         }
 
         mainCamera.orthographicSize = targetSize;
+        zoomCoroutine = null;
+        zoomEaseTarget = float.NaN;
         Debug.Log($"Zoom complete: camera size = {targetSize:F2}");
     }
 
@@ -1244,7 +1398,8 @@ public class MediaPresentationSystem : MonoBehaviour
     //   Cut       — instant snap instead of animating. (Ignored on Reset, which
     //               is always a snap, and on Pullback / ExtremeIn / ExtremeOut,
     //               which manage their own cuts.)
-    //   D=seconds — In: auto-reset to default this many seconds after firing.
+    //   D=seconds — In: release the whole {Zoom:In} run (glide back to
+    //               default) this many seconds after the latest step.
     //               Pullback: overrides the slow-drift duration.
     //               Ignored for Out / Reset / ExtremeIn / ExtremeOut — the
     //               close-up's length is set by where ExtremeOut is placed.
@@ -1415,6 +1570,8 @@ public class MediaPresentationSystem : MonoBehaviour
                             blackPanelController.ShowHeld();
                         else
                             blackPanelController.Show(marker.duration);
+
+                        EndZoomRunBehindBlack();
                     }
 
                     lastTriggeredBlackPanelMarker = i;
@@ -1457,6 +1614,7 @@ public class MediaPresentationSystem : MonoBehaviour
             TagSfxPlayer.Instance.Play(TagSfxEvent.Black);
             if (blackPanelController != null)
                 blackPanelController.Show(hold);
+            EndZoomRunBehindBlack();
             lastTriggeredBlackPanelMarker = i;
         }
 
@@ -1472,6 +1630,14 @@ public class MediaPresentationSystem : MonoBehaviour
         }
 
         Debug.Log("[Black] TrackBlackPanelByTime loop ended (audio no longer playing).");
+    }
+
+    // {Black:N} / {Black:Start} ends a {Zoom:In} run. The panel jump-cuts in
+    // fully opaque on this frame, so the camera snaps back unseen behind it.
+    void EndZoomRunBehindBlack()
+    {
+        if (blackPanelController != null && blackPanelController.IsShowing)
+            EndZoomRun("{Black}", hiddenBehindCover: true);
     }
 
     (string, List<BlackPanelMarkerData>) ParseBlackPanelMarkers(string script, float audioDuration)
@@ -1661,6 +1827,8 @@ public class MediaPresentationSystem : MonoBehaviour
     IEnumerator ShowMedia(MediaMarkerData marker)
     {
         isShowingMedia = true;
+
+        WarnIfZoomRunActive($"{{{(marker.mediaType == MediaType.IMAGE ? "Image" : "Video")}:{marker.mediaName}}}");
 
         // Per-tag sound effect ({Image}/{Video}) — fires as the media appears,
         // on its own AudioSource.
@@ -2779,6 +2947,11 @@ public class MediaPresentationSystem : MonoBehaviour
     // none of it visible until the screen is fully covered.
     void ApplyTransitionCover(TransitionMarkerData m)
     {
+        // A transition ends any {Zoom:In} run — snapped back behind the cover,
+        // before anything on the line runs, so a {Zoom:In} on this line opens
+        // the new section at step 1.
+        EndZoomRun("{Transition}", hiddenBehindCover: true);
+
         if (m.hasPosition)
             MoveToPosition(m.position, cutOverride: true); // SNAP — never smooth, inside cover
 
@@ -2802,7 +2975,8 @@ public class MediaPresentationSystem : MonoBehaviour
 
         // Zoom — snap under cover (cut), like the position snap, so the reveal shows
         // the new framing with no camera glide over the visible scene. Pullback /
-        // Reset manage their own cuts; the flag is harmless for them.
+        // Reset manage their own cuts; the flag is harmless for them. The run was
+        // ended above, so an In here is step 1.
         if (m.zoomMarkers != null)
             for (int i = 0; i < m.zoomMarkers.Count; i++)
                 ApplyZoom(m.zoomMarkers[i].zoomType, cut: true, holdDuration: m.zoomMarkers[i].holdDuration);

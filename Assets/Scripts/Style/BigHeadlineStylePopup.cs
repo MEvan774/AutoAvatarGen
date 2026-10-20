@@ -60,6 +60,8 @@ namespace MugsTech.Style
         Image           previewPanel;
         RawImage        previewPattern;
         Material        previewMaterial;
+        RawImage        previewVignette;
+        Material        previewVignetteMaterial;
         TextMeshProUGUI previewHeadline;
         TextMeshProUGUI previewSource;
         Texture2D       previewTexture;     // decoded custom pattern, owned by the popup
@@ -100,7 +102,19 @@ namespace MugsTech.Style
         Slider  shadowSoftnessSlider;
         Text    shadowSoftnessValue;
 
-        // Tabs: 0 = Background, 1 = Text. Kept across opens.
+        // Vignette tab
+        Toggle  vignetteToggle;
+        Image   vignetteColorSwatch;
+        Slider  vignetteStrengthSlider;
+        Slider  vignetteSizeSlider;
+        Slider  vignetteSoftnessSlider;
+        Slider  vignetteShapeSlider;
+        Text    vignetteStrengthValue;
+        Text    vignetteSizeValue;
+        Text    vignetteSoftnessValue;
+        Text    vignetteShapeValue;
+
+        // Tabs: 0 = Background, 1 = Text, 2 = Vignette. Kept across opens.
         GameObject[] tabGroups;
         Image[]      tabButtons;
         Text         resetButtonLabel;
@@ -148,6 +162,7 @@ namespace MugsTech.Style
         {
             if (previewTexture  != null) Destroy(previewTexture);
             if (previewMaterial != null) Destroy(previewMaterial);
+            if (previewVignetteMaterial != null) Destroy(previewVignetteMaterial);
         }
 
         // Wraps the parent-supplied onChanged so the preview stays in sync.
@@ -191,6 +206,13 @@ namespace MugsTech.Style
             shadowColorSwatch.color = ParseHex(data.shadowColorHex, new Color(0f, 0f, 0f, 0.75f));
             shadowSoftnessSlider.SetValueWithoutNotify(data.shadowSoftness);
 
+            vignetteToggle.SetIsOnWithoutNotify(data.vignetteEnabled);
+            vignetteColorSwatch.color = VignetteColor();
+            vignetteStrengthSlider.SetValueWithoutNotify(data.vignetteStrength);
+            vignetteSizeSlider.SetValueWithoutNotify(data.vignetteSize);
+            vignetteSoftnessSlider.SetValueWithoutNotify(data.vignetteSoftness);
+            vignetteShapeSlider.SetValueWithoutNotify(data.vignetteShape);
+
             UpdateSliderReadouts();
             PaintTabs();
         }
@@ -203,6 +225,12 @@ namespace MugsTech.Style
             speedValue.text    = data.patternScrollSpeed.ToString("0.00");
             outlineWidthValue.text   = data.outlineWidth.ToString("0.00");
             shadowSoftnessValue.text = data.shadowSoftness.ToString("0.00");
+            vignetteStrengthValue.text = Mathf.RoundToInt(data.vignetteStrength * 100f) + "%";
+            vignetteSizeValue.text     = Mathf.RoundToInt(data.vignetteSize * 100f) + "%";
+            vignetteSoftnessValue.text = data.vignetteSoftness.ToString("0.00");
+            vignetteShapeValue.text    = data.vignetteShape <= 0.02f ? "Round"
+                                       : data.vignetteShape >= 0.98f ? "Frame"
+                                       : Mathf.RoundToInt(data.vignetteShape * 100f) + "%";
         }
 
         void UpdateFontLabels()
@@ -285,7 +313,8 @@ namespace MugsTech.Style
             if (data == null) return;
             BigHeadlineLook look = BigHeadlineLook.FromStyle(data, ResolvePreviewTexture());
             previewPanel.color = BigCenterCard.ResolvePanelColor(look, CardPaper());
-            if (previewPattern != null) BigCenterCard.ApplyPatternLook(previewPattern, look);
+            if (previewPattern  != null) BigCenterCard.ApplyPatternLook(previewPattern, look);
+            if (previewVignette != null) BigCenterCard.ApplyVignetteLook(previewVignette, look);
             BigCenterCard.ApplyTextLook(previewHeadline, previewSource, look, cardText);
         }
 
@@ -322,6 +351,13 @@ namespace MugsTech.Style
         {
             Color c = ParseHex(data.patternTintHex, Color.white);
             c.a = Mathf.Clamp01(data.patternOpacity);
+            return c;
+        }
+
+        Color VignetteColor()
+        {
+            Color c = ParseHex(data.vignetteColorHex, Color.black);
+            c.a = Mathf.Clamp01(data.vignetteStrength);
             return c;
         }
 
@@ -392,6 +428,15 @@ namespace MugsTech.Style
                 data.patternScrollSpeed     = d.patternScrollSpeed;
                 data.patternScrollDirection = d.patternScrollDirection;
             }
+            else if (activeTab == 2)
+            {
+                data.vignetteEnabled  = d.vignetteEnabled;
+                data.vignetteColorHex = d.vignetteColorHex;
+                data.vignetteStrength = d.vignetteStrength;
+                data.vignetteSize     = d.vignetteSize;
+                data.vignetteSoftness = d.vignetteSoftness;
+                data.vignetteShape    = d.vignetteShape;
+            }
             else
             {
                 data.headlineColorHex = d.headlineColorHex;
@@ -457,7 +502,7 @@ namespace MugsTech.Style
         {
             activeTab = tab;
             for (int i = 0; i < tabGroups.Length; i++) tabGroups[i].SetActive(i == tab);
-            resetButtonLabel.text = tab == 0 ? "Reset Background" : "Reset Text";
+            resetButtonLabel.text = "Reset " + k_TabNames[tab];
             PaintTabs();
         }
 
@@ -496,6 +541,8 @@ namespace MugsTech.Style
         const float k_LabelW       = 190f;
         const float k_ControlLeft  = -k_ControlsW * 0.5f + k_LabelW; // control's left edge within a row
 
+        static readonly string[] k_TabNames = { "Background", "Text", "Vignette" };
+
         Transform panelTf;
 
         void BuildUI()
@@ -530,6 +577,7 @@ namespace MugsTech.Style
             BuildTabs();
             BuildBackgroundControls();
             BuildTextControls();
+            BuildVignetteControls();
             BuildBottomButtons();
             SelectTab(activeTab);
 
@@ -568,6 +616,8 @@ namespace MugsTech.Style
 
             previewPattern = BigCenterCard.CreatePatternLayer((RectTransform)panelGO.transform);
             if (previewPattern != null) previewMaterial = previewPattern.material;
+            previewVignette = BigCenterCard.CreateVignetteLayer((RectTransform)panelGO.transform);
+            if (previewVignette != null) previewVignetteMaterial = previewVignette.material;
 
             BigCenterCard.CreateHeadlineBlock(srt, Color.white, Color.white,
                 out previewHeadline, out previewSource);
@@ -598,7 +648,7 @@ namespace MugsTech.Style
         // live in their own group that SelectTab shows/hides.
         void BuildTabs()
         {
-            string[] names = { "Background", "Text" };
+            string[] names = k_TabNames;
             tabGroups  = new GameObject[names.Length];
             tabButtons = new Image[names.Length];
             for (int i = 0; i < names.Length; i++)
@@ -762,6 +812,51 @@ namespace MugsTech.Style
                 hex => data.shadowColorHex = hex);
             shadowSoftnessSlider = BuildSliderRow("Softness", ref y, 0f, 1f, out shadowSoftnessValue,
                 v => data.shadowSoftness = v);
+        }
+
+        void BuildVignetteControls()
+        {
+            rowParent = tabGroups[2].transform;
+            float y = k_ControlsTop;
+
+            vignetteToggle = BuildToggleHeader("Vignette", "darkens the edges", ref y, v =>
+            {
+                data.vignetteEnabled = v;
+                NotifyChanged();
+            });
+
+            // Color swatch shows the strength as its alpha; a pick sets both
+            // (same split as the pattern tint: RGB hex + its own float).
+            var colorRow = NewRow("Swatch_VignetteColor", ref y);
+            BuildLabel(colorRow.transform, "Color");
+            vignetteColorSwatch = BuildSwatch(colorRow.transform, 250f,
+                () => VignetteColor(),
+                c =>
+                {
+                    data.vignetteStrength = c.a;
+                    c.a = 1f;
+                    data.vignetteColorHex = HexOf(c);
+                    RefreshAllControls();
+                    NotifyChanged();
+                });
+            var colorHint = NewText("ColorHint", colorRow.transform, "over panel + pattern", UITheme.SmallSize,
+                                    FontStyle.Italic, TextAnchor.MiddleLeft, UITheme.TextMuted);
+            Place(colorHint.rectTransform, new Vector2(k_ControlLeft + 250f + 12f + 100f, 0f),
+                  new Vector2(200f, k_RowHeight));
+
+            vignetteStrengthSlider = BuildSliderRow("Strength", ref y, 0f, 1f, out vignetteStrengthValue,
+                v => data.vignetteStrength = v);
+            vignetteSizeSlider = BuildSliderRow("Size", ref y, 0f, 1f, out vignetteSizeValue,
+                v => data.vignetteSize = v);
+            vignetteSoftnessSlider = BuildSliderRow("Softness", ref y, 0.01f, 1f, out vignetteSoftnessValue,
+                v => data.vignetteSoftness = v);
+            vignetteShapeSlider = BuildSliderRow("Shape", ref y, 0f, 1f, out vignetteShapeValue,
+                v => data.vignetteShape = v);
+
+            var shapeHint = NewText("ShapeHint", rowParent,
+                "Shape: left = round, right = follows the 16:9 frame.", UITheme.SmallSize,
+                FontStyle.Italic, TextAnchor.MiddleLeft, UITheme.TextMuted);
+            Place(shapeHint.rectTransform, new Vector2(k_ControlsX, y - 15f), new Vector2(k_ControlsW, 30f));
         }
 
         // A color swatch row (alpha kept) writing its pick as hex.

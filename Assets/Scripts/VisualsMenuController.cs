@@ -1521,6 +1521,12 @@ public partial class VisualsMenuController : MonoBehaviour
             shadowEnabled          = src.shadowEnabled,
             shadowColorHex         = src.shadowColorHex,
             shadowSoftness         = src.shadowSoftness,
+            vignetteEnabled        = src.vignetteEnabled,
+            vignetteColorHex       = src.vignetteColorHex,
+            vignetteStrength       = src.vignetteStrength,
+            vignetteSize           = src.vignetteSize,
+            vignetteSoftness       = src.vignetteSoftness,
+            vignetteShape          = src.vignetteShape,
         };
     }
 

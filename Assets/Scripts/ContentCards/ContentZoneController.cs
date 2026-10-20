@@ -45,7 +45,8 @@ public class ContentZoneController : MonoBehaviour
     private Coroutine hideAndShowCoroutine;
 
     // True while the active card is a duration-less (held) card — a persistent
-    // BigText stack, or a side card opened with ",Start" in its duration slot.
+    // BigText stack, or a side card / big headline opened with ",Start" in its
+    // duration slot.
     // It has no duration timer and stays up until its {Tag:End}, a transition
     // clears it, or the end-of-narration safety net closes it.
     private bool activeCardPersistent;
@@ -253,7 +254,7 @@ public class ContentZoneController : MonoBehaviour
                     // cards may appear; a side card would overlap the centered
                     // character, so skip it (advancing past it so it doesn't burst
                     // out later when a side position resumes).
-                    if (isPaused && !IsFeatureCard(timeline[i].cardType))
+                    if (SkippedWhileCentered(timeline[i]))
                     {
                         BlockIfInCloseUp(timeline[i]); // skipped either way — this names the mistake
                         lastTriggeredIndex = i;
@@ -280,7 +281,7 @@ public class ContentZoneController : MonoBehaviour
             for (int i = lastTriggeredIndex + 1; i < timeline.Count; i++)
             {
                 // Same rule as the live loop: while centered, only feature cards.
-                if (isPaused && !IsFeatureCard(timeline[i].cardType))
+                if (SkippedWhileCentered(timeline[i]))
                 {
                     BlockIfInCloseUp(timeline[i]);
                     lastTriggeredIndex = i;
@@ -293,7 +294,7 @@ public class ContentZoneController : MonoBehaviour
         }
 
         // Safety net: a held card whose {Tag:End} was never written (a
-        // persistent BigText stack, or a side card opened with ",Start") has no
+        // persistent BigText stack, or a card opened with ",Start") has no
         // duration timer, and the recorder holds the take open while a card is
         // active (HasActiveOrQueuedCard) — it would hang the recording forever.
         // Watch the queue drain and close any held card that is (or becomes)
@@ -325,7 +326,7 @@ public class ContentZoneController : MonoBehaviour
             return;
         }
 
-        // The closing edge of a held pair — {BigText:End}, or a side card's
+        // The closing edge of a held pair — {BigText:End}, or a card's
         // {Headline:End}/{Quote:End}/{Logo:End}/… . Closes the active card of
         // the same type (silently — the cut IN already got the sfx). A held
         // card that never made it on screen (crowded out into the queue while
@@ -333,12 +334,14 @@ public class ContentZoneController : MonoBehaviour
         // up later with nothing left to ever close it.
         if (evt.dismissesCard)
         {
-            if (activeCard != null && activeCardType == evt.cardType)
+            if (EndClosesActiveCard(evt.cardType))
             {
                 activeCardPersistent = false; // hand the close to the normal hide flow
                 HideCurrentCard();
             }
-            else if (closeUpCutHeldTypes.Remove(evt.cardType))
+            else if (closeUpCutHeldTypes.Remove(evt.cardType) ||
+                     (evt.cardType == ContentCardType.Headline &&
+                      closeUpCutHeldTypes.Remove(ContentCardType.BigCenter)))
                 Debug.Log($"{{{evt.cardType}:End}} — the card was already cut away by " +
                           "{Zoom:ExtremeIn}; nothing to close.");
             else if (!RemoveQueuedHeldCard(evt.cardType))
@@ -348,6 +351,9 @@ public class ContentZoneController : MonoBehaviour
 
         if (BlockIfInCloseUp(evt))
             return;
+
+        if (!IsFeatureCard(evt.cardType) && mediaPresentationSystem != null)
+            mediaPresentationSystem.WarnIfZoomRunActive($"{evt.cardType} card");
 
         // Persistent BigText flow ({BigText:LINE}…{BigText:End}, no durations):
         // a line tag lands on the open BigText stack instead of queueing behind
@@ -448,7 +454,7 @@ public class ContentZoneController : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             ContentCardEvent e = cardQueue.Dequeue();
-            if (!removed && e.cardType == type && e.duration <= 0f && !e.dismissesCard)
+            if (!removed && EndCloses(type, e.cardType) && e.duration <= 0f && !e.dismissesCard)
             {
                 removed = true;
                 Debug.Log($"Dropped queued held {type} card — its {{{type}:End}} already fired.");
@@ -457,6 +463,41 @@ public class ContentZoneController : MonoBehaviour
             cardQueue.Enqueue(e);
         }
         return removed;
+    }
+
+    // Which held card a {Tag:End} closes. A ",bigCenter" headline is still a
+    // {Headline:} tag — the modifier only promotes it to the fullscreen
+    // BigCenter card — so {Headline:End} closes a held big headline too.
+    private static bool EndCloses(ContentCardType endType, ContentCardType cardType)
+        => cardType == endType ||
+           (endType == ContentCardType.Headline && cardType == ContentCardType.BigCenter);
+
+    // True when the active card is the one this End closes. A timed big
+    // headline doesn't take a {Headline:End} — that End belongs to a held side
+    // headline still waiting in the queue behind it.
+    private bool EndClosesActiveCard(ContentCardType endType)
+    {
+        if (activeCard == null || !EndCloses(endType, activeCardType)) return false;
+        return activeCardType == endType || activeCardPersistent;
+    }
+
+    // While centered only fullscreen feature cards may appear — a side card
+    // would overlap the character. A {Headline:End} still goes through when a
+    // held big headline is waiting for it: that card is fullscreen, so Center
+    // never hid it, and skipping the End would leave it up until the narration
+    // ends.
+    private bool SkippedWhileCentered(ContentCardEvent evt)
+        => isPaused && !IsFeatureCard(evt.cardType) && !ClosesHeldBigHeadline(evt);
+
+    private bool ClosesHeldBigHeadline(ContentCardEvent evt)
+    {
+        if (!evt.dismissesCard || evt.cardType != ContentCardType.Headline) return false;
+        if (activeCard != null && activeCardType == ContentCardType.BigCenter && activeCardPersistent) return true;
+        if (closeUpCutHeldTypes.Contains(ContentCardType.BigCenter)) return true;
+        foreach (ContentCardEvent e in cardQueue)
+            if (e.cardType == ContentCardType.BigCenter && e.duration <= 0f && !e.dismissesCard)
+                return true;
+        return false;
     }
 
     private RectTransform GetZoneForCard(ContentCardEvent evt)
@@ -614,6 +655,8 @@ public class ContentZoneController : MonoBehaviour
         // side instead of easing in backwards.
         activeCard.SetParentMirrorSign(xSign);
 
+        EndZoomRunForFeatureCard(evt.cardType);
+
         activeCard.Show();
 
         // Per-tag sound effect — fires as the card actually appears. Queued or
@@ -622,12 +665,41 @@ public class ContentZoneController : MonoBehaviour
         TagSfxPlayer.Instance.Play(evt.cardType);
 
         // Start duration timer. A duration-less card is the held form — the
-        // persistent BigText stack, or a side card opened with ",Start" — no
+        // persistent BigText stack, or a card opened with ",Start" — no
         // timer; it stays until its {Tag:End}, a transition, or the
         // end-of-narration safety net in TrackCardsByTime.
         activeCardPersistent = evt.duration <= 0f;
         if (!activeCardPersistent)
             durationCoroutine = StartCoroutine(DurationTimer(evt.duration));
+    }
+
+    // A fullscreen feature card ends any {Zoom:In} run as it appears. Only
+    // the big headline's panel is opaque edge to edge, and it slides up over
+    // panelSlideDuration — so the camera snaps back once the panel lands,
+    // unseen behind it. BigText and BigMedia float over the visible scene and
+    // BigImage covers 3/4 of it, so with those the camera glides back as the
+    // card comes in. A BigText line appended to an open stack never gets
+    // here — only the stack's first line, or a timed BigText, ends a run.
+    private void EndZoomRunForFeatureCard(ContentCardType type)
+    {
+        if (mediaPresentationSystem == null) return;
+
+        switch (type)
+        {
+            case ContentCardType.BigCenter:
+                if (activeCard is BigCenterCard big)
+                    big.OnPanelCovered = () =>
+                    {
+                        if (mediaPresentationSystem != null)
+                            mediaPresentationSystem.EndZoomRun("{Headline:…,bigCenter}", hiddenBehindCover: true);
+                    };
+                break;
+            case ContentCardType.BigText:
+            case ContentCardType.BigMedia:
+            case ContentCardType.BigImage:
+                mediaPresentationSystem.EndZoomRun($"{{{type}}}", hiddenBehindCover: false);
+                break;
+        }
     }
 
     private IEnumerator DurationTimer(float duration)

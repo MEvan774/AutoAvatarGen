@@ -119,6 +119,15 @@ namespace MugsTech.Style
         public bool   shadowEnabled    = false;
         public string shadowColorHex   = "#000000BF";
         public float  shadowSoftness   = 0.5f;  // TMP _UnderlaySoftness
+
+        // ---- Vignette: edge darkening over the panel and pattern, under the
+        // text (Custom/UIVignette). Off by default = the original look.
+        public bool   vignetteEnabled  = false;
+        public string vignetteColorHex = "#000000FF"; // RGB; alpha lives in vignetteStrength
+        public float  vignetteStrength = 0.6f;  // opacity at full darkness
+        public float  vignetteSize     = 0.35f; // how far it reaches toward the center
+        public float  vignetteSoftness = 0.6f;  // width of the fade band
+        public float  vignetteShape    = 0.5f;  // 0 = round, 1 = follows the frame
     }
 
     [Serializable]

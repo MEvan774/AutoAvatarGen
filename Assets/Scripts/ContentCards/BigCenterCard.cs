@@ -23,6 +23,8 @@ public class BigCenterCard : ContentCard
     private TextMeshProUGUI sourceText;
     private RawImage patternImage;
     private Material patternMaterial;
+    private RawImage vignetteImage;
+    private Material vignetteMaterial;
     private BigHeadlineLook look;
 
     // Tracked separately from currentSequence: managing two parallel tweens
@@ -35,6 +37,14 @@ public class BigCenterCard : ContentCard
     // Fades the headline independently of the card root (which BigCenter
     // forces fully visible so the screen-covering panel is never dimmed).
     private CanvasGroup headlineGroup;
+
+    /// <summary>
+    /// Fires once, the moment the overlay panel finishes sliding up and covers
+    /// the whole frame — anything changed behind it from then on is unseen.
+    /// Cleared as the card starts to hide, so it never fires over a panel on
+    /// its way out.
+    /// </summary>
+    public System.Action OnPanelCovered;
 
     // =====================================================================
     // ALL TIMING / DISTANCE / EASE KNOBS LIVE IN THE INSPECTOR
@@ -92,6 +102,18 @@ public class BigCenterCard : ContentCard
             }
         }
 
+        // 1c. Vignette — darkens the edges of panel + pattern (a later child
+        //     of overlayPanel, so above the pattern; still under the text).
+        if (look.VignetteEnabled)
+        {
+            vignetteImage = CreateVignetteLayer(overlayPanel);
+            if (vignetteImage != null)
+            {
+                vignetteMaterial = vignetteImage.material;
+                ApplyVignetteLook(vignetteImage, look);
+            }
+        }
+
         // 2. Centered headline + source, built in the side cards' text style,
         //    then restyled by whatever the big-headline style overrides.
         headlineContainer = CreateHeadlineBlock(rectTransform,
@@ -122,8 +144,9 @@ public class BigCenterCard : ContentCard
         headlineContainer.localEulerAngles = Vector3.zero;
 
         // Re-apply now the card is surely laid out — a custom pattern's tile
-        // aspect is derived from the panel's rect.
-        if (patternImage != null) ApplyPatternLook(patternImage, look);
+        // aspect and the vignette's circle are derived from the panel's rect.
+        if (patternImage  != null) ApplyPatternLook(patternImage, look);
+        if (vignetteImage != null) ApplyVignetteLook(vignetteImage, look);
 
         var cfg = BigCenterCfg;
 
@@ -146,7 +169,13 @@ public class BigCenterCard : ContentCard
         // immune to that — the curve is reliably applied.
         panelTween = overlayPanel
             .DOAnchorPosY(0f, cfg.panelSlideDuration)
-            .SetEase(cfg.panelSlideEase);
+            .SetEase(cfg.panelSlideEase)
+            .OnComplete(() =>
+            {
+                System.Action covered = OnPanelCovered;
+                OnPanelCovered = null;
+                covered?.Invoke();
+            });
 
         headlineTween = ApplyEntryEase(headlineContainer
             .DOAnchorPos(Vector2.zero, SlideDuration))
@@ -206,6 +235,8 @@ public class BigCenterCard : ContentCard
     // the player (same story as MugsTech/SpriteShadowBlur).
     private const string PATTERN_SHADER_RESOURCE = "Shaders/UIScrollingPattern";
     private const string PATTERN_SHADER_NAME = "Custom/UIScrollingPattern";
+    private const string VIGNETTE_SHADER_RESOURCE = "Shaders/UIVignette";
+    private const string VIGNETTE_SHADER_NAME = "Custom/UIVignette";
 
     // Requested text styles; the user's card font style is ORed on top.
     public const FontStyles HeadlineFontStyles = FontStyles.Bold;
@@ -227,29 +258,42 @@ public class BigCenterCard : ContentCard
     /// own UIScrollingPattern material instance (the caller destroys it).
     /// Returns null if the shader is missing — the plain panel still works.
     /// </summary>
-    public static RawImage CreatePatternLayer(RectTransform parent)
+    public static RawImage CreatePatternLayer(RectTransform parent) =>
+        CreateShaderLayer(parent, "OverlayPattern", PATTERN_SHADER_RESOURCE, PATTERN_SHADER_NAME);
+
+    /// <summary>
+    /// Adds a RawImage child that fills <paramref name="parent"/> with its own
+    /// UIVignette material instance (the caller destroys it). Add it after the
+    /// pattern layer so it darkens the pattern too. Returns null if the shader
+    /// is missing.
+    /// </summary>
+    public static RawImage CreateVignetteLayer(RectTransform parent) =>
+        CreateShaderLayer(parent, "OverlayVignette", VIGNETTE_SHADER_RESOURCE, VIGNETTE_SHADER_NAME);
+
+    private static RawImage CreateShaderLayer(RectTransform parent, string name,
+                                              string shaderResource, string shaderName)
     {
-        Shader shader = Resources.Load<Shader>(PATTERN_SHADER_RESOURCE);
-        if (shader == null) shader = Shader.Find(PATTERN_SHADER_NAME);
+        Shader shader = Resources.Load<Shader>(shaderResource);
+        if (shader == null) shader = Shader.Find(shaderName);
         if (shader == null)
         {
-            Debug.LogWarning($"[BigCenter] Shader \"{PATTERN_SHADER_NAME}\" not found — skipping pattern layer.");
+            Debug.LogWarning($"[BigCenter] Shader \"{shaderName}\" not found — skipping {name}.");
             return null;
         }
 
-        GameObject patternGO = new GameObject("OverlayPattern", typeof(RectTransform));
-        patternGO.transform.SetParent(parent, false);
-        RectTransform prt = patternGO.GetComponent<RectTransform>();
-        prt.anchorMin = Vector2.zero;
-        prt.anchorMax = Vector2.one;
-        prt.offsetMin = Vector2.zero;
-        prt.offsetMax = Vector2.zero;
+        GameObject layerGO = new GameObject(name, typeof(RectTransform));
+        layerGO.transform.SetParent(parent, false);
+        RectTransform lrt = layerGO.GetComponent<RectTransform>();
+        lrt.anchorMin = Vector2.zero;
+        lrt.anchorMax = Vector2.one;
+        lrt.offsetMin = Vector2.zero;
+        lrt.offsetMax = Vector2.zero;
 
-        RawImage patternImg = patternGO.AddComponent<RawImage>();
-        patternImg.raycastTarget = false;
+        RawImage layer = layerGO.AddComponent<RawImage>();
+        layer.raycastTarget = false;
         // Per-instance material so tweaking one card doesn't mutate a shared asset.
-        patternImg.material = new Material(shader);
-        return patternImg;
+        layer.material = new Material(shader);
+        return layer;
     }
 
     /// <summary>
@@ -280,6 +324,24 @@ public class BigCenterCard : ContentCard
         mat.SetFloat("_TilePadding", look.TilePadding);
         mat.SetFloat("_ScrollSpeed", look.ScrollSpeed);
         mat.SetVector("_ScrollDir", look.ScrollDirection);
+    }
+
+    /// <summary>
+    /// Pushes a look onto a layer from <see cref="CreateVignetteLayer"/>.
+    /// Hides the layer when the vignette is off.
+    /// </summary>
+    public static void ApplyVignetteLook(RawImage vignetteImg, BigHeadlineLook look)
+    {
+        vignetteImg.enabled = look.VignetteEnabled;
+        if (!vignetteImg.enabled) return;
+
+        vignetteImg.color = look.VignetteColor;
+        Rect rect = vignetteImg.rectTransform.rect;
+        Material mat = vignetteImg.material;
+        mat.SetFloat("_Size", look.VignetteSize);
+        mat.SetFloat("_Softness", look.VignetteSoftness);
+        mat.SetFloat("_Shape", look.VignetteShape);
+        mat.SetFloat("_Aspect", rect.height > 0f ? rect.width / rect.height : 16f / 9f);
     }
 
     // The shader tiles UVs TileScale times on both axes. The built-in pattern
@@ -460,6 +522,8 @@ public class BigCenterCard : ContentCard
 
     public override void Hide(bool fast = false)
     {
+        OnPanelCovered = null;
+
         if (fast)
         {
             // Fast-hide on card queuing just fades out — no time for a slide.
@@ -494,6 +558,11 @@ public class BigCenterCard : ContentCard
         {
             Destroy(patternMaterial);
             patternMaterial = null;
+        }
+        if (vignetteMaterial != null)
+        {
+            Destroy(vignetteMaterial);
+            vignetteMaterial = null;
         }
         base.OnDestroy();
     }
