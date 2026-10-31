@@ -242,6 +242,36 @@ public class MediaPresentationSystem : MonoBehaviour
     /// <summary>True while a {Video:} or {Image:} media element is on screen.</summary>
     public bool IsShowingMedia => isShowingMedia;
 
+    // True from the start of a smooth {Position:} move until it lands or is
+    // replaced. movementCoroutine can't answer this — it is never nulled.
+    private bool presenterGliding;
+
+    /// <summary>
+    /// True while the presenter is travelling to a new position, or a smooth
+    /// {Position:} is due and just hasn't fired yet. Writers put that tag on the
+    /// same word as the card or media it introduces, and TrackMediaByTime runs
+    /// ahead of TrackPositionsByTime within a frame, so the running flag alone
+    /// would read false for exactly the tags that need to wait.
+    /// </summary>
+    public bool IsPresenterGliding => presenterGliding || SmoothMoveIsDue();
+
+    /// <summary>
+    /// The longest anything waits for the presenter to land, so a stuck or
+    /// interrupted move can never hold a card or media forever.
+    /// </summary>
+    public float PresenterLandCap => transitionDuration + 0.25f;
+
+    bool SmoothMoveIsDue()
+    {
+        int next = lastTriggeredPositionMarker + 1;
+        if (positionMarkers == null || next >= positionMarkers.Count || voiceAudio == null) return false;
+
+        PositionMarkerData marker = positionMarkers[next];
+        return voiceAudio.time >= marker.triggerTime
+            && marker.position != currentPosition
+            && !(marker.hardCutOverride ?? useHardCuts);
+    }
+
     /// <summary>
     /// True when a {Zoom:ExtremeIn} or {Zoom:ExtremeOut} marker fires within
     /// <paramref name="window"/> seconds of <paramref name="time"/>. Both are
@@ -948,6 +978,7 @@ public class MediaPresentationSystem : MonoBehaviour
         // Stop any in-progress movement
         if (movementCoroutine != null)
             StopCoroutine(movementCoroutine);
+        presenterGliding = false;
 
         bool doHardCut = cutOverride ?? useHardCuts;
 
@@ -971,6 +1002,11 @@ public class MediaPresentationSystem : MonoBehaviour
             // around mid-travel instead of popping at departure.
             Transform current = GetTransformForPosition(currentPosition);
             if (current == null) current = centerLocation;
+
+            // A {Position:} repeating the current side runs MoveAvatar but goes
+            // nowhere — nothing should wait on it. Set before StartCoroutine,
+            // which runs MoveAvatar up to its first yield (and maybe its end).
+            presenterGliding = targetPosition != currentPosition;
             movementCoroutine = StartCoroutine(MoveAvatar(current, target, targetPosition));
         }
 
@@ -1771,8 +1807,16 @@ public class MediaPresentationSystem : MonoBehaviour
                         if (currentMediaCoroutine != null)
                             StopCoroutine(currentMediaCoroutine);
 
-                        currentMediaCoroutine = StartCoroutine(ShowMedia(mediaMarkers[i]));
+                        // Advance the index BEFORE starting the coroutine.
+                        // StartCoroutine runs ShowMedia synchronously up to
+                        // its first yield, and a held image's loop calls
+                        // NextMediaMarkerDue() before it ever yields — with
+                        // the index still pointing at the previous marker,
+                        // "next" was this very marker, already due, so every
+                        // {Image:name,Start} was dismissed on the frame it
+                        // appeared ("Held image finished after 0.00s").
                         lastTriggeredMediaMarker = i;
+                        currentMediaCoroutine = StartCoroutine(ShowMedia(mediaMarkers[i]));
                     }
                     else
                     {
@@ -1800,8 +1844,8 @@ public class MediaPresentationSystem : MonoBehaviour
                 Debug.Log($"Flushing end-of-audio media: {mediaMarkers[i].mediaName}");
                 if (currentMediaCoroutine != null)
                     StopCoroutine(currentMediaCoroutine);
+                lastTriggeredMediaMarker = i;   // before StartCoroutine — see TrackMediaByTime
                 currentMediaCoroutine = StartCoroutine(ShowMedia(mediaMarkers[i]));
-                lastTriggeredMediaMarker = i;
             }
         }
     }
@@ -1828,7 +1872,37 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         isShowingMedia = true;
 
-        WarnIfZoomRunActive($"{{{(marker.mediaType == MediaType.IMAGE ? "Image" : "Video")}:{marker.mediaName}}}");
+        string mediaTag = $"{{{(marker.mediaType == MediaType.IMAGE ? "Image" : "Video")}:{marker.mediaName}}}";
+
+        // Let the presenter finish a smooth move first, or they walk across the
+        // media that just slid in. Under a transition's cover the position has
+        // already snapped, so there is nothing to wait for.
+        if (IsPresenterGliding)
+        {
+            int cutCount = closeUpCutCount;
+            yield return WaitForPresenterToLand(mediaTag);
+
+            // A {Zoom:ExtremeIn} during the wait, or one a frame or two away:
+            // same outcome as being cut while preparing — it never appears.
+            if (closeUpCutCount != cutCount || IsCloseUpCutImminent)
+            {
+                Debug.Log($"{mediaTag} was cut away by {{Zoom:ExtremeIn}} while waiting for the presenter — not shown.");
+                isShowingMedia = false;
+                yield break;
+            }
+
+            // Its End or the next media came due during the wait. A held image
+            // or a clip would close on the frame it opened, so skip the flash.
+            // A timed image holds for its duration whatever comes due.
+            if ((marker.holdsOpen || marker.mediaType == MediaType.VIDEO) && NextMediaMarkerDue())
+            {
+                Debug.Log($"{mediaTag} was superseded while waiting for the presenter — not shown.");
+                isShowingMedia = false;
+                yield break;
+            }
+        }
+
+        WarnIfZoomRunActive(mediaTag);
 
         // Per-tag sound effect ({Image}/{Video}) — fires as the media appears,
         // on its own AudioSource.
@@ -1843,6 +1917,22 @@ public class MediaPresentationSystem : MonoBehaviour
         isShowingMedia = false;
     }
 
+    // Waits until the running smooth move lands, bounded by PresenterLandCap.
+    // Uses Time.deltaTime, the clock MoveAvatar's own glide runs on.
+    IEnumerator WaitForPresenterToLand(string what)
+    {
+        float waited = 0f;
+        float cap = PresenterLandCap;
+        while (IsPresenterGliding && waited < cap)
+        {
+            waited += Time.deltaTime;
+            yield return null;
+        }
+
+        if (waited > 0f)
+            Debug.Log($"Held {what} {waited:F2}s for the presenter to land");
+    }
+
     // -----------------------------------------------------------------------
     // Move Avatar (same easing as your original)
     // -----------------------------------------------------------------------
@@ -1852,6 +1942,7 @@ public class MediaPresentationSystem : MonoBehaviour
         if (avatarParent == null || currentLocation == null || targetLocation == null)
         {
             UpdateFacing(targetPosition);
+            presenterGliding = false;
             yield break;
         }
 
@@ -1894,6 +1985,7 @@ public class MediaPresentationSystem : MonoBehaviour
         if (avatarSystem != null)
             avatarSystem.SetSwayBase(targetPos, targetRot);
 
+        presenterGliding = false;
         Debug.Log($"Avatar reached {targetLocation.name}");
     }
 

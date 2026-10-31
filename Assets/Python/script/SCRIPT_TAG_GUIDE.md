@@ -134,6 +134,9 @@ Moves the character. `Left` / `Right` / `Center`.
 - `Right` = character on the right, faces left.
 - `Center` = front and center, faces camera — **and pauses/hides content cards.**
 - Optional 2nd word: `Cut` (instant snap) or `Smooth` (eased glide). Omit to use the scene default.
+- **A glide takes about 1 second, and whatever it introduces waits for it.** That means `Smooth`, or no 2nd word (the scene default is a glide). A side card (`Headline`, `Excerpt`, `Quote`, `Stat`, `Logo`, `BRoll`), `{Image:}` or `{Video:}` that comes due during the glide is held until the character lands, so it appears about a second after its word (never more than about 1.25 s). Keep writing the `{Position:…,Smooth}` directly above the tag it introduces. A `Cut`, or a `{Position:}` that repeats the current side, holds nothing.
+- **Fullscreen cards (`BigText`, `BigMedia`, `BigImage`, `,bigCenter` headlines) and `{…:End}` tags don't wait for a glide** — they can land while the character is still moving. The one exception: if a held side card is ahead of them in the script, they wait behind it, so the order never changes.
+- **Don't close a beat within that second.** A card opened with `,Start` whose `{…:End}` is already due when the character lands is skipped, End included. The same goes for an `{Image:name,Start}` or `{Video:}` whose End or next media is already due, and the render report then lists it as "never started". Leave more than a second of narration after a glide before closing what it introduced.
 ```
 {Position:Left,Smooth}
 {Position:Center,Cut}

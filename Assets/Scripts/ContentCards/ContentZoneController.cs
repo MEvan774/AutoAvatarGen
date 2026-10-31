@@ -62,6 +62,15 @@ public class ContentZoneController : MonoBehaviour
     // is consumed as a quiet no-op instead of a warning.
     private readonly HashSet<ContentCardType> closeUpCutHeldTypes = new HashSet<ContentCardType>();
 
+    // The side card waiting for the presenter to land, and how long it has
+    // waited (seconds on Time.deltaTime, the clock the glide runs on).
+    private int heldCardIndex = -1;
+    private float heldCardSeconds;
+
+    // {Tag:End} events whose card was skipped because the End came due while
+    // the card was still waiting — there is nothing left for them to close.
+    private readonly HashSet<int> skippedEndIndices = new HashSet<int>();
+
     // Lazily-built mirror of `contentZone` on the right side of the screen. Side
     // cards tagged ",Right" rest here so they land on the right, mirroring how
     // default/",Left" cards sit in `contentZone` on the left.
@@ -212,6 +221,9 @@ public class ContentZoneController : MonoBehaviour
         isPaused = false;
         cardQueue.Clear();
         closeUpCutHeldTypes.Clear();
+        heldCardIndex = -1;
+        heldCardSeconds = 0f;
+        skippedEndIndices.Clear();
 
         Debug.Log($"ContentZoneController: Timeline set with {events.Count} events");
     }
@@ -250,6 +262,12 @@ public class ContentZoneController : MonoBehaviour
                     if (currentTime < timeline[i].triggerTime)
                         break;
 
+                    if (skippedEndIndices.Contains(i))
+                    {
+                        lastTriggeredIndex = i;
+                        continue;
+                    }
+
                     // While paused (character centered) only fullscreen feature
                     // cards may appear; a side card would overlap the centered
                     // character, so skip it (advancing past it so it doesn't burst
@@ -257,6 +275,17 @@ public class ContentZoneController : MonoBehaviour
                     if (SkippedWhileCentered(timeline[i]))
                     {
                         BlockIfInCloseUp(timeline[i]); // skipped either way — this names the mistake
+                        lastTriggeredIndex = i;
+                        continue;
+                    }
+
+                    // A side card waits for the presenter to finish a smooth
+                    // move, or they walk across it. Retried next frame.
+                    if (HoldForPresenter(i))
+                        break;
+
+                    if (ReleaseHeldCard(i, currentTime))
+                    {
                         lastTriggeredIndex = i;
                         continue;
                     }
@@ -280,6 +309,12 @@ public class ContentZoneController : MonoBehaviour
         {
             for (int i = lastTriggeredIndex + 1; i < timeline.Count; i++)
             {
+                if (skippedEndIndices.Contains(i))
+                {
+                    lastTriggeredIndex = i;
+                    continue;
+                }
+
                 // Same rule as the live loop: while centered, only feature cards.
                 if (SkippedWhileCentered(timeline[i]))
                 {
@@ -311,6 +346,53 @@ public class ContentZoneController : MonoBehaviour
             }
             yield return null;
         }
+    }
+
+    // True while the event at this index must wait for the presenter to land.
+    // Only side cards wait: fullscreen cards sit in front of the character and
+    // closing something is always safe. Capped so the timeline can't stall.
+    private bool HoldForPresenter(int index)
+    {
+        if (heldCardIndex != index)
+        {
+            heldCardIndex = index;
+            heldCardSeconds = 0f;
+        }
+
+        ContentCardEvent evt = timeline[index];
+        if (mediaPresentationSystem == null || evt.dismissesCard || IsFeatureCard(evt.cardType) ||
+            !mediaPresentationSystem.IsPresenterGliding ||
+            heldCardSeconds >= mediaPresentationSystem.PresenterLandCap)
+            return false;
+
+        heldCardSeconds += Time.deltaTime;
+        return true;
+    }
+
+    // Reports a hold that just ended. Returns true when the card should be
+    // skipped: a held card whose own End came due while it waited would only
+    // open and close, so both go.
+    private bool ReleaseHeldCard(int index, float currentTime)
+    {
+        if (heldCardSeconds <= 0f) return false;
+
+        ContentCardEvent evt = timeline[index];
+        Debug.Log($"Held {evt.cardType} card {heldCardSeconds:F2}s for the presenter to land");
+        heldCardSeconds = 0f;
+
+        if (evt.duration > 0f) return false; // timed — it has no End tag
+
+        for (int i = index + 1; i < timeline.Count && timeline[i].triggerTime <= currentTime; i++)
+        {
+            if (timeline[i].dismissesCard && timeline[i].cardType == evt.cardType)
+            {
+                skippedEndIndices.Add(i);
+                Debug.Log($"Skipped held {evt.cardType} card — its {{{evt.cardType}:End}} " +
+                          "came due while it waited for the presenter.");
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>

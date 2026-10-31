@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.UI;
 
 /// <summary>
@@ -14,14 +15,55 @@ using UnityEngine.UI;
 /// rather than wiring into every one of those paths, this component copies the
 /// display's layout, visibility and fade every LateUpdate (DOTween has already
 /// run by then, so the shadow never lags the slide by a frame).
+///
+/// The shadow is a plain rectangle the size of the texture, so it only reads as
+/// a shadow when the texture fills that rectangle. Logos and X post screenshots
+/// are PNGs with transparent margins, where it shows through as a dark box
+/// around the artwork — those get no shadow (see HasTransparentEdge).
 /// </summary>
 public class MediaDisplayShadow : MonoBehaviour
 {
+    // Samples per texture edge. Enough to catch artwork that happens to reach
+    // the corners (an X-shaped logo) without walking every edge pixel.
+    private const int EdgeSamples = 32;
+    private const float OpaqueAlpha = 0.98f;
+
     private RawImage target;
     private CanvasGroup targetGroup;
     private RectTransform targetRt;
     private RectTransform rt;
     private Image img;
+
+    // Result of HasTransparentEdge for the texture last seen on the display, so
+    // the edge is sampled once per texture rather than every LateUpdate.
+    private Texture lastTexture;
+    private bool lastTextureCastsShadow;
+
+    /// <summary>
+    /// True when the image doesn't fill its own rectangle: some of its outer edge
+    /// is see-through, so a rectangular shadow behind it would be visible as a
+    /// box. Video RenderTextures are never see-through and report false. A
+    /// Resources/Media import isn't CPU-readable, so its alpha channel decides.
+    /// </summary>
+    public static bool HasTransparentEdge(Texture texture)
+    {
+        Texture2D tex = texture as Texture2D;
+        if (tex == null) return false;
+        if (!tex.isReadable) return GraphicsFormatUtility.HasAlphaChannel(tex.graphicsFormat);
+
+        int maxX = tex.width - 1;
+        int maxY = tex.height - 1;
+        for (int i = 0; i <= EdgeSamples; i++)
+        {
+            int x = maxX * i / EdgeSamples;
+            int y = maxY * i / EdgeSamples;
+            if (tex.GetPixel(x, 0).a    < OpaqueAlpha) return true;
+            if (tex.GetPixel(x, maxY).a < OpaqueAlpha) return true;
+            if (tex.GetPixel(0, y).a    < OpaqueAlpha) return true;
+            if (tex.GetPixel(maxX, y).a < OpaqueAlpha) return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// Builds the shadow sibling for the given media display. Call once; the
@@ -64,7 +106,14 @@ public class MediaDisplayShadow : MonoBehaviour
         // The display is SetActive(false) between media beats and only carries a
         // texture while something real is on it (a bare RawImage draws as a
         // white quad, which is exactly when it's kept hidden).
-        bool visible = target.gameObject.activeInHierarchy && target.texture != null;
+        Texture texture = target.texture;
+        if (texture != lastTexture)
+        {
+            lastTexture = texture;
+            lastTextureCastsShadow = !HasTransparentEdge(texture);
+        }
+
+        bool visible = target.gameObject.activeInHierarchy && texture != null && lastTextureCastsShadow;
         if (img.enabled != visible) img.enabled = visible;
         if (!visible) return;
 

@@ -132,6 +132,11 @@ public class BigImageCard : ContentCard
         {
             image.texture = tex;
             ownedTexture = owned ? tex : null;
+
+            // A PNG with transparent margins would show the rectangular shadow
+            // as a dark box around the artwork.
+            if (shadowRect != null && MediaDisplayShadow.HasTransparentEdge(tex))
+                shadowRect.gameObject.SetActive(false);
         }
         else
         {
