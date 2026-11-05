@@ -79,6 +79,11 @@ namespace MugsTech.Tts
             // {Black:3} timed, or the held pair {Black:Start}…{Black:End}
             // (On/In and Stop/Out/Off tolerated as synonyms).
             @"|\{Black:(?:\d+(?:\.\d+)?|Start|On|In|End|Stop|Out|Off)\}" +
+            // {Pause:0.8} — a beat of at least that many seconds in the voice.
+            // Stripped like every tag (the catch-all already did, so the TTS text
+            // is unchanged); the silence is laid in at playback by
+            // SegmentSequencer / PauseInserter, never by the request.
+            @"|\{Pause:(?:\d+(?:\.\d+)?|\.\d+)\}" +
             @"|\{(?:Image|Video):[^}]+\}" +
             // Side cards: the duration slot also accepts the "Start" keyword —
             // the held pair form ({Quote:...,Start}…{Quote:End}), mirroring
@@ -470,6 +475,13 @@ namespace MugsTech.Tts
                 @"^Black:(Start|On|In|End|Stop|Out|Off)$", RegexOptions.IgnoreCase);
             if (mBlackKw.Success)
                 return "{Black:" + mBlackKw.Groups[1].Value + "," + ts + "}";
+
+            // {Pause:0.8} -> {Pause:0.8,T=X.XXX} — the authored seconds stay where
+            // they are and only the time is appended (no D= slot, so
+            // TagOnlyRetimer.Unstamp gives back the authored tag unchanged).
+            // SegmentSequencer reads it to find the gap; it never reaches playback.
+            if (innerCurly.StartsWith("Pause:", System.StringComparison.Ordinal))
+                return "{" + innerCurly + "," + ts + "}";
 
             // {Headline:End} / {Quote:End} / {Logo:End} / … — the held pair's
             // closing edge ({Tag:...,Start}…{Tag:End}); keep the keyword

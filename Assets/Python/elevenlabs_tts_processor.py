@@ -32,6 +32,7 @@ What gets STRIPPED before TTS (never read aloud):
   - {Transition:...} e.g. {Transition:Wipe} {Transition:Iris,1.2}  (whole-screen scene transition; optional duration scale)
   - {Mood:...}       e.g. {Mood:Tense}  (background mood crossfade: Calm/Energetic/Tense/Playful/Minimal)
   - {Black:...}      e.g. {Black:3}  /  {Black:Start} ... {Black:End}  (fullscreen black panel: timed, or held until the End tag)
+  - {Pause:...}      e.g. {Pause:0.8}  (a beat of at least N seconds — Unity widens the gap in the audio at playback; nothing is sent)
   - {Image:...}      e.g. {Image:file,5}  {Image:file,5,Right}  (optional ,Left/,Right side)
   - {Video:...}      e.g. {Video:clip,0}  {Video:clip,Right}    (optional ,Left/,Right side)
   - {Headline:...}   content cards
@@ -105,6 +106,7 @@ _ALL_MARKERS = re.compile(
        r'|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}'            # whole-screen transitions (+optional scale)
        r'|\{Mood:\w+\}'                                     # background mood crossfade
        r'|\{Black:(?:\d+(?:\.\d+)?|Start|On|In|End|Stop|Out|Off)\}'  # black panel markers (timed, or Start/End held pair)
+       r'|\{Pause:(?:\d+(?:\.\d+)?|\.\d+)\}'                # {Pause:0.8} — a beat in the voice, laid in by Unity at playback; lockstep with TtsScriptProcessor.cs
        r'|\{(?:Image|Video):[^}]+\}'                        # media markers
        # Side cards: the duration slot also accepts the "Start" keyword — the
        # held pair form ({Quote:...,Start}…{Quote:End}), mirroring
@@ -573,6 +575,12 @@ def _stamp_marker(marker: str, t: float) -> str:
     m_black_kw = re.match(r'^Black:(Start|On|In|End|Stop|Out|Off)$', inner, re.IGNORECASE)
     if m_black_kw:
         return f"{{Black:{m_black_kw.group(1)},{ts}}}"
+
+    # {Pause:0.8}  →  {Pause:0.8,T=X.XXX} — the authored seconds stay put, only the
+    # time is appended (no D= slot). Unity's SegmentSequencer reads it to find the
+    # gap and lays the silence in; it never reaches playback.
+    if inner.startswith('Pause:'):
+        return f"{{{inner},{ts}}}"
 
     # {Headline:End} / {Quote:End} / {Logo:End} / … — the held pair's closing
     # edge ({Tag:...,Start}…{Tag:End}); keep the keyword verbatim (like

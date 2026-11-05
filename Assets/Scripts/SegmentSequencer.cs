@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
+using MugsTech.Tts;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -52,6 +53,15 @@ using UnityEngine.Networking;
 //      pause snaps forward to the pause's end — the onset of the word it was
 //      authored against. Generations whose alignment is accurate (e.g. from
 //      the forced-alignment pass in TtsGenerationJob) pass through unchanged.
+//   6. {Pause:N} — "the gap in the voice here is at least N seconds". Inside a
+//      section, PauseInserter finds the gap in the decoded samples (the audio
+//      decides; T= only says where to look), widens it to N if v3 left less,
+//      and pins the tags around it to the gap's edges: tags written above the
+//      pause fire as it opens, tags below fire as it closes. Everything later
+//      moves by the silence added. On a section's edge a {Pause} widens the
+//      gap between sections instead (PauseInserter.SizeBoundary). All of it is
+//      silence laid into audio that already exists — the ElevenLabs request
+//      never changes — and every {Pause} is stripped before playback.
 //
 // WHY THIS WORKS WITH THE EXISTING REACTION SYSTEM
 //   MediaPresentationSystem / HybridAvatarSystem / ContentZoneController all
@@ -128,12 +138,20 @@ public class SegmentSequencer : MonoBehaviour
     [HideInInspector] public string titleSlug;
     [HideInInspector] public List<SegmentManifestEntry> orderedSegments;
 
+    /// <summary>
+    /// Every {Pause} the last take was built with — what was measured there and
+    /// what was added. Filled by LoadAndBuild (or ApplyPausesToSingleClip on the
+    /// single-pair path); AutomationRunner reports it in the result JSON.
+    /// </summary>
+    public static readonly List<PauseInserter.Entry> LastPauseReport = new List<PauseInserter.Entry>();
+
     public IEnumerator LoadAndBuild(string folder)
     {
         combinedClip = null;
         combinedScript = null;
         titleSlug = null;
         orderedSegments = null;
+        LastPauseReport.Clear();
 
         string manifestPath = Path.Combine(folder, "manifest.json");
         if (!File.Exists(manifestPath))
@@ -217,29 +235,17 @@ public class SegmentSequencer : MonoBehaviour
         List<float> samples = new List<float>();
         StringBuilder scriptSb = new StringBuilder();
         float globalOffset = 0f;
-
-        // Silence to insert BEFORE each segment. Index 0 is always 0 — the first
-        // segment opens the video. Every other boundary gets interSegmentPause,
-        // widened when that segment opens with a transition to fit the whole
-        // beat: leadIn -> cover -> reveal -> tail -> first word.
-        float[] pauseBefore = new float[clips.Count];
-        OpeningTransition[] openers = new OpeningTransition[clips.Count];
-        for (int i = 1; i < clips.Count; i++)
-        {
-            pauseBefore[i] = Mathf.Max(0f, interSegmentPause);
-            if (!pauseNarrationForTransitions) continue;
-
-            openers[i] = FindOpeningTransition(scripts[i]);
-            if (openers[i] == null) continue;
-
-            pauseBefore[i] = Mathf.Max(pauseBefore[i], openers[i].TotalGap(this));
-            Debug.Log($"[SegmentSequencer] {segs[i].slug} opens with a {openers[i].type} " +
-                      $"x{openers[i].scale:F2} ({openers[i].seconds:F2}s) — holding the " +
-                      $"narration {pauseBefore[i]:F2}s ({transitionLeadIn:F2}s lead-in + " +
-                      $"{openers[i].seconds:F2}s transition + {transitionTail:F2}s tail).");
-        }
-
         int last = clips.Count - 1;
+
+        // Pass 1 — measure every segment and fix its trim window before any
+        // silence is laid down. A {Pause} on a section's edge sizes the gap
+        // BETWEEN two sections, and that needs both sides' trims up front.
+        var timings     = new SegmentAudioTiming[clips.Count];
+        var speechStart = new float[clips.Count];
+        var speechEnd   = new float[clips.Count];
+        var trimStart   = new float[clips.Count];
+        var trimEnd     = new float[clips.Count];
+        var pauseTags   = new List<PauseInserter.PauseTag>[clips.Count];
         for (int i = 0; i < clips.Count; i++)
         {
             AudioClip clip = clips[i];
@@ -250,11 +256,105 @@ public class SegmentSequencer : MonoBehaviour
             SegmentAudioTiming timing = correctTimingFromAudio
                 ? AnalyzeSegmentAudio(clip, seg)
                 : null;
+            timings[i] = timing;
             if (timing != null && timing.rescale)
                 Debug.Log($"[SegmentSequencer] {seg.slug}: alignment says speech is " +
                           $"{timing.alignStart:F2}..{timing.alignEnd:F2}s but the audio measures " +
                           $"{timing.realStart:F2}..{timing.realEnd:F2}s — retiming this segment's " +
                           $"markers (end off by {timing.realEnd - timing.alignEnd:+0.00;-0.00}s).");
+
+            // Trim on the MEASURED span when available, so a transition's baked
+            // silence starts after the audible last word — never over it.
+            speechStart[i] = timing != null ? timing.realStart : Mathf.Max(0f, seg.speech_start);
+            speechEnd[i]   = timing != null ? timing.realEnd   : seg.speech_end;
+
+            trimStart[i] = (i == 0) ? 0f : Mathf.Max(0f, speechStart[i] - TrimPreRollSeconds);
+            trimEnd[i]   = (i == last)
+                ? clip.length
+                : Mathf.Min(clip.length, Mathf.Max(speechEnd[i] + trailingPadding, trimStart[i]));
+
+            pauseTags[i] = PauseInserter.FindTags(scripts[i]);
+        }
+
+        // Silence to insert BEFORE each segment. Index 0 is always 0 — the first
+        // segment opens the video. Every other boundary gets interSegmentPause,
+        // widened when that segment opens with a transition to fit the whole
+        // beat: leadIn -> cover -> reveal -> tail -> first word — and widened to
+        // N by a {Pause:N} on the last line of the section before it or the first
+        // line(s) of this one (PauseInserter.SizeBoundary; with no {Pause} it is
+        // exactly the sizing above).
+        float[] pauseBefore = new float[clips.Count];
+        float[] openerTail  = new float[clips.Count];
+        OpeningTransition[] openers = new OpeningTransition[clips.Count];
+        var boundaryEntries = new PauseInserter.Entry[clips.Count];
+        for (int i = 1; i < clips.Count; i++)
+        {
+            if (pauseNarrationForTransitions)
+                openers[i] = FindOpeningTransition(scripts[i]);
+
+            // Edge pauses: after the previous section's last word, and before this
+            // one's first. Below an opening transition the beat belongs after the
+            // reveal; anywhere else on the boundary it belongs before the cover.
+            float holdBefore = 0f, holdAfter = 0f;
+            var edge = new List<(PauseInserter.PauseTag tag, string slug)>();
+            foreach (var tag in pauseTags[i - 1])
+                if (tag.AtSectionEnd && !tag.AtSectionStart && tag.Seconds > 0f)
+                {
+                    holdBefore = Mathf.Max(holdBefore, tag.Seconds);
+                    edge.Add((tag, segs[i - 1].slug));
+                }
+            foreach (var tag in pauseTags[i])
+            {
+                if (!tag.AtSectionStart || tag.Seconds <= 0f) continue;
+                if (openers[i] != null && tag.Index > openers[i].index)
+                    holdAfter = Mathf.Max(holdAfter, tag.Seconds);
+                else
+                    holdBefore = Mathf.Max(holdBefore, tag.Seconds);
+                edge.Add((tag, segs[i].slug));
+            }
+
+            float transitionSeconds = openers[i] != null ? openers[i].seconds : -1f;
+            float trailPad = trimEnd[i - 1] - speechEnd[i - 1];
+            float preRoll  = speechStart[i] - trimStart[i];
+            var sized = PauseInserter.SizeBoundary(interSegmentPause, transitionSeconds,
+                transitionLeadIn, transitionTail, trailPad, preRoll, holdBefore, holdAfter);
+            pauseBefore[i] = sized.PauseBefore;
+            openerTail[i]  = sized.Tail;
+
+            if (openers[i] != null)
+                Debug.Log($"[SegmentSequencer] {segs[i].slug} opens with a {openers[i].type} " +
+                          $"x{openers[i].scale:F2} ({openers[i].seconds:F2}s) — holding the " +
+                          $"narration {pauseBefore[i]:F2}s ({sized.LeadIn:F2}s lead-in + " +
+                          $"{openers[i].seconds:F2}s transition + {sized.Tail:F2}s tail).");
+
+            if (edge.Count > 0)
+            {
+                var plain = PauseInserter.SizeBoundary(interSegmentPause, transitionSeconds,
+                    transitionLeadIn, transitionTail, trailPad, preRoll, 0f, 0f);
+                boundaryEntries[i] = BoundaryEntry(segs[i - 1].slug, segs[i].slug, edge, openers[i],
+                                                   sized, plain, holdBefore, holdAfter);
+            }
+        }
+
+        // A {Pause} before the video's first word or after its last has no gap
+        // between sections to widen — say so rather than drop it silently.
+        var report = new List<PauseInserter.Entry>();
+        foreach (var tag in pauseTags[0])
+            if (tag.AtSectionStart)
+                report.Add(EdgeIgnored(segs[0].slug, tag, "before the video's first word"));
+
+        // Pass 2 — lay the take down.
+        for (int i = 0; i < clips.Count; i++)
+        {
+            AudioClip clip = clips[i];
+            SegmentManifestEntry seg = segs[i];
+            SegmentAudioTiming timing = timings[i];
+
+            if (boundaryEntries[i] != null)
+            {
+                boundaryEntries[i].VideoAt = globalOffset;   // the gap opens where the last section's audio ends
+                report.Add(boundaryEntries[i]);
+            }
 
             if (pauseBefore[i] > 0f)
             {
@@ -264,38 +364,40 @@ public class SegmentSequencer : MonoBehaviour
                 globalOffset += pauseBefore[i];
             }
 
-            // Trim on the MEASURED span when available, so a transition's baked
-            // silence starts after the audible last word — never over it.
-            float speechStart = timing != null ? timing.realStart : Mathf.Max(0f, seg.speech_start);
-            float speechEnd   = timing != null ? timing.realEnd   : seg.speech_end;
-
-            float trimStart = (i == 0) ? 0f : Mathf.Max(0f, speechStart - TrimPreRollSeconds);
-            float trimEnd   = (i == last)
-                ? clip.length
-                : Mathf.Min(clip.length, Mathf.Max(speechEnd + trailingPadding, trimStart));
-
-            float segDuration = Mathf.Max(0f, trimEnd - trimStart);
+            float segDuration = Mathf.Max(0f, trimEnd[i] - trimStart[i]);
 
             int offsetFrames = Mathf.Clamp(
-                Mathf.RoundToInt(trimStart * sampleRate),
+                Mathf.RoundToInt(trimStart[i] * sampleRate),
                 0, clip.samples > 0 ? clip.samples - 1 : 0);
             int frames = Mathf.Clamp(
                 Mathf.RoundToInt(segDuration * sampleRate),
                 0, Mathf.Max(0, clip.samples - offsetFrames));
 
+            // {Pause:N} inside the section: widen its gap to N in the samples being
+            // copied, and pin the tags around it to the gap's edges (step 6).
+            PauseInserter.Result paused = null;
             if (frames > 0)
             {
                 float[] buffer = new float[frames * channels];
                 clip.GetData(buffer, offsetFrames);
+
+                if (HasMidSectionPause(pauseTags[i]))
+                {
+                    paused = PauseInserter.Apply(seg.slug, pauseTags[i], buffer, channels, sampleRate,
+                        trimStart[i],
+                        t => timing != null ? timing.MapToReal(t, false) : t,
+                        timing != null ? ToGaps(timing.pauses) : null);
+                    buffer = paused.Samples;
+                }
                 samples.AddRange(buffer);
             }
 
             // delta converts original-clip T values onto the combined timeline.
             // minAllowedT prevents pre-speech markers from bleeding backwards
             // into the previous segment after we trim leading silence.
-            float delta        = globalOffset - trimStart;
+            float delta        = globalOffset - trimStart[i];
             float minAllowedT  = globalOffset;
-            string shifted     = ShiftTimestamps(scripts[i], delta, minAllowedT, timing);
+            string shifted     = ShiftTimestamps(scripts[i], delta, minAllowedT, timing, paused?.Shift);
 
             // The opening transition is the one marker that must fire BEFORE its
             // own segment's audio. Position it from the END of the gap — back off
@@ -303,20 +405,38 @@ public class SegmentSequencer : MonoBehaviour
             // the reveal always settles the same beat ahead of the read no matter
             // how wide the gap ended up. Whatever silence is left over lands in
             // front of the transition as the lead-in (never less than
-            // transitionLeadIn; more when interSegmentPause is the wider of the
-            // two). The clamp keeps it inside the silence we actually baked.
+            // transitionLeadIn; more when interSegmentPause or a {Pause} above the
+            // transition is the wider). A {Pause} below the transition lengthens
+            // the tail instead, so the held beat plays on the revealed scene. The
+            // clamp keeps it inside the silence we actually baked.
             if (openers[i] != null && pauseBefore[i] > 0f)
             {
                 float triggerAt = Mathf.Max(
                     globalOffset - pauseBefore[i],
-                    globalOffset - Mathf.Max(0f, transitionTail) - openers[i].seconds);
+                    globalOffset - openerTail[i] - openers[i].seconds);
                 shifted = RetimeOpeningTransition(shifted, triggerAt);
             }
 
+            // Every {Pause} is spent by now; none may reach the runtime parsers.
+            if (pauseTags[i].Count > 0)
+                shifted = PauseInserter.StripTags(shifted);
+
             scriptSb.AppendLine(shifted);
 
-            globalOffset += segDuration;
+            if (paused != null)
+                foreach (var entry in paused.Entries)
+                {
+                    entry.VideoAt = globalOffset + (entry.At - trimStart[i])
+                                  + paused.Shift.InsertedBefore(entry.TagIndex);
+                    report.Add(entry);
+                }
+
+            globalOffset += segDuration + (paused != null ? paused.TotalInserted : 0f);
         }
+
+        foreach (var tag in pauseTags[last])
+            if (tag.AtSectionEnd && !tag.AtSectionStart)
+                report.Add(EdgeIgnored(segs[last].slug, tag, "after the video's last word"));
 
         int totalFrames = samples.Count / Mathf.Max(1, channels);
         if (totalFrames <= 0)
@@ -330,6 +450,142 @@ public class SegmentSequencer : MonoBehaviour
         combinedClip = AudioClip.Create("StitchedSegments", totalFrames, channels, sampleRate, false);
         combinedClip.SetData(samples.ToArray(), 0);
         combinedScript = scriptSb.ToString();
+
+        LastPauseReport.Clear();
+        LastPauseReport.AddRange(report);
+        LogPauseReport(report);
+    }
+
+    // -----------------------------------------------------------------------
+    // {Pause:N} (step 6 of the class header; the work is in PauseInserter)
+    // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// The single-pair load (one _timed.txt + its audio, no manifest) never runs
+    /// BuildCombined, so ScriptFileReader calls this to give its lone clip the
+    /// same {Pause} treatment: pauses measured here (with no manifest there is no
+    /// alignment span to correct against, so each T= is taken as it is), gaps
+    /// widened, tags pinned, the clip rebuilt with the silence in.
+    /// </summary>
+    public static void ApplyPausesToSingleClip(ref AudioClip clip, ref string script, string slug)
+    {
+        LastPauseReport.Clear();
+        var tags = PauseInserter.FindTags(script);
+        if (tags.Count == 0) return;
+
+        var report = new List<PauseInserter.Entry>();
+        foreach (var tag in tags)
+            if (tag.OnEdge)
+                report.Add(EdgeIgnored(slug, tag, tag.AtSectionStart ? "before the first word" : "after the last word"));
+
+        float[] data = null;
+        if (clip != null && clip.samples > 0 && clip.channels > 0)
+        {
+            data = new float[clip.samples * clip.channels];
+            if (!clip.GetData(data, 0)) data = null;
+        }
+        if (data == null)
+        {
+            Debug.LogWarning($"[Pause] {slug}: the clip's samples can't be read, so its {tags.Count} " +
+                             "{Pause} tag(s) were ignored.");
+            script = PauseInserter.StripTags(script);
+            return;
+        }
+
+        var paused = PauseInserter.Apply(slug, tags, data, clip.channels, clip.frequency, 0f, null, null);
+        script = PauseInserter.StripTags(ShiftTimestamps(script, 0f, 0f, null, paused.Shift));
+
+        if (paused.TotalInserted > 0f)
+        {
+            var longer = AudioClip.Create(clip.name, paused.Samples.Length / clip.channels,
+                                          clip.channels, clip.frequency, false);
+            longer.SetData(paused.Samples, 0);
+            clip = longer;
+        }
+
+        foreach (var entry in paused.Entries)
+        {
+            entry.VideoAt = entry.At + paused.Shift.InsertedBefore(entry.TagIndex);
+            report.Add(entry);
+        }
+        LastPauseReport.AddRange(report);
+        LogPauseReport(report);
+    }
+
+    static bool HasMidSectionPause(List<PauseInserter.PauseTag> tags)
+    {
+        foreach (var tag in tags) if (!tag.OnEdge) return true;
+        return false;
+    }
+
+    static List<PauseInserter.Gap> ToGaps(List<Vector2> pauses)
+    {
+        var gaps = new List<PauseInserter.Gap>(pauses != null ? pauses.Count : 0);
+        if (pauses != null)
+            foreach (var p in pauses) gaps.Add(new PauseInserter.Gap(p.x, p.y));
+        return gaps;
+    }
+
+    static PauseInserter.Entry EdgeIgnored(string slug, PauseInserter.PauseTag tag, string where)
+        => new PauseInserter.Entry {
+            Section = slug, Tag = tag.Authored, TagIndex = tag.Index, Requested = tag.Seconds,
+            Boundary = true, Severe = true,
+            Note = $"{where} — there is no gap between sections to widen there, so it was ignored",
+        };
+
+    static PauseInserter.Entry BoundaryEntry(string before, string after,
+        List<(PauseInserter.PauseTag tag, string slug)> edge, OpeningTransition opener,
+        PauseInserter.Boundary sized, PauseInserter.Boundary plain, float holdBefore, float holdAfter)
+    {
+        var longest = edge[0];
+        string problems = null;
+        foreach (var e in edge)
+        {
+            if (e.tag.Seconds > longest.tag.Seconds) longest = e;
+            if (e.tag.Problem != null) problems = problems == null ? e.tag.Problem : problems + "; " + e.tag.Problem;
+        }
+
+        string info;
+        if (opener == null)
+            info = $"between {before} and {after}, now {sized.HeardGap:F2}s from word to word";
+        else
+        {
+            info = "";
+            if (holdBefore > 0f)
+                info += $"{sized.LeadIn:F2}s before the {opener.type} transition (was {plain.LeadIn:F2}s)";
+            if (holdAfter > 0f)
+                info += (info.Length > 0 ? ", " : "") +
+                        $"{sized.Tail:F2}s after its reveal before the first word (was {plain.Tail:F2}s)";
+        }
+
+        return new PauseInserter.Entry {
+            Section   = longest.slug,
+            Tag       = longest.tag.Authored + (edge.Count > 1 ? $" (+{edge.Count - 1} more)" : ""),
+            TagIndex  = longest.tag.Index,
+            Requested = Mathf.Max(holdBefore, holdAfter),
+            Natural   = plain.HeardGap,
+            Inserted  = Mathf.Max(0f, sized.PauseBefore - plain.PauseBefore),
+            Boundary  = true,
+            Info      = info,
+            Note      = problems,
+        };
+    }
+
+    static void LogPauseReport(List<PauseInserter.Entry> report)
+    {
+        if (report.Count == 0) return;
+
+        int inserted = 0, check = 0;
+        float total = 0f;
+        foreach (var e in report)
+        {
+            string line = $"[Pause] {e.Section} {e.Describe()}";
+            if (e.NeedsCheck) { Debug.LogWarning(line); check++; }
+            else              Debug.Log(line);
+            if (e.Inserted > 0f) { inserted++; total += e.Inserted; }
+        }
+        Debug.Log($"[Pause] summary: {report.Count} tag(s), {inserted} inserted, +{total:F2}s total" +
+                  (check > 0 ? $", {check} to check by ear." : "."));
     }
 
     // -----------------------------------------------------------------------
@@ -343,18 +599,16 @@ public class SegmentSequencer : MonoBehaviour
     // so the section's first word is the first thing heard on the new scene.
     // -----------------------------------------------------------------------
 
+    // The whole beat a section-opening transition needs to itself —
+    //   last word | leadIn | cover -> reveal | tail | first word
+    // — is sized by PauseInserter.SizeBoundary, which also fits a {Pause} on
+    // either side of it.
     class OpeningTransition
     {
         public ScreenTransition type;
         public float scale;      // {Transition:Iris,1.2} -> 1.2
         public float seconds;    // cover + reveal, already scaled
-
-        // The whole beat this transition needs to itself:
-        //   last word | leadIn | cover -> reveal | tail | first word
-        public float TotalGap(SegmentSequencer owner)
-            => Mathf.Max(0f, owner.transitionLeadIn)
-             + seconds
-             + Mathf.Max(0f, owner.transitionTail);
+        public int   index;      // where the tag sits in the segment script
     }
 
     // {Transition:Wipe} / {Transition:Iris,1.2} / {Transition:Wipe,T=5.0} /
@@ -395,6 +649,7 @@ public class SegmentSequencer : MonoBehaviour
             type    = type,
             scale   = scale,
             seconds = ScreenTransitionController.TotalSecondsFor(type, scale),
+            index   = tr.Index,
         };
     }
 
@@ -431,7 +686,7 @@ public class SegmentSequencer : MonoBehaviour
     static readonly Regex _TPattern = new Regex(@"T=(\d+(?:\.\d+)?)");
 
     static string ShiftTimestamps(string script, float deltaSeconds, float minAllowedT,
-                                  SegmentAudioTiming timing = null)
+                                  SegmentAudioTiming timing = null, PauseInserter.Shift pauses = null)
     {
         return _TPattern.Replace(script, match =>
         {
@@ -442,7 +697,13 @@ public class SegmentSequencer : MonoBehaviour
             // Alignment timeline -> measured-audio timeline first, then onto the
             // combined clip. deltaSeconds is (globalOffset - trimStart), and both
             // sides of that subtraction live on the measured timeline.
-            if (timing != null) t = timing.MapToReal(t);
+            // A {Pause} in the section pins the tags in its gap to the gap's edges
+            // and moves everything after it by the silence it added; it resolves
+            // by script position, so tags sharing one T= still split either side.
+            if (pauses != null)
+                t = pauses.Resolve(match.Index, t, x => timing != null ? timing.MapToReal(x) : x);
+            else if (timing != null)
+                t = timing.MapToReal(t);
 
             float shifted = Mathf.Max(minAllowedT, t + deltaSeconds);
             return "T=" + shifted.ToString("F3", CultureInfo.InvariantCulture);
@@ -488,12 +749,17 @@ public class SegmentSequencer : MonoBehaviour
         public bool  rescale;               // spans disagree -> warp marker times
         public List<Vector2> pauses;        // measured pauses (x=start, y=end)
 
-        public float MapToReal(float t)
+        public float MapToReal(float t) => MapToReal(t, true);
+
+        // snap = false is the plain alignment -> audio mapping, for a {Pause}: it
+        // wants the gap itself, not the onset of the word after it.
+        public float MapToReal(float t, bool snap)
         {
             float u = t;
             if (rescale)
                 u = realStart + (t - alignStart)
                     * (realEnd - realStart) / Mathf.Max(0.01f, alignEnd - alignStart);
+            if (!snap) return u;
 
             // Inside a measured pause = the authored word hasn't started yet, so
             // snap forward to the measured word onset. When the alignment is

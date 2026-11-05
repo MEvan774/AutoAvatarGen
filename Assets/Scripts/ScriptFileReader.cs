@@ -266,6 +266,12 @@ public class ScriptFileReader : MonoBehaviour
             yield break;
         }
 
+        // {Pause:N} needs the audio itself. The stitched path does it inside
+        // SegmentSequencer; a lone pair never goes through there, so it gets the
+        // same helper here.
+        if (MugsTech.Tts.PauseInserter.HasTags(scriptContent))
+            SegmentSequencer.ApplyPausesToSingleClip(ref clip, ref scriptContent, slug);
+
         correspondingAudio = clip;
         ApplyVideoTitle(slug);
         Dispatch(scriptContent, clip);
@@ -279,6 +285,11 @@ public class ScriptFileReader : MonoBehaviour
         using (UnityWebRequest req = UnityWebRequestMultimedia.GetAudioClip(
                    uri, SegmentSequencer.AudioTypeFor(path)))
         {
+            // Fully decoded, so a {Pause} can read the samples (GetData) — the
+            // same setting SegmentSequencer loads its segments with.
+            if (req.downloadHandler is DownloadHandlerAudioClip handler)
+                handler.streamAudio = false;
+
             yield return req.SendWebRequest();
 
             if (req.result != UnityWebRequest.Result.Success)
@@ -315,6 +326,17 @@ public class ScriptFileReader : MonoBehaviour
 
     void Dispatch(string scriptContent, AudioClip audio)
     {
+        // A {Pause:N} is spent where the audio is assembled — SegmentSequencer, or
+        // the single-pair load above. One that gets this far was never applied
+        // (the manual load paths have no audio of their own to widen), so drop it
+        // before any parser sees it, and say so. One funnel for every load path
+        // and both processing systems.
+        scriptContent = MugsTech.Tts.PauseInserter.StripTags(scriptContent, out int strayPauses);
+        if (strayPauses > 0)
+            Debug.LogWarning($"[Pause] {strayPauses} {{Pause}} tag(s) reached playback without being applied — " +
+                             "only the auto-load paths (a generation folder) can widen the voice, so they " +
+                             "were ignored here.");
+
         if (useMediaSystem && mediaPresentationSystem != null)
         {
             mediaPresentationSystem.ProcessScriptWithMedia(scriptContent, audio);

@@ -479,6 +479,30 @@ public class AutomationRunner : MonoBehaviour
         }
         sb.Append(markers.Count > 0 ? "\n  ],\n" : "],\n");
 
+        // {Pause:N} beats laid into the take (SegmentSequencer / PauseInserter):
+        // one record per tag — the gap v3 had left there and the silence added.
+        // "at" is section-local, "videoAt" on the finished take. A non-null
+        // "warning" means the spot wants an ear; "severe" means nothing could be
+        // done there safely (e.g. no silence near the tag), so nothing was.
+        sb.Append("  \"pauses\": [");
+        var pauses = SegmentSequencer.LastPauseReport;
+        for (int i = 0; i < pauses.Count; i++)
+        {
+            var p = pauses[i];
+            sb.Append(i == 0 ? "\n" : ",\n");
+            sb.Append("    { \"section\": ").Append(JsonStr(p.Section))
+              .Append(", \"tag\": ").Append(JsonStr(p.Tag))
+              .Append(", \"at\": ").Append(F(p.At))
+              .Append(", \"videoAt\": ").Append(F(p.VideoAt))
+              .Append(", \"natural\": ").Append(F(p.Natural))
+              .Append(", \"inserted\": ").Append(F(p.Inserted))
+              .Append(", \"boundary\": ").Append(p.Boundary ? "true" : "false")
+              .Append(", \"severe\": ").Append(p.Severe ? "true" : "false")
+              .Append(", \"warning\": ").Append(JsonStr(p.Note))
+              .Append(" }");
+        }
+        sb.Append(pauses.Count > 0 ? "\n  ],\n" : "],\n");
+
         sb.Append("  \"playerLogPath\": ").Append(JsonStr(Application.consoleLogPath)).Append(",\n");
         sb.Append("  \"startedUtc\": ").Append(JsonStr(startedUtc.ToString("o"))).Append(",\n");
         sb.Append("  \"finishedUtc\": ").Append(JsonStr(DateTime.UtcNow.ToString("o"))).Append(",\n");

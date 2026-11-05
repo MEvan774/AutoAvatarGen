@@ -63,6 +63,14 @@ parser AND both TTS marker processors AND the guide, or it breaks silently —
 and if `StampMarker` gives it a `D=` slot, `TagOnlyRetimer.UnstampDuration`
 must turn that back into the authored form.
 
+Worked example — `{Pause:N}`: `KnownMarkers` + an explicit `StampMarker`
+branch (C#) and `_ALL_MARKERS` + `_stamp_marker` (Python) stamp it
+`{Pause:0.8,T=…}`; no `D=` slot, so `Unstamp` needs no case; it is consumed
+in `SegmentSequencer` (via the pure `Tts/PauseInserter`) before any runtime
+parser and stripped again in `ScriptFileReader.Dispatch` as a safety net;
+the guide covers it in §3/§4/§5/§7; the `Pause_*` self-tests cover it
+offline. The `--auto-script` result JSON reports each one in `pauses[]`.
+
 ## Hard-won constraints (do not undo)
 
 - **MainMenu scene is hand-tweaked** — never re-bake/regenerate the menu
@@ -97,6 +105,18 @@ must turn that back into the authored form.
   treats the alignment as a proposal and the audio as the authority: if the
   proposed gap holds no silence it hunts for the nearest real pause. Keep that
   fallback.
+- **`{Pause:N}` is laid into audio that already exists — never requested.**
+  Per section, `PauseInserter` finds the gap in the decoded samples (the tag's
+  `T=` only says where to look: on the 2026-11-01 Binance take v3's synthesis
+  alignment was 1–2 s off mid-section while `rescale` stayed off), widens it to
+  *at least* N (never N on top of a natural gap), pins the tags in that gap to
+  its edges (written above → fire as it opens; below → as it closes — own-line
+  tags otherwise all land on the next word's onset) and moves later `T=` along
+  inside `ShiftTimestamps`. It never splices into sound: no silence near the
+  tag → nothing inserted + a severe `[Pause]` log line. Section-edge pauses
+  widen the gap between sections through `PauseInserter.SizeBoundary`, which is
+  the old sizing exactly when there are none. Don't make it splice at a raw
+  alignment time.
 - **Loudness is matched per chunk, never per section** — a two-pass `loudnorm`
   in *linear* mode, so it is one uniform gain. Normalising sections individually
   (or letting loudnorm fall back to dynamic mode) flattens the quiet beats the

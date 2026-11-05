@@ -51,6 +51,17 @@ public static class TtsPipelineSelfTests
         TagOnly_UnknownMediaNameWarns(log);
         SavedCopy_IsNamedAfterTheVideo(log);
         SavedCopy_HoldsTheWholeGeneration(log);
+        Pause_TagIsRecognisedAndRoundTrips(log);
+        Pause_TagOnlyAcceptsNewPauses(log);
+        Pause_IsNotAnEmotion(log);
+        Pause_FindsItsGroupAndSectionEdges(log);
+        Pause_LongNaturalGapInsertsNothing(log);
+        Pause_ShortGapInsertsTheDifference(log);
+        Pause_TwoPausesShiftCumulatively(log);
+        Pause_UsesAShortSilenceWhenNoPauseIsNear(log);
+        Pause_NeverSplicesIntoSpeech(log);
+        Pause_SectionEdgesWidenTheGapBetweenSections(log);
+        Pause_StripTakesTheWholeLine(log);
 
         log.Report();
     }
@@ -670,6 +681,267 @@ Yes. Daylight.
         {
             try { Directory.Delete(root, true); } catch { }
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // {Pause:N} (PauseInserter)
+    // -----------------------------------------------------------------------
+
+    static void Pause_TagIsRecognisedAndRoundTrips(Log log)
+    {
+        log.IsTrue(TtsScriptProcessor.IsRecognisedMarker("{Pause:0.8}"), "{Pause:0.8} is a known tag");
+        log.IsTrue(TtsScriptProcessor.IsRecognisedMarker("{Pause:.5}"),
+            "{Pause:.5} too — the MugsTech checker accepts it");
+        log.IsTrue(!TtsScriptProcessor.IsRecognisedMarker("{Pause:soon}"), "a word in the slot isn't");
+
+        // Recognising it changes nothing about the voice text: it was stripped
+        // before too (by the catch-all). Nothing new reaches ElevenLabs.
+        string raw = "Setup here.\n{Pause:0.8}\nPunchline.";
+        var (markers, clean) = TtsScriptProcessor.ExtractMarkers(raw);
+        log.AreEqual("Setup here.\n\nPunchline.", clean, "the tag never reaches the voice text");
+        log.AreEqual(1, markers.Count, "and it is carried as one marker");
+
+        var timed = TtsScriptProcessor.RebuildTimedScript(raw, new List<TtsScriptProcessor.TimedMarker> {
+            new TtsScriptProcessor.TimedMarker { Marker = markers[0], TriggerTime = 1.25f } });
+        // elevenlabs_tts_processor.py's _stamp_marker writes the identical
+        // string; checked from Python (no interpreter in here).
+        log.AreEqual("Setup here.\n{Pause:0.8,T=1.250}\nPunchline.", timed,
+            "it is stamped by appending T= to the authored tag (no D= slot)");
+        log.AreEqual(raw, TagOnlyRetimer.Unstamp(timed, null), "and un-stamps back to exactly what was written");
+    }
+
+    const string PauseScript =
+@"## THE FREEZE
+{Neutral}
+Freezing only works on coins a company controls.
+{Excerpt:End}
+{Smirk}
+[tired] Somewhere, a hacker is on hold with customer support. Hi. My money stopped working.
+";
+
+    static void Pause_TagOnlyAcceptsNewPauses(Log log)
+    {
+        var gen = TagGeneration(PauseScript, keepCues: true);
+        string edited = PauseScript
+            .Replace("{Smirk}\n", "{Smirk}\n{Pause:0.8}\n")
+            .Replace("support. Hi.", "support.\n{Pause:0.6}\nHi.");
+
+        var r = TagOnlyRetimer.Retime(edited, gen);
+        log.IsTrue(r.Success, $"adding a {{Pause}} — even by splitting a line — is a tag-only edit ({r.Error})");
+        if (!r.Success) return;
+
+        log.IsTrue(!string.Join(" ", r.Warnings).Contains("not recognised"),
+            $"and it isn't reported as unrecognised ({string.Join(" ", r.Warnings)})");
+
+        string timed = r.Sections[0].TimedScript;
+        float smirk = TimeOf(timed, "{Smirk");
+        float beat  = TimeOf(timed, "{Pause:0.8");
+        float hi    = TimeOf(timed, "{Pause:0.6");
+        log.IsTrue(beat >= 0f && Mathf.Abs(beat - smirk) < 0.001f,
+            $"a pause added to a tag group takes the group's time ({smirk:F3} -> {beat:F3})");
+        log.IsTrue(hi > beat, $"a pause splitting a line is timed at that spot in the take ({hi:F3})");
+        log.IsTrue(TagOnlyRetimer.Unstamp(timed, null) == TtsScriptProcessor.NormaliseLineEndings(
+                       TtsScriptProcessor.SplitIntoSegments(edited)[0].Raw),
+            "the rebuilt _timed.txt un-stamps to the edited script");
+    }
+
+    static void Pause_IsNotAnEmotion(Log log)
+    {
+        log.AreEqual(0, HybridAvatarSystem.EmotionTagRegex.Matches("{Pause:0.8,T=1.200}").Count,
+            "a stray {Pause:0.8,T=…} can never be parsed as an emotion");
+        log.AreEqual(0, HybridAvatarSystem.EmotionTagRegex.Matches("{Pause:0.8}").Count, "nor can an unstamped one");
+        log.AreEqual(1, HybridAvatarSystem.EmotionTagRegex.Matches("{Pause:0.8,T=1.200}{Smirk,T=1.300}").Count,
+            "while the emotion next to it still parses");
+    }
+
+    static void Pause_FindsItsGroupAndSectionEdges(Log log)
+    {
+        string script = "{Transition:Iris,T=0.000}\n{Pause:1.0,T=0.000}\nFirst words.\n" +
+                        "{Excerpt:End,T=1.000}\n{Pause:0.8,T=1.000}\n{Smirk,T=1.000}\n" +
+                        "Last words.\n{Pause:0.6,T=3.000}\n";
+        var tags = PauseInserter.FindTags(script);
+        log.AreEqual(3, tags.Count, "every {Pause} is found");
+        if (tags.Count != 3) return;
+
+        log.IsTrue(tags[0].AtSectionStart && !tags[0].AtSectionEnd, "a pause before the first word is on the section's start");
+        log.IsTrue(!tags[1].OnEdge, "a pause between two sentences is mid-section");
+        log.IsTrue(tags[2].AtSectionEnd && !tags[2].AtSectionStart, "a pause after the last word is on the section's end");
+
+        log.AreEqual(script.IndexOf("First words.", StringComparison.Ordinal) + "First words.".Length,
+                     tags[1].GroupStart, "its group starts right after the previous spoken word");
+        log.AreEqual(script.IndexOf("Last words.", StringComparison.Ordinal), tags[1].GroupEnd,
+                     "and ends at the next spoken word");
+        log.AreEqual("{Pause:0.8}", tags[1].Authored, "the authored form is kept for the log");
+        log.IsTrue(tags[1].HasTime && Mathf.Abs(tags[1].T - 1f) < 0.001f, "its T= is read");
+
+        var odd = PauseInserter.FindTags("A.\n{Pause:9}\nB.\n{Pause:x}\nC.");
+        log.IsTrue(odd.Count == 2 && Mathf.Abs(odd[0].Seconds - PauseInserter.MaxSeconds) < 0.001f &&
+                   odd[0].Problem != null,
+            "an out-of-range value is clamped to 3 s and reported");
+        log.IsTrue(odd.Count == 2 && odd[1].Seconds == 0f && odd[1].Problem != null,
+            "an unreadable one is reported, not guessed");
+    }
+
+    // A section whose 'speech' is a tone and whose gaps are digital silence.
+    // T= values sit on the alignment's idea of the gap, as own-line tags do.
+    const string BeatScript =
+        "{Neutral,T=0.000}\n" +
+        "Setup sentence.\n" +
+        "{Excerpt:End,T=1.150}\n" +
+        "{Pause:0.8,T=1.150}\n" +
+        "{Smirk,T=1.150}\n" +
+        "Punchline here.\n" +
+        "{Frowned,T=" + "LATE" + "}\n" +
+        "More words.";
+
+    static float ResolveAt(PauseInserter.Result r, string script, string tagPrefix)
+    {
+        int tag = script.IndexOf(tagPrefix, StringComparison.Ordinal);
+        int t   = script.IndexOf("T=", tag, StringComparison.Ordinal);
+        float raw = float.Parse(script.Substring(t + 2, script.IndexOf('}', t) - t - 2),
+                                System.Globalization.CultureInfo.InvariantCulture);
+        return r.Shift.Resolve(t, raw, x => x);
+    }
+
+    static void Pause_LongNaturalGapInsertsNothing(Log log)
+    {
+        const int rate = 44100;
+        string script  = BeatScript.Replace("LATE", "2.600");
+        var audio = ToneWithGaps(3.4f, rate, (0f, 1.0f), (2.2f, 3.4f));   // v3 already left 1.2 s
+
+        var r = PauseInserter.Apply("01_TEST", PauseInserter.FindTags(script), audio, 1, rate, 0f, null, null);
+        log.AreEqual(1, r.Entries.Count, "one beat reported");
+        log.Near(1.2f, r.Entries[0].Natural, 0.021f, "the natural gap is measured from the audio");
+        log.AreEqual(0f, r.TotalInserted, "a gap longer than N gets nothing added — at least N, never plus N");
+        log.AreEqual(audio.Length, r.Samples.Length, "the audio is untouched");
+
+        log.Near(1.0f, ResolveAt(r, script, "{Excerpt:End"), 0.021f,
+            "a tag above the pause fires as the gap opens — right after the setup");
+        log.Near(2.2f, ResolveAt(r, script, "{Smirk"), 0.021f,
+            "a tag below it fires as the gap closes — on the punchline, after a beat ≥ N");
+        log.Near(2.6f, ResolveAt(r, script, "{Frowned"), 0.001f, "a later tag is unchanged");
+        log.Near(0f, ResolveAt(r, script, "{Neutral"), 0.001f, "an earlier one too");
+    }
+
+    static void Pause_ShortGapInsertsTheDifference(Log log)
+    {
+        const int rate = 44100;
+        string script  = BeatScript.Replace("LATE", "2.000");
+        var audio = ToneWithGaps(2.5f, rate, (0f, 1.0f), (1.3f, 2.5f));    // a 0.3 s gap
+
+        var r = PauseInserter.Apply("01_TEST", PauseInserter.FindTags(script), audio, 1, rate, 0f, null, null);
+        log.Near(0.3f, r.Entries[0].Natural, 0.021f, "the 0.3 s gap is found");
+        log.Near(0.5f, r.TotalInserted, 0.0001f, "exactly N minus the gap is inserted");
+        log.AreEqual(audio.Length + rate / 2, r.Samples.Length, "…as whole frames: the take is 0.5 s longer");
+
+        var splice = r.Shift.Splices[0];
+        log.Near(1.15f, splice.At, 0.01f, "the silence goes in the middle of the gap");
+
+        bool silent = true;
+        int from = (int)Math.Round(splice.At * rate);
+        for (int f = from; f < from + splice.InsertFrames; f++) if (r.Samples[f] != 0f) { silent = false; break; }
+        log.IsTrue(silent, "what was inserted is pure silence");
+        int probe = (int)Math.Round(1.6f * rate);
+        log.Near(audio[probe], r.Samples[probe + splice.InsertFrames], 1e-6f,
+            "the punchline's audio is the same, just 0.5 s later");
+
+        log.Near(0f,    ResolveAt(r, script, "{Neutral"),     0.001f, "a tag before the gap is unchanged");
+        log.Near(1.0f,  ResolveAt(r, script, "{Excerpt:End"), 0.021f,
+            "an End tag sharing the pause's T= but written above it stays on the setup's side of the beat");
+        log.Near(1.8f,  ResolveAt(r, script, "{Smirk"),       0.021f,
+            "the tag below fires on the punchline: gap end + 0.5 s");
+        log.Near(2.5f,  ResolveAt(r, script, "{Frowned"),     0.001f, "a later tag moves by the 0.5 s inserted");
+    }
+
+    static void Pause_TwoPausesShiftCumulatively(Log log)
+    {
+        const int rate = 44100;
+        string script = "One.\n{Pause:0.8,T=1.150}\n{A,T=1.150}\nTwo.\n{Mid,T=1.600}\nThree.\n" +
+                        "{Pause:0.8,T=2.150}\n{B,T=2.150}\nFour.\n{After,T=2.700}\nFive.";
+        var audio = ToneWithGaps(3.0f, rate, (0f, 1.0f), (1.3f, 2.0f), (2.3f, 3.0f));
+
+        var r = PauseInserter.Apply("01_TEST", PauseInserter.FindTags(script), audio, 1, rate, 0f, null, null);
+        log.AreEqual(2, r.Shift.Splices.Count, "both beats are found");
+        log.Near(1.0f, r.TotalInserted, 0.0001f, "0.5 s each");
+        log.Near(1.8f, ResolveAt(r, script, "{A,"),     0.021f, "the first beat's punchline: gap end + 0.5");
+        log.Near(2.1f, ResolveAt(r, script, "{Mid,"),   0.001f, "a tag between the beats moves by the first");
+        log.Near(3.3f, ResolveAt(r, script, "{B,"),     0.021f, "the second beat's punchline moves by both");
+        log.Near(3.7f, ResolveAt(r, script, "{After,"), 0.001f, "and everything after by the sum");
+        log.AreEqual(audio.Length + rate, r.Samples.Length, "the take is a second longer");
+    }
+
+    static void Pause_UsesAShortSilenceWhenNoPauseIsNear(Log log)
+    {
+        const int rate = 44100;
+        string script = "One.\n{Pause:0.8,T=1.050}\n{A,T=1.050}\nTwo.";
+        var audio = ToneWithGaps(2.0f, rate, (0f, 1.0f), (1.1f, 2.0f));    // 0.1 s: no "pause", but silent
+
+        var r = PauseInserter.Apply("01_TEST", PauseInserter.FindTags(script), audio, 1, rate, 0f, null, null);
+        log.AreEqual(1, r.Shift.Splices.Count, "a 0.1 s true silence is accepted as the gap");
+        log.Near(0.7f, r.TotalInserted, 0.0001f, "and widened to N");
+        log.IsTrue(r.Entries[0].NeedsCheck && !r.Entries[0].Severe,
+            "the fallback is reported for an ear, but it is safe — it splices into silence");
+    }
+
+    static void Pause_NeverSplicesIntoSpeech(Log log)
+    {
+        const int rate = 44100;
+        string script = "One two three four.\n{Pause:0.8,T=1.000}\n{A,T=1.000}\nFive six.";
+        var audio = ToneWithGaps(2.0f, rate, (0f, 2.0f));                  // v3 ran it together
+
+        var r = PauseInserter.Apply("01_TEST", PauseInserter.FindTags(script), audio, 1, rate, 0f, null, null);
+        log.AreEqual(0f, r.TotalInserted, "no silence near the tag → nothing is inserted");
+        log.AreEqual(audio.Length, r.Samples.Length, "the audio is untouched");
+        log.IsTrue(r.Entries.Count == 1 && r.Entries[0].Severe && r.Entries[0].Note.Contains("no silence"),
+            "and the spot is reported as severe");
+        log.Near(1.0f, ResolveAt(r, script, "{A,"), 0.001f, "the tags around it keep their time");
+    }
+
+    static void Pause_SectionEdgesWidenTheGapBetweenSections(Log log)
+    {
+        // SegmentSequencer's numbers: interSegmentPause 0.35, trailingPadding
+        // 0.08, the 0.05 pre-roll, a Wipe/Iris (0.72 s) with 0.4 lead-in and
+        // 0.15 tail.
+        PauseInserter.Boundary Plain(float hb, float ha)  => PauseInserter.SizeBoundary(0.35f, -1f,   0.4f, 0.15f, 0.08f, 0.05f, hb, ha);
+        PauseInserter.Boundary Opener(float hb, float ha) => PauseInserter.SizeBoundary(0.35f, 0.72f, 0.4f, 0.15f, 0.08f, 0.05f, hb, ha);
+
+        log.Near(0.35f, Plain(0f, 0f).PauseBefore, 0.0001f, "with no {Pause} the gap is exactly what it was");
+        log.Near(1.27f, Opener(0f, 0f).PauseBefore, 0.0001f, "…with a transition too (lead-in + 0.72 + tail)");
+
+        log.Near(0.80f, Plain(0.8f, 0f).HeardGap, 0.0001f,
+            "a pause on a section's last line makes the gap between sections N, word to word");
+        log.Near(0.35f, Plain(0.3f, 0f).PauseBefore, 0.0001f, "…and leaves a gap already longer than N alone");
+
+        var before = Opener(1.0f, 0f);
+        log.Near(1.79f, before.PauseBefore, 0.0001f,
+            "above an opening transition the beat lengthens the lead-in — max, not added to the transition's gap");
+        log.Near(0.15f, before.Tail, 0.0001f, "…keeping the tail");
+
+        var after = Opener(0f, 1.0f);
+        log.Near(0.95f, after.Tail, 0.0001f, "below the transition it lengthens the tail: a held beat on the revealed scene");
+        float fires = after.Tail + 0.72f;   // SegmentSequencer places it this far before the first word
+        log.IsTrue(fires <= after.PauseBefore + 1e-4f,
+            $"and the transition still fires inside the silence ({fires:F2}s ≤ {after.PauseBefore:F2}s)");
+    }
+
+    static void Pause_StripTakesTheWholeLine(Log log)
+    {
+        string script = "a\n{Pause:0.8,T=1.000}\nb {Pause:0.5,T=2.000} c\n  {Pause:x}  \nd";
+        log.AreEqual("a\nb  c\nd", PauseInserter.StripTags(script, out int removed),
+            "an own-line {Pause} takes its line with it; an inline one just leaves");
+        log.AreEqual(3, removed, "every one is counted");
+        log.AreEqual("no tags here", PauseInserter.StripTags("no tags here"), "a script without one is untouched");
+    }
+
+    static float[] ToneWithGaps(float seconds, int rate, params (float from, float to)[] speech)
+    {
+        var s = new float[(int)Math.Round(seconds * rate)];
+        foreach (var (from, to) in speech)
+        {
+            int a = (int)Math.Round(from * rate), b = Math.Min(s.Length, (int)Math.Round(to * rate));
+            for (int f = a; f < b; f++) s[f] = 0.5f * (float)Math.Sin(2.0 * Math.PI * 200.0 * f / rate);
+        }
+        return s;
     }
 
     // A generation made from 'script': synthetic alignment per section, every

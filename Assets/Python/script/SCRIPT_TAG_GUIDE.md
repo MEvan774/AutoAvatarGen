@@ -61,6 +61,7 @@ Paste this whole file to the model before asking it to write a script, or keep i
 | Big text (fullscreen) ✅ | timed: `{BigText:ONE LINE,3}` / `{BigText:LINE 1+LINE 2,4}` (≤4) — or line-by-line: `{BigText:LINE}` … `{BigText:End}` (no durations) | timed: yes / line-by-line: no (you place the End tag) |
 | Big image (article, left 3/4) 📁 | `{BigImage:name,5}` (pair with `{Position:Right}`) | yes |
 | Stage direction ✅ | `[deadpan]` `[slowing down, serious]` | no |
+| Pause ✅ | `{Pause:0.8}` — seconds, 0.1–3.0, on its own line | no (the value IS the length) |
 | Chapter timestamp ✅ | `{Timestamp:"Cold Open"}` | no |
 | Section heading ✅ | `## COLD OPEN` | n/a |
 
@@ -108,6 +109,33 @@ A delivery cue for the narration (pacing, tone). It is **not** spoken and produc
 [slowing down, serious] Here's what the policy actually says.
 ```
 These are **eleven_v3 audio tags** — they are sent to the model verbatim and consumed rather than voiced, which is why they read like directions to a performer (`[whispers]`, `[sighs]`, `[laughing]`) rather than like notes to an editor. Plain descriptive moods work well; the further a cue drifts from something a voice can *do*, the likelier v3 is to read it aloud instead. If a take ever speaks one, turn **Send [stage directions]** off in *MugsTech ▸ TTS ▸ Chunked Pipeline* (or `Chunked.Chunking.KeepStageDirections`) and they go back to being stripped before the request — everything else, including their `T=` timestamps, is unaffected.
+
+### Pause — `{Pause:seconds}`
+A **beat you can count on**: the gap in the voice at this point is **at least** that many seconds. eleven_v3 has no dependable pause control — a `[pause]`, an ellipsis or a dash is a suggestion it takes or ignores per take — so this tag is never sent to the voice. When the take is assembled, the engine measures the silence v3 actually left there and adds **only the difference**: a take that already paused long enough is left alone (at least N, never N on top). Nothing is re-rendered and no credits are spent, so adding, moving or changing a `{Pause}` is a **tag-only edit** (*Update Tags Only*).
+```
+Freezing only works on coins a company controls.
+{Excerpt:End}
+{Smirk}
+{Pause:0.8}
+[tired but clearly entertained] Somewhere, I like to think, a hacker is on hold with stablecoin customer support.
+```
+- **Own line, directly above the line that should land after the beat.** It marks the gap between the word before it and the word after it.
+- **It splits the tags around it.** Tags written **above** the pause fire as the silence begins — right after the setup's last word. Tags written **below** it fire as the silence ends, on the punchline's first word. This holds even when no silence had to be added. Above, the card closes and the smirk lands the moment the setup ends; he holds it through the beat, then speaks.
+- **The extreme close-up:** put the pause **below** the cut tags, so the cut fires, his face holds in silence, then the line comes:
+  ```
+  You can see where this is going.
+  {Excerpt:End}
+  {Position:Center,Cut}
+  {SmugLookingAtViewer,Cut}
+  {Zoom:ExtremeIn}
+  {Pause:0.7}
+  [flat] Yes. One laptop.
+  ```
+  The same `{Pause:0.7}` placed **above** the three cut tags gives the silence on the wide frame first; the cut then lands with the line.
+- **How long:** 0.5–0.8 s before a punchline; 1.0–1.5 s for a question hang or a number drop; 2.0 s only for the single biggest beat of the video. Seconds only (`0.8`, no `s`), from 0.1 to 3.0 — a value outside that is clamped and logged.
+- **It can only widen a silence that is there.** If the voice ran the two sentences together (no silence at all near the tag), nothing is inserted and the render log says so — the engine never cuts into speech. A pause placed mid-sentence by mistake lands on whatever silence is nearest, or on none. Either way, move it to a real sentence break, or regenerate that section. The log also flags a pause it had to look further afield for: listen to that beat.
+- **At a section edge** — after a section's last word, or before its first — it widens the gap between the two sections instead. Below an opening `{Transition}` the extra hold plays on the revealed scene, before the first word; anywhere else on the boundary it comes before the transition. Before the video's very first word or after its last it does nothing.
+- **One per gap.** Two pauses between the same two words count as one (the longer wins).
 
 ### Emotions — `{Neutral}` `{Excited}` `{Serious}` `{Sad}` `{Concerned}`
 Sets the avatar's facial expression. These five are the default set. Place on its own line just before the line it should color (may also appear inline, but own-line is preferred for clarity).
@@ -221,6 +249,15 @@ Hard-cuts a **fullscreen** black plane in (covering the character and all cards)
 - **Always close the pair.** Unlike `{Video:}`, nothing else ends a held black — no position change, card, or media dismisses it. An unclosed `{Black:Start}` stays black until the narration ends, where it's force-closed with a warning.
 - `{Black:End}` with no black showing is harmless (like a stray `{Video:End}`).
 - **A `{Black:Start}` on the script's final words can't be held** — nothing after the narration will ever close it, so it plays as a short ~2s timed cut instead. For an intentional closing black, use the timed form (`{Black:2}`).
+- **A question hang — hold the black in silence with `{Pause}`.** End the covered line, put a `{Pause}` on its own line, then `{Black:End}` on its own line **below** it. The silence is exactly where the tag is, and the End tag — being below the pause — cuts back on the payoff's first word:
+  ```
+  {Black:Start}
+  [quietly] So if no key leaked... who signed?
+  {Pause:1.2}
+  {Black:End}
+  [genuinely baffled, voice rising] {Position:Left,Cut}{Shocked}The keys did.
+  ```
+  **Scripts that still use a voiced `[pause]` for this** must close the black inline instead: put `{Black:End}` at the start of the return line, after its stage direction, with the return frame's tags behind it (`[genuinely baffled, voice rising] {Black:End}{Position:Left,Cut}{Shocked}The keys did.`). v3 puts the silence wherever it likes after a `[pause]`, so an own-line End can cut back early and leave the silence playing on the revealed frame. With `{Pause}` that workaround is no longer needed.
 
 ### Scene transitions — `{Transition:Type}` `[,speed]`
 A **whole-screen transition** that covers the screen, reconfigures the scene *behind* the cover, then reveals — so each one reads as a fresh section break. Three variants:
@@ -445,6 +482,7 @@ Don't mix the modes in one beat — a duration-less line landing while a timed B
 ## 5. Placement & timing
 
 - A tag fires at the moment the narration reaches **the next spoken word after the tag**. So place a tag on its own line *immediately before* the sentence (or right after the sentence whose end you're reacting to).
+- **The one exception is a `{Pause}`.** Tags written above a `{Pause}` fire as its silence begins — right after the previous word — and the tags below it fire on the next word, after the silence (§4 *"Pause"*).
 - Typical pattern: the spoken line, then the visual that should accompany the *next* line:
 ```
 [deadpan] A company did a thing. It was bad. Let's talk about it.
@@ -516,6 +554,7 @@ Notes on the example:
 - [ ] **Every `{Zoom:ExtremeIn}` has a matching `{Zoom:ExtremeOut}` later in the script** — count them, the totals must be equal. Neither tag carries a duration.
 - [ ] **No more than three `{Zoom:In}` in a run**, and every run is released (`{Zoom:Out}`, `,D=`, or something that ends it — §4 *"Camera zoom"*) before any side card, `{Image:}` or `{Video:}`.
 - [ ] **Every `{Black:Start}` has a matching `{Black:End}` later in the script** — count them, the totals must be equal. (The timed `{Black:seconds}` form needs no End tag.)
+- [ ] **Every `{Pause:seconds}` is on its own line between two sentences** — never on a line with spoken words, never mid-sentence — with a value from 0.1 to 3.0, **below** the tags that should fire before the beat and **above** the ones that should fire after it.
 - [ ] **Every 📁/🎬 media name (`Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll`) is a real name copied from `MEDIA_LIBRARY.md`** — exact spelling and case, no extension. Any beat without a confirmed name uses a ✅ text card (`Headline`/`Stat`/`Quote`/`Excerpt`/`BigText`) instead. No invented or placeholder names.
 - [ ] **No space next to a field-separating comma or between `"` and `"`** — `"a","b","c",5`, never `"a", "b", "c", 5`.
 - [ ] **No empty `""` fields; field counts exact** — `Headline` has 2 quoted fields, `Excerpt`/`Quote`/`Stat` have 3.

@@ -937,6 +937,19 @@ public class HybridAvatarSystem : MonoBehaviour
         renderer.transform.localScale = initialAvatarScale * ratio;
     }
 
+    // {Emotion}, {Emotion,T=X.XXX}, or with a per-tag transition override:
+    // {Emotion,Style} where Style is one of Cut / Blink / BlinkHeavy /
+    // SquashStretch / Crossfade / Shake / Grow / Shrink (BlinkHeavy is listed
+    // before Blink so the longer keyword wins). The Style modifier is accepted either before
+    // (group 2) or after (group 4) the pre-processor's appended ,T= so all of
+    // {Emotion,Style}, {Emotion,Style,T=X} and {Emotion,T=X,Style} parse.
+    // Position/Zoom/Media markers carry a ':' and are stripped before this runs —
+    // and a colon tag can never match anyway: a stray {Pause:0.8,T=1.2} is not
+    // an emotion (TtsPipelineSelfTests checks it against this very regex).
+    const string EmotionStyleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow|Shrink";
+    public static readonly Regex EmotionTagRegex = new Regex(
+        @"\{(\w+)(?:,(" + EmotionStyleAlt + @"))?(?:,T=(\d+(?:\.\d+)?))?(?:,(" + EmotionStyleAlt + @"))?\}");
+
     // Time-based markers. Prefers exact T=X.XXX timestamps baked in by the
     // ElevenLabs pre-processor; falls back to proportional char-count timing
     // when no T= is present (scripts that haven't been pre-processed).
@@ -945,16 +958,7 @@ public class HybridAvatarSystem : MonoBehaviour
         List<TimeMarkerData> markerList = new List<TimeMarkerData>();
         string clean = script;
 
-        // {Emotion}, {Emotion,T=X.XXX}, or with a per-tag transition override:
-        // {Emotion,Style} where Style is one of Cut / Blink / BlinkHeavy /
-        // SquashStretch / Crossfade / Shake / Grow / Shrink (BlinkHeavy is listed
-        // before Blink so the longer keyword wins). The Style modifier is accepted either before
-        // (group 2) or after (group 4) the pre-processor's appended ,T= so all of
-        // {Emotion,Style}, {Emotion,Style,T=X} and {Emotion,T=X,Style} parse.
-        // Position/Zoom/Media markers carry a ':' and are stripped before this runs.
-        const string styleAlt = "Cut|BlinkHeavy|Blink|SquashStretch|Crossfade|Shake|Grow|Shrink";
-        Regex regex = new Regex(
-            @"\{(\w+)(?:,(" + styleAlt + @"))?(?:,T=(\d+(?:\.\d+)?))?(?:,(" + styleAlt + @"))?\}");
+        Regex regex = EmotionTagRegex;
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
