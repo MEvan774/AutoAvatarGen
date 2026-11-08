@@ -86,8 +86,17 @@ namespace MugsTech.Background
             public float margin;    // how far past the frame edge it must be before wrapping
         }
 
+        /// <summary>
+        /// Drift speed multiplier, set by VioletDoodlesMood per {Mood:X}.
+        /// The drift clock accumulates scaled time, so a change alters the
+        /// speed from that frame on without moving any doodle. Runtime-only;
+        /// 1 = the authored speed.
+        /// </summary>
+        [System.NonSerialized] public float speedMultiplier = 1f;
+
         private Doodle[] doodles = new Doodle[0];
         private float startOffsetSeconds;
+        private float driftTime;     // accumulated Time.deltaTime * speedMultiplier
 
         void Start()
         {
@@ -130,11 +139,13 @@ namespace MugsTech.Background
             // even spacing slips a little every loop; a huge offset would
             // start the take with a layer already bunched up.
             startOffsetSeconds = randomizeStart ? Random.Range(0f, 600f) : 0f;
+            driftTime = Time.time;   // same phase the old Time.time clock had
         }
 
         void Update()
         {
-            float t = Time.time + startOffsetSeconds;
+            driftTime += Time.deltaTime * speedMultiplier;
+            float t = driftTime + startOffsetSeconds;
             float angleRad = driftAngleDeg * Mathf.Deg2Rad;
             Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
 

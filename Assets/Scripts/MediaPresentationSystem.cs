@@ -161,9 +161,15 @@ public class MediaPresentationSystem : MonoBehaviour
              "pins the synthwave instance. Optional: auto-found, and {Mood:} is a no-op if the " +
              "scene hosts no matching background.")]
     public MugsTech.Background.BackgroundMoodController moodController;
-    [Tooltip("Seconds the background mood crossfade takes when a {Mood:...} fires. Independent of the " +
-             "~0.7s transition; may finish slightly after the reveal (per the blueprint's 2-4s guidance).")]
+    [Tooltip("Seconds the background mood crossfade takes when a standalone {Mood:...} fires. A {Mood:...} " +
+             "on a {Transition:...} line doesn't fade: it switches instantly under the cover.")]
     public float moodCrossfadeSeconds = 3f;
+
+    // A mood tag this early in the take is the video's OPENING mood: it is
+    // snapped in before the recorder starts (no crossfade), so frame 0 already
+    // shows it — the cold open's {Mood:Minimal} must not be watched fading in
+    // over Calm under the hook. Later moods crossfade as usual.
+    const float OpeningMoodWindowSeconds = 1f;
 
     [Header("Transition Sound Effects")]
     // Each transition has two halves: cover ("in", the screen closes) and
@@ -809,6 +815,11 @@ public class MediaPresentationSystem : MonoBehaviour
         var moodResult = ParseMoodMarkers(scriptAfterTransitions, audio.length);
         string scriptAfterMood = moodResult.Item1;
         moodMarkers = moodResult.Item2;
+
+        // New take: reset the mood log, then snap in the opening mood (if the
+        // script opens on one) while the recorder is still idle.
+        MugsTech.Background.BackgroundStyleManager.BeginMoodRun();
+        ApplyOpeningMood();
 
         // Parse position markers (strips {Position:X} from script)
         var posResult = ParsePositionMarkers(scriptAfterMood, audio.length);
@@ -3034,7 +3045,7 @@ public class MediaPresentationSystem : MonoBehaviour
     // Runs at the instant of full cover (onCovered). Everything here is hidden
     // behind the overlay, so the reveal shows a fresh scene: Mugs already
     // repositioned (snap, never a visible slide), the new card swapped in (or the
-    // zone cleared), the new expression set, the mood crossfade started, any
+    // zone cleared), the new expression set, the new mood switched in, any
     // {Image:}/{Video:} now on screen, and the camera already at its new zoom —
     // none of it visible until the screen is fully covered.
     void ApplyTransitionCover(TransitionMarkerData m)
@@ -3050,9 +3061,14 @@ public class MediaPresentationSystem : MonoBehaviour
         if (!string.IsNullOrEmpty(m.emotion) && avatarSystem != null)
             avatarSystem.SetEmotionImmediate(m.emotion);
 
+        // A mood on the transition line SNAPS here, under full cover — the
+        // transition is the cut, so the reveal opens on the new colour world
+        // instead of easing out of the old one. Standalone {Mood:...} lines
+        // (no transition to hide behind) still crossfade.
         if (m.hasMood)
-            MugsTech.Background.BackgroundStyleManager.RouteMood(
-                m.mood, moodCrossfadeSeconds, moodController);
+            MugsTech.Background.BackgroundStyleManager.RouteMoodInstant(
+                m.mood, moodController,
+                voiceAudio != null ? voiceAudio.time : -1f, "under transition cover");
 
         if (contentZoneController != null)
         {
@@ -3094,6 +3110,29 @@ public class MediaPresentationSystem : MonoBehaviour
             }
     }
 
+    // The earliest mood in the take — a standalone {Mood:X} or one bundled on
+    // a {Transition:...} line — snapped in now when it sits inside
+    // OpeningMoodWindowSeconds. Its marker still fires later; the router sees
+    // the mood is already showing and does nothing.
+    void ApplyOpeningMood()
+    {
+        bool found = false;
+        float first = float.MaxValue;
+        var mood = MugsTech.Background.BackgroundMoodController.MoodType.CalmNeutral;
+
+        if (moodMarkers != null)
+            foreach (var m in moodMarkers)
+                if (m.triggerTime < first) { first = m.triggerTime; mood = m.mood; found = true; }
+
+        if (transitionMarkers != null)
+            foreach (var t in transitionMarkers)
+                if (t.hasMood && t.triggerTime < first) { first = t.triggerTime; mood = t.mood; found = true; }
+
+        if (!found || first > OpeningMoodWindowSeconds) return;
+
+        MugsTech.Background.BackgroundStyleManager.RouteMoodInstant(mood, moodController, first);
+    }
+
     IEnumerator TrackMoodByTime()
     {
         lastTriggeredMoodMarker = -1;
@@ -3109,7 +3148,7 @@ public class MediaPresentationSystem : MonoBehaviour
                 if (currentTime >= moodMarkers[i].triggerTime)
                 {
                     MugsTech.Background.BackgroundStyleManager.RouteMood(
-                        moodMarkers[i].mood, moodCrossfadeSeconds, moodController);
+                        moodMarkers[i].mood, moodCrossfadeSeconds, moodController, currentTime);
                     lastTriggeredMoodMarker = i;
                 }
                 else

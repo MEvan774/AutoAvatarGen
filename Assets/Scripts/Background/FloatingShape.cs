@@ -52,9 +52,20 @@ public class FloatingShape : MonoBehaviour
     /// </summary>
     [System.NonSerialized] public Vector3 externalOffset;
 
+    /// <summary>
+    /// Motion speed multiplier (wander, bob, sway), set by an outside driver —
+    /// VioletDoodlesMood slows the doodles down for Tense/Minimal and speeds
+    /// them up for Energetic/Playful. The motion clock ACCUMULATES scaled
+    /// time, so changing this mid-take changes speed, never position (a
+    /// Time.time * speed product would jump). Runtime-only, defaults to 1:
+    /// with no driver the motion is exactly what it always was.
+    /// </summary>
+    [System.NonSerialized] public float speedMultiplier = 1f;
+
     private Vector3 startPos;
     private Quaternion startRot;
     private float timeOffset;
+    private float motionTime;        // accumulated Time.deltaTime * speedMultiplier
     private Image uiImage;
     private SpriteRenderer spriteRenderer;
     private Material meshMaterial;   // instance created for the mesh path only
@@ -64,6 +75,7 @@ public class FloatingShape : MonoBehaviour
         startPos = transform.position;
         startRot = transform.localRotation;
         timeOffset = Random.Range(0f, 100f);
+        motionTime = Time.time;      // same phase the old Time.time clock had
         ApplyOpacityToWhateverRendersThis();
     }
 
@@ -117,7 +129,8 @@ public class FloatingShape : MonoBehaviour
 
     void Update()
     {
-        float t = Time.time + timeOffset;
+        motionTime += Time.deltaTime * speedMultiplier;
+        float t = motionTime + timeOffset;
 
         // Slow Perlin wander around the start point — smooth arcs that never
         // visibly repeat. timeOffset doubles as the per-shape noise seed so

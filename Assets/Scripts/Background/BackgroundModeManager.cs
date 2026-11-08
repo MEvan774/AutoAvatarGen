@@ -329,7 +329,10 @@ namespace MugsTech.Background
 
         // Violet Doodles twin — find-and-toggle only: the rig is a regular
         // prefab authored into the scene (no on-demand creation), and it
-        // carries its own BackgroundVignette child, so no auto-add here.
+        // carries its own BackgroundVignette child, so no vignette auto-add.
+        // Its {Mood:X} driver (VioletDoodlesMood) IS added here at runtime, so
+        // the "[Mood] profiles" line lands at recording-scene load and the
+        // prefab/scene never needed editing.
         static bool ToggleVioletDoodlesBackground(bool shouldBeActive)
         {
             GameObject target = FindInActiveScene(VioletDoodlesObjectName);
@@ -337,8 +340,13 @@ namespace MugsTech.Background
 
             if (target.activeSelf != shouldBeActive)
                 target.SetActive(shouldBeActive);
+            if (shouldBeActive)
+                VioletDoodlesMood.Attach(target);
             return true;
         }
+
+        /// <summary>The Violet Doodles rig in the active scene (active or not), or null.</summary>
+        public static GameObject FindVioletDoodlesRig() => FindInActiveScene(VioletDoodlesObjectName);
 
         // NightCityBokeh twin of ToggleLateNightDeskBackground — identical
         // on-demand creation, vignette auto-add and clean-switch semantics.

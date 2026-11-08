@@ -6,7 +6,9 @@ namespace MugsTech.Background
     /// {Mood:Calm/Energetic/Tense/Playful/Minimal} markers.
     ///
     /// Implemented by <see cref="BackgroundMoodController"/> (the original
-    /// ambient/synthwave mood driver) and <see cref="LateNightDeskBackground"/>.
+    /// ambient/synthwave mood driver), <see cref="LateNightDeskBackground"/>,
+    /// <see cref="NightCityBokehBackground"/> and <see cref="VioletDoodlesMood"/>
+    /// (one picture per mood, crossfaded).
     /// The mood vocabulary is shared on purpose: script tags map onto
     /// <see cref="BackgroundMoodController.MoodType"/> once (see
     /// MediaPresentationSystem.TryMapMood) and every background interprets the

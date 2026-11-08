@@ -1,0 +1,61 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7bfa528b259d4ee9a7d81ace239e0c22, type: 3}
+  m_Name: MoodBackgrounds
+  m_EditorClassIdentifier: 
+  iconShader: {fileID: 4800000, guid: f5245dff557246e9acce1454fd04feb2, type: 3}
+  moods:
+  - mood: 0
+    background: {fileID: 0}
+    look:
+      tintIcons: 0
+      iconTint: {r: 1, g: 1, b: 1, a: 1}
+      iconAlpha: 1.0
+      particleSpeed: 1.0
+      particleEmission: 1.0
+      vignette: 0.0
+  - mood: 1
+    background: {fileID: 2800000, guid: 070eb9bef40940e0a1f6174bb72e0376, type: 3}
+    look:
+      tintIcons: 1
+      iconTint: {r: 1, g: 0.721569, b: 0.878431, a: 1}
+      iconAlpha: 1.0
+      particleSpeed: 1.4
+      particleEmission: 1.3
+      vignette: 0.0
+  - mood: 2
+    background: {fileID: 2800000, guid: 1e347a831be64ab185301d179b4e4598, type: 3}
+    look:
+      tintIcons: 1
+      iconTint: {r: 0.654902, g: 0.690196, b: 0.768627, a: 1}
+      iconAlpha: 0.6
+      particleSpeed: 0.7
+      particleEmission: 0.8
+      vignette: 0.35
+  - mood: 3
+    background: {fileID: 2800000, guid: 62d31204414d47f98f61678411a989b2, type: 3}
+    look:
+      tintIcons: 1
+      iconTint: {r: 0.721569, g: 1, b: 0.941176, a: 1}
+      iconAlpha: 1.0
+      particleSpeed: 1.2
+      particleEmission: 1.2
+      vignette: 0.0
+  - mood: 4
+    background: {fileID: 2800000, guid: cede856ab1794b37a3f3297f979f8091, type: 3}
+    look:
+      tintIcons: 1
+      iconTint: {r: 0.811765, g: 0.835294, b: 0.87451, a: 1}
+      iconAlpha: 0.7
+      particleSpeed: 0.6
+      particleEmission: 0.5
+      vignette: 0.2

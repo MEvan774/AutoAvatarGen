@@ -503,6 +503,21 @@ public class AutomationRunner : MonoBehaviour
         }
         sb.Append(pauses.Count > 0 ? "\n  ],\n" : "],\n");
 
+        // {Mood:X} changes as they happened (BackgroundStyleManager): seconds on
+        // the voice clock, the script's mood name, and whether it was snapped in
+        // (the opening mood, at frame 0) rather than crossfaded.
+        sb.Append("  \"moods\": [");
+        var moods = MugsTech.Background.BackgroundStyleManager.MoodEvents;
+        for (int i = 0; i < moods.Count; i++)
+        {
+            sb.Append(i == 0 ? "\n" : ",\n");
+            sb.Append("    { \"seconds\": ").Append(F(moods[i].Seconds))
+              .Append(", \"mood\": ").Append(JsonStr(MugsTech.Background.MoodLook.ScriptName(moods[i].Mood)))
+              .Append(", \"instant\": ").Append(moods[i].Instant ? "true" : "false")
+              .Append(" }");
+        }
+        sb.Append(moods.Count > 0 ? "\n  ],\n" : "],\n");
+
         sb.Append("  \"playerLogPath\": ").Append(JsonStr(Application.consoleLogPath)).Append(",\n");
         sb.Append("  \"startedUtc\": ").Append(JsonStr(startedUtc.ToString("o"))).Append(",\n");
         sb.Append("  \"finishedUtc\": ").Append(JsonStr(DateTime.UtcNow.ToString("o"))).Append(",\n");

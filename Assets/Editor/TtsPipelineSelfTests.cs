@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using MugsTech.Tts;
+using Bg = MugsTech.Background;
 using UnityEditor;
 using UnityEngine;
 
@@ -62,6 +63,13 @@ public static class TtsPipelineSelfTests
         Pause_NeverSplicesIntoSpeech(log);
         Pause_SectionEdgesWidenTheGapBetweenSections(log);
         Pause_StripTakesTheWholeLine(log);
+        Moods_EveryMoodHasABuiltInLook(log);
+        Moods_CoverFitNeverStretches(log);
+        Moods_InterruptedCrossfadeIsContinuous(log);
+        Moods_RepeatIsANoOpAndZeroSnaps(log);
+        Moods_LookFollowsThePicture(log);
+        Moods_VignetteDarkensOnlyWhereAsked(log);
+        Moods_TagOnlyEditsAreAllowed(log);
 
         log.Report();
     }
@@ -931,6 +939,197 @@ Freezing only works on coins a company controls.
             "an own-line {Pause} takes its line with it; an inline one just leaves");
         log.AreEqual(3, removed, "every one is counted");
         log.AreEqual("no tags here", PauseInserter.StripTags("no tags here"), "a script without one is untouched");
+    }
+
+    // -----------------------------------------------------------------------
+    // Moods — {Mood:X} on the Violet Doodles backdrop (MoodLook / MoodLayerStack)
+    // -----------------------------------------------------------------------
+
+    static void Moods_EveryMoodHasABuiltInLook(Log log)
+    {
+        var all = (Bg.BackgroundMoodController.MoodType[])Enum.GetValues(typeof(Bg.BackgroundMoodController.MoodType));
+        log.AreEqual(Bg.MoodLook.MoodCount, all.Length, "five moods");
+
+        string names = string.Join(",", Array.ConvertAll(all, Bg.MoodLook.ScriptName));
+        log.AreEqual("Calm,Energetic,Tense,Playful,Minimal", names, "named as the script spells them");
+
+        var calm = Bg.MoodLook.DefaultProfile(Bg.BackgroundMoodController.MoodType.CalmNeutral);
+        log.IsTrue(!calm.tintIcons && calm.iconAlpha == 1f && calm.particleSpeed == 1f
+                   && calm.particleEmission == 1f && calm.vignette == 0f,
+            "Calm is the rig exactly as painted (no tint, every multiplier 1, no extra vignette)");
+
+        var tense = Bg.MoodLook.DefaultProfile(Bg.BackgroundMoodController.MoodType.TenseDramatic);
+        log.IsTrue(tense.tintIcons, "Tense tints the doodles");
+        log.Near(0.6f, tense.iconAlpha, 1e-6f, "Tense doodle alpha is moods.json's 0.6");
+        log.Near(0.35f, tense.vignette, 1e-6f, "Tense vignette is moods.json's 0.35");
+        log.Near(0xa7 / 255f, tense.iconTint.r, 1e-6f, "Tense tint is #a7b0c4");
+
+        var tints = new HashSet<string>();
+        foreach (var m in all)
+        {
+            if (m == Bg.BackgroundMoodController.MoodType.CalmNeutral) continue;
+            var p = Bg.MoodLook.DefaultProfile(m);
+            log.IsTrue(p.tintIcons, $"{Bg.MoodLook.ScriptName(m)} has a doodle tint");
+            tints.Add($"{p.iconTint.r:F3}/{p.iconTint.g:F3}/{p.iconTint.b:F3}");
+        }
+        log.AreEqual(4, tints.Count, "the four tinted moods each have their own tint");
+    }
+
+    static void Moods_CoverFitNeverStretches(Log log)
+    {
+        var frames = new[] { (w: 17.78f, h: 10f, label: "16:9 frame"), (w: 16.72f, h: 9.41f, label: "the Calm artwork") };
+        var pictures = new[]
+        {
+            (w: 1920f, h: 1080f, label: "16:9"), (w: 1536f, h: 1024f, label: "3:2"),
+            (w: 1600f, h: 1200f, label: "4:3"),  (w: 2560f, h: 1080f, label: "21:9"),
+            (w: 1672f, h: 941f,  label: "Calm's own 1672x941"),
+        };
+
+        foreach (var f in frames)
+        foreach (var p in pictures)
+        {
+            // One factor for both axes is the "never stretch" guarantee.
+            float k = Bg.MoodLook.CoverScale(p.w, p.h, f.w, f.h);
+            float w = p.w * k, h = p.h * k;
+            log.IsTrue(w >= f.w - 1e-3f && h >= f.h - 1e-3f, $"{p.label} covers {f.label} ({w:F2}x{h:F2})");
+            log.IsTrue(Math.Min(w - f.w, h - f.h) <= 1e-3f, $"{p.label} on {f.label} is cropped on one axis only");
+        }
+    }
+
+    static void Moods_InterruptedCrossfadeIsContinuous(Log log)
+    {
+        // Stand-in colours per mood (swatch-like), composited through the
+        // stack's weights exactly as the layered SpriteRenderers do.
+        var colour = new Dictionary<Bg.BackgroundMoodController.MoodType, float[]>
+        {
+            { Bg.BackgroundMoodController.MoodType.CalmNeutral,   new[] { 0.20f, 0.18f, 0.55f } },
+            { Bg.BackgroundMoodController.MoodType.Energetic,     new[] { 0.85f, 0.15f, 0.55f } },
+            { Bg.BackgroundMoodController.MoodType.TenseDramatic, new[] { 0.05f, 0.05f, 0.07f } },
+        };
+        float[] Shown(Bg.MoodLayerStack st)
+        {
+            var c = new float[3];
+            float total = 0f;
+            for (int i = 0; i < st.Count; i++)
+            {
+                float w = st.Weight(i);
+                total += w;
+                for (int k = 0; k < 3; k++) c[k] += w * colour[st[i].Mood][k];
+            }
+            log.Near(1f, total, 1e-4f, "layer weights always sum to 1");
+            return c;
+        }
+        float Jump(float[] a, float[] b)
+        {
+            float d = 0f;
+            for (int k = 0; k < 3; k++) d = Math.Max(d, Math.Abs(a[k] - b[k]));
+            return d;
+        }
+
+        const float fade = 3f, dt = 1f / 30f;
+        const int frames = 90;   // 3 s at 30 fps
+
+        // Uninterrupted fades: the per-frame step a normal crossfade takes.
+        float StepOf(Bg.BackgroundMoodController.MoodType a, Bg.BackgroundMoodController.MoodType b)
+            => Jump(colour[a], colour[b]) / frames;
+        float allowed = Math.Max(StepOf(Bg.BackgroundMoodController.MoodType.CalmNeutral, Bg.BackgroundMoodController.MoodType.Energetic),
+                        Math.Max(StepOf(Bg.BackgroundMoodController.MoodType.CalmNeutral, Bg.BackgroundMoodController.MoodType.TenseDramatic),
+                                 StepOf(Bg.BackgroundMoodController.MoodType.Energetic,   Bg.BackgroundMoodController.MoodType.TenseDramatic)));
+
+        var stack = new Bg.MoodLayerStack(Bg.BackgroundMoodController.MoodType.CalmNeutral);
+        stack.Push(Bg.BackgroundMoodController.MoodType.Energetic, fade);
+        float[] prev = Shown(stack);
+        float worst = 0f;
+        for (int f = 1; f <= 300; f++)
+        {
+            if (f == 37)   // 40 % into Calm -> Energetic, Tense arrives
+            {
+                float[] before = Shown(stack);
+                stack.Push(Bg.BackgroundMoodController.MoodType.TenseDramatic, fade);
+                log.Near(0f, Jump(before, Shown(stack)), 1e-6f, "the frame Tense arrives shows exactly what was on screen");
+            }
+            stack.Step(dt);
+            float[] now = Shown(stack);
+            worst = Math.Max(worst, Jump(prev, now));
+            prev = now;
+        }
+
+        log.IsTrue(worst <= allowed * 1.0001f + 1e-6f,
+            $"no frame jumps more than an uninterrupted fade's step ({worst:F5} ≤ {allowed:F5})");
+        log.AreEqual(1, stack.Count, "once Tense is fully in, the hidden layers are dropped");
+        log.AreEqual(Bg.BackgroundMoodController.MoodType.TenseDramatic, stack.Target, "and Tense is what's left");
+        log.Near(0f, Jump(prev, colour[Bg.BackgroundMoodController.MoodType.TenseDramatic]), 1e-6f, "showing Tense exactly");
+    }
+
+    static void Moods_RepeatIsANoOpAndZeroSnaps(Log log)
+    {
+        var stack = new Bg.MoodLayerStack(Bg.BackgroundMoodController.MoodType.MinimalFocus);
+        log.IsTrue(!stack.Push(Bg.BackgroundMoodController.MoodType.MinimalFocus, 3f),
+            "asking for the mood already shown changes nothing (the opening tag firing after its frame-0 snap)");
+        log.AreEqual(1, stack.Count, "no layer was added");
+
+        stack.Push(Bg.BackgroundMoodController.MoodType.Energetic, 3f);
+        log.IsTrue(!stack.Push(Bg.BackgroundMoodController.MoodType.Energetic, 3f), "nor does repeating the mood being faded to");
+        log.AreEqual(2, stack.Count, "still one fade in flight");
+
+        stack.Push(Bg.BackgroundMoodController.MoodType.PlayfulLight, 0f);
+        log.AreEqual(1, stack.Count, "a zero-length fade snaps");
+        log.Near(1f, stack.Weight(0), 1e-6f, "straight to full");
+
+        stack.Reset(Bg.BackgroundMoodController.MoodType.CalmNeutral);
+        log.IsTrue(stack.Count == 1 && stack.Target == Bg.BackgroundMoodController.MoodType.CalmNeutral && !stack.IsFading,
+            "an instant mood is one opaque layer, nothing in flight");
+    }
+
+    static void Moods_LookFollowsThePicture(Log log)
+    {
+        var stack = new Bg.MoodLayerStack(Bg.BackgroundMoodController.MoodType.CalmNeutral);
+        stack.Push(Bg.BackgroundMoodController.MoodType.TenseDramatic, 3f);
+        stack.Step(1.5f);   // halfway
+
+        var profiles = new List<Bg.MoodProfile>();
+        var weights = new List<float>();
+        for (int i = 0; i < stack.Count; i++)
+        {
+            profiles.Add(Bg.MoodLook.DefaultProfile(stack[i].Mood));
+            weights.Add(stack.Weight(i));
+        }
+        var look = Bg.MoodLook.Blend(profiles, weights, out float tintAmount);
+        log.Near(0.5f, tintAmount, 1e-5f, "halfway to Tense the doodles are half recoloured");
+        log.Near(0.8f, look.iconAlpha, 1e-5f, "and half way to Tense's opacity");
+        log.Near(0.85f, look.particleSpeed, 1e-5f, "and to its speed");
+        log.Near(0.175f, look.vignette, 1e-5f, "and to its vignette");
+        log.Near(0xa7 / 255f, look.iconTint.r, 1e-5f, "the tint itself is Tense's (only its amount fades)");
+
+        stack.Step(5f);
+        profiles.Clear(); weights.Clear();
+        profiles.Add(Bg.MoodLook.DefaultProfile(stack[0].Mood));
+        weights.Add(stack.Weight(0));
+        Bg.MoodLook.Blend(profiles, weights, out tintAmount);
+        log.Near(1f, tintAmount, 1e-6f, "fully in, the doodles are fully recoloured");
+    }
+
+    static void Moods_VignetteDarkensOnlyWhereAsked(Log log)
+    {
+        log.Near(0.45f,   Bg.MoodLook.VignetteAlpha(0.45f, 0f),    1e-6f, "0 leaves the authored vignette alone");
+        log.Near(0.6425f, Bg.MoodLook.VignetteAlpha(0.45f, 0.35f), 1e-6f, "Tense's 0.35 goes 35% of the way to black corners");
+        log.Near(1f,      Bg.MoodLook.VignetteAlpha(0.45f, 1f),    1e-6f, "1 is fully dark corners");
+        log.Near(1f,      Bg.MoodLook.VignetteAlpha(0.45f, 3f),    1e-6f, "and never past it");
+    }
+
+    static void Moods_TagOnlyEditsAreAllowed(Log log)
+    {
+        var gen = TagGeneration(TagScript, keepCues: false);
+        string edited = TagScript
+            .Replace("{Position:Center,Cut} {Neutral}\n", "{Position:Center,Cut} {Neutral} {Mood:Minimal}\n")
+            .Replace("{Mood:Calm}", "{Mood:Tense}");
+
+        var r = TagOnlyRetimer.Retime(edited, gen);
+        log.IsTrue(r.Success, $"adding a {{Mood}} and changing one on a transition line is a tag-only edit ({r.Error})");
+        if (!r.Success) return;
+        log.IsTrue(r.Sections[0].TimedScript.Contains("{Mood:Minimal"), "the new opening mood is stamped");
+        log.IsTrue(r.Sections[1].TimedScript.Contains("{Mood:Tense") && !r.Sections[1].TimedScript.Contains("{Mood:Calm"),
+            "the changed mood replaces the old one");
     }
 
     static float[] ToneWithGaps(float seconds, int rate, params (float from, float to)[] speech)
