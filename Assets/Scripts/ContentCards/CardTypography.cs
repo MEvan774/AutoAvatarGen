@@ -155,9 +155,55 @@ public static class CardTypography
         }
     }
 
+    // Noto Serif (SIL OFL 1.1, Resources/Fonts/NotoSerif-OFL.txt) — the
+    // Document card's paper face. Built like Inter ExtraBold: a runtime
+    // dynamic SDF asset from the TTF, common glyphs baked up front.
+    const string NotoSerifPath = "Fonts/NotoSerif-Regular";
+    const string NotoSerifBoldPath = "Fonts/NotoSerif-Bold";
+    static TMP_FontAsset s_NotoSerif, s_NotoSerifBold;
+    static bool s_NotoSerifFailed, s_NotoSerifBoldFailed;
+
+    /// <summary>Noto Serif Regular, or null (callers fall back to the card font).</summary>
+    public static TMP_FontAsset NotoSerif =>
+        RuntimeFont(NotoSerifPath, "NotoSerif-Regular SDF (runtime)", ref s_NotoSerif, ref s_NotoSerifFailed);
+
+    /// <summary>Noto Serif Bold, or null (callers fall back to the card font).</summary>
+    public static TMP_FontAsset NotoSerifBold =>
+        RuntimeFont(NotoSerifBoldPath, "NotoSerif-Bold SDF (runtime)", ref s_NotoSerifBold, ref s_NotoSerifBoldFailed);
+
+    static TMP_FontAsset RuntimeFont(string path, string name, ref TMP_FontAsset cache, ref bool failed)
+    {
+        if (cache != null) return cache;
+        if (failed) return null;
+
+        Font source = Resources.Load<Font>(path);
+        if (source != null)
+        {
+            try
+            {
+                cache = TMP_FontAsset.CreateFontAsset(source, 90, 9, GlyphRenderMode.SDFAA,
+                    1024, 1024, AtlasPopulationMode.Dynamic, true);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Cards] Could not build the {name} font asset: {e.Message}");
+            }
+        }
+        if (cache == null)
+        {
+            failed = true;
+            Debug.LogWarning($"[Cards] Resources/{path}.ttf missing or unreadable — the Document card falls back to the card font.");
+            return null;
+        }
+        cache.name = name;
+        cache.hideFlags = HideFlags.DontUnloadUnusedAsset;
+        cache.TryAddCharacters(HeavyPrewarmCharacters + "§¶");
+        return cache;
+    }
+
     /// <summary>
-    /// Loads the three card fonts (and bakes the heavy one's common glyphs) so
-    /// the first card of a take doesn't stall a frame loading a 33 MB atlas.
+    /// Loads the card fonts (and bakes their common glyphs) so the first card
+    /// of a take doesn't stall a frame loading a 33 MB atlas or building one.
     /// Called from ContentZoneController.Awake, before the recorder starts.
     /// </summary>
     public static void Prewarm()
@@ -165,6 +211,8 @@ public static class CardTypography
         _ = ContentCardUIBuilder.InterRegular;
         _ = ContentCardUIBuilder.InterBold;
         _ = InterExtraBold;
+        _ = NotoSerif;
+        _ = NotoSerifBold;
     }
 
     /// <summary>

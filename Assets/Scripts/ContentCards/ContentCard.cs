@@ -124,6 +124,16 @@ public abstract class ContentCard : MonoBehaviour
     }
 
     /// <summary>
+    /// Builds the card if its Awake hasn't run — which only happens for a card
+    /// added in edit mode (the self-tests drive ContentZoneController there).
+    /// In play mode Awake always runs first and this does nothing.
+    /// </summary>
+    public void EnsureBuilt()
+    {
+        if (canvasGroup == null) Awake();
+    }
+
+    /// <summary>
     /// Construct the card's UI hierarchy programmatically.
     /// Called from Awake — implementations should create all child GameObjects
     /// (background, text, images) and store references for Initialize().

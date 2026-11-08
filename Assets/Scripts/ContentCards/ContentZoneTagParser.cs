@@ -31,7 +31,27 @@ public static class ContentZoneTagParser
     private static readonly Regex StripAllRegex = new Regex(
         @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right)){0,2}\}" +
         @"|\{(?:Logo|BRoll):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
-        @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End(?:,T=\d+(?:\.\d+)?)?\}" +
+        @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End(?:,T=\d+(?:\.\d+)?)?\}" +
+        // {Compare:"value A","label A","value B","label B","source",duration|Start[,Left|,Right]}
+        // — and, after it, any other {Compare:…} (malformed: stripped, warned, skipped).
+        @"|\{Compare:""[^""]*""(?:,""[^""]*""){4}(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+        @"|\{Compare:[^}\n]*\}" +
+        // {Versus:"left label","left text","right label","right text",duration|Start[,Vs]}
+        // — and, after it, any other {Versus:…} (malformed: stripped, warned, skipped).
+        @"|\{Versus:""[^""]*""(?:,""[^""]*""){3}(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*Vs)?\}" +
+        @"|\{Versus:[^}\n]*\}" +
+        // {Document:"passage","phrase","source",duration|Start[,Allegation|,Filing|,Ruling|,Report][,Left|,Right]}
+        // — and, after it, any other {Document:…} (malformed: stripped, warned, skipped).
+        @"|\{Document:""[^""]*""(?:,""[^""]*""){2}(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Allegation|Filing|Ruling|Report))?(?:,\s*(?:Left|Right))?\}" +
+        @"|\{Document:[^}\n]*\}" +
+        // {Timeline:"date","event"[,Left|,Right]} — one node, no duration (stamped T=…,D=0) —
+        // and, after it, any other {Timeline:…} (malformed: stripped, warned, skipped).
+        @"|\{Timeline:""[^""]*"",""[^""]*""(?:,T=\d+(?:\.\d+)?)?(?:,D=0)?(?:,\s*(?:Left|Right))?\}" +
+        @"|\{Timeline:[^}\n]*\}" +
+        // {Map:"region","countries","caption","source",duration|Start[,Left|,Right]}
+        // — and, after it, any other {Map:…} (malformed: stripped, warned, skipped).
+        @"|\{Map:""[^""]*""(?:,""[^""]*""){3}(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+        @"|\{Map:[^}\n]*\}" +
         @"|\{(?:BigMedia|BigImage):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}" +
         // BigText's duration is OPTIONAL — the duration-less form is the
         // persistent line-by-line flow ({BigText:LINE}…{BigText:End}).
@@ -68,7 +88,48 @@ public static class ContentZoneTagParser
     // — closes the matching held card ({Tag:...,Start}), the same in-tag/out-tag
     // principle as {Black:Start}…{Black:End} and {BigText:LINE}…{BigText:End}.
     private static readonly Regex CardEndRegex = new Regex(
-        @"\{(Headline|Excerpt|Quote|Stat|Logo|BRoll):End(?:,T=(\d+(?:\.\d+)?))?\}");
+        @"\{(Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End(?:,T=(\d+(?:\.\d+)?))?\}");
+
+    // {Compare:"value A","label A","value B","label B","source",duration|Start[,Left|,Right]}
+    private static readonly Regex CompareRegex = new Regex(
+        @"\{Compare:""([^""]+)"",""([^""]+)"",""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
+
+    // Any {Compare:…} at all — the ones CompareRegex doesn't take are malformed.
+    private static readonly Regex CompareAnyRegex = new Regex(@"\{Compare:(?!End\b)[^}\n]*\}");
+
+    // {Versus:"left label","left text","right label","right text",duration|Start[,Vs]}
+    // — a fullscreen feature card, so no side.
+    private static readonly Regex VersusRegex = new Regex(
+        @"\{Versus:""([^""]+)"",""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Vs))?\}");
+
+    // Any {Versus:…} at all — the ones VersusRegex doesn't take are malformed.
+    private static readonly Regex VersusAnyRegex = new Regex(@"\{Versus:(?!End\b)[^}\n]*\}");
+
+    // {Document:"passage","phrase to highlight","source",duration|Start[,Allegation|,Filing|,Ruling|,Report][,Left|,Right]}
+    // The same first three fields as {Excerpt:}. The phrase and the source may
+    // be empty (no highlight / an empty header); the passage may not.
+    private static readonly Regex DocumentRegex = new Regex(
+        @"\{Document:""([^""]+)"",""([^""]*)"",""([^""]*)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Allegation|Filing|Ruling|Report))?(?:,\s*(Left|Right))?\}");
+
+    // Any {Document:…} at all — the ones DocumentRegex doesn't take are malformed.
+    private static readonly Regex DocumentAnyRegex = new Regex(@"\{Document:(?!End\b)[^}\n]*\}");
+
+    // {Timeline:"date","event"[,Left|,Right]} — one node of a line-by-line
+    // timeline (like {BigText:LINE}): no duration; the first node opens the
+    // card and its side applies, each later one adds a node, {Timeline:End}
+    // closes it. Stamped as T=…,D=0 with the side after it.
+    private static readonly Regex TimelineRegex = new Regex(
+        @"\{Timeline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?(?:,D=0)?(?:,\s*(Left|Right))?\}");
+
+    // Any {Timeline:…} at all — the ones TimelineRegex doesn't take are malformed.
+    private static readonly Regex TimelineAnyRegex = new Regex(@"\{Timeline:(?!End\b)[^}\n]*\}");
+
+    // {Map:"region","countries","caption","source",duration|Start[,Left|,Right]}
+    private static readonly Regex MapRegex = new Regex(
+        @"\{Map:""([^""]+)"",""([^""]*)"",""([^""]*)"",""([^""]*)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
+
+    // Any {Map:…} at all — the ones MapRegex doesn't take are malformed.
+    private static readonly Regex MapAnyRegex = new Regex(@"\{Map:(?!End\b)[^}\n]*\}");
 
     private static readonly Regex BigMediaRegex = new Regex(
         @"\{BigMedia:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
@@ -105,6 +166,11 @@ public static class ContentZoneTagParser
         ExtractBigMedias(script, audioDuration, totalCleanChars, events);
         ExtractBigTexts(script, audioDuration, totalCleanChars, events);
         ExtractBigImages(script, audioDuration, totalCleanChars, events);
+        ExtractCompares(script, audioDuration, totalCleanChars, events);
+        ExtractVersus(script, audioDuration, totalCleanChars, events);
+        ExtractDocuments(script, audioDuration, totalCleanChars, events);
+        ExtractTimelines(script, audioDuration, totalCleanChars, events);
+        ExtractMaps(script, audioDuration, totalCleanChars, events);
 
         // Sort by trigger time
         events.Sort((a, b) => a.triggerTime.CompareTo(b.triggerTime));
@@ -231,6 +297,213 @@ public static class ContentZoneTagParser
             Debug.Log($"  Quote at {time:F2}s: by {match.Groups[2].Value}");
         }
     }
+
+    // {Compare:…} → a side card with two bars. Warns once — quoting the tag —
+    // when the tag is malformed (skipped), when its values can't share a scale
+    // (the card shows them side by side, no bars), or when one bar would be
+    // thinner than the 3 % sliver it is drawn as.
+    private static void ExtractCompares(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        var taken = new HashSet<int>();
+        foreach (Match match in CompareRegex.Matches(script))
+        {
+            taken.Add(match.Index);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[6], audioDuration, totalCleanChars);
+            var fields = new[] { match.Groups[1].Value, match.Groups[2].Value, match.Groups[3].Value,
+                                 match.Groups[4].Value, match.Groups[5].Value };
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.Compare,
+                primaryText = fields[0],
+                secondaryText = fields[2],
+                tertiaryText = fields[4],
+                fields = fields,
+                duration = ParseDuration(match.Groups[7].Value),
+                entryDirectionOverride = ParseSide(match.Groups[8]),
+            });
+            Debug.Log($"  Compare at {time:F2}s: {fields[0]} vs {fields[2]}");
+
+            CompareMath.Bars bars = CompareMath.Ratios(fields[0], fields[2]);
+            if (!bars.Ok)
+                Debug.LogWarning($"[Card] Compare {Quote(match.Value)} at {time:F2}s: {bars.Problem} — " +
+                                 "showing both values side by side, no bars.");
+            else if (bars.SliverA || bars.SliverB)
+                Debug.LogWarning($"[Card] Compare {Quote(match.Value)} at {time:F2}s: " +
+                                 $"\"{(bars.SliverA ? fields[0] : fields[2])}\" is under 3 % of the other — drawn as a 3 % sliver.");
+        }
+
+        foreach (Match match in CompareAnyRegex.Matches(script))
+        {
+            if (taken.Contains(match.Index)) continue;
+            Debug.LogWarning($"[Card] Compare {Quote(match.Value)} isn't valid — it needs five non-empty quoted fields " +
+                             "(value A, label A, value B, label B, source), then a duration or Start, then an optional " +
+                             ",Left/,Right. Skipped.");
+        }
+    }
+
+    // {Versus:…} → the fullscreen claim-vs-evidence card. A malformed tag is
+    // skipped with one warning that quotes it.
+    private static void ExtractVersus(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        var taken = new HashSet<int>();
+        foreach (Match match in VersusRegex.Matches(script))
+        {
+            taken.Add(match.Index);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[5], audioDuration, totalCleanChars);
+            var fields = new[] { match.Groups[1].Value, match.Groups[2].Value, match.Groups[3].Value, match.Groups[4].Value };
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.Versus,
+                primaryText = fields[1],
+                secondaryText = fields[3],
+                fields = fields,
+                duration = ParseDuration(match.Groups[6].Value),
+                versusVs = match.Groups[7].Success,
+            });
+            Debug.Log($"  Versus at {time:F2}s: \"{fields[1]}\" vs \"{fields[3]}\"" + (match.Groups[7].Success ? " (VS)" : ""));
+        }
+
+        foreach (Match match in VersusAnyRegex.Matches(script))
+        {
+            if (taken.Contains(match.Index)) continue;
+            Debug.LogWarning($"[Card] Versus {Quote(match.Value)} isn't valid — it needs four non-empty quoted fields " +
+                             "(left label, left text, right label, right text), then a duration or Start, then an " +
+                             "optional ,Vs (it is fullscreen, so no ,Left/,Right). Skipped.");
+        }
+    }
+
+    // {Document:…} → a side card that looks like paper, with a marker sweep
+    // over the phrase and an optional stamp. Warns once — quoting the tag —
+    // when it is malformed (skipped) or when the phrase isn't in the passage
+    // (shown with no highlight; the same exact-match rule as {Excerpt:}).
+    private static void ExtractDocuments(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        var taken = new HashSet<int>();
+        foreach (Match match in DocumentRegex.Matches(script))
+        {
+            taken.Add(match.Index);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[4], audioDuration, totalCleanChars);
+            DocumentStamp stamp = match.Groups[6].Success
+                ? (DocumentStamp)System.Enum.Parse(typeof(DocumentStamp), match.Groups[6].Value)
+                : DocumentStamp.None;
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.Document,
+                primaryText = match.Groups[1].Value,
+                secondaryText = match.Groups[2].Value,
+                tertiaryText = match.Groups[3].Value,
+                duration = ParseDuration(match.Groups[5].Value),
+                documentStamp = stamp,
+                entryDirectionOverride = ParseSide(match.Groups[7]),
+            });
+            Debug.Log($"  Document at {time:F2}s: highlight=\"{match.Groups[2].Value}\"" +
+                      (stamp != DocumentStamp.None ? $", stamp {stamp}" : ""));
+
+            string phrase = match.Groups[2].Value;
+            if (phrase.Length > 0 && match.Groups[1].Value.IndexOf(phrase, System.StringComparison.Ordinal) < 0)
+                Debug.LogWarning($"[Card] Document {Quote(match.Value)} at {time:F2}s: the phrase \"{phrase}\" isn't in the " +
+                                 "passage (it must match exactly, as with Excerpt) — shown with no highlight.");
+        }
+
+        foreach (Match match in DocumentAnyRegex.Matches(script))
+        {
+            if (taken.Contains(match.Index)) continue;
+            Debug.LogWarning($"[Card] Document {Quote(match.Value)} isn't valid — it needs three quoted fields (a non-empty " +
+                             "passage, the phrase to highlight, the source), then a duration or Start, then an optional " +
+                             "stamp (,Allegation ,Filing ,Ruling ,Report), then an optional ,Left/,Right. Skipped.");
+        }
+    }
+
+    // {Timeline:…} → one node each. Which node opens a card, and the
+    // 5-node / later-side / cleared-before-End rules, are the controller's —
+    // they depend on what is on screen. A malformed tag is skipped with one
+    // warning that quotes it.
+    private static void ExtractTimelines(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        var taken = new HashSet<int>();
+        foreach (Match match in TimelineRegex.Matches(script))
+        {
+            taken.Add(match.Index);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[3], audioDuration, totalCleanChars);
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.Timeline,
+                primaryText = match.Groups[1].Value,
+                secondaryText = match.Groups[2].Value,
+                duration = 0f, // held: open until {Timeline:End}
+                entryDirectionOverride = ParseSide(match.Groups[4]),
+            });
+            Debug.Log($"  Timeline node at {time:F2}s: \"{match.Groups[1].Value}\" — \"{match.Groups[2].Value}\"");
+        }
+
+        foreach (Match match in TimelineAnyRegex.Matches(script))
+        {
+            if (taken.Contains(match.Index)) continue;
+            Debug.LogWarning($"[Card] Timeline {Quote(match.Value)} isn't valid — it needs two non-empty quoted fields " +
+                             "(date, event), then an optional ,Left/,Right — no duration. Skipped.");
+        }
+    }
+
+    // {Map:…} → a side card with a map. An unknown region skips the card;
+    // every code is checked against the baked Natural Earth data here, once —
+    // an unknown code, or one outside the region's view, is warned about and
+    // skipped (never guessed); the card lights only the rest.
+    private static void ExtractMaps(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        var taken = new HashSet<int>();
+        foreach (Match match in MapRegex.Matches(script))
+        {
+            taken.Add(match.Index);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[5], audioDuration, totalCleanChars);
+            string regionName = match.Groups[1].Value;
+            if (MapRegions.Find(regionName) == null)
+            {
+                Debug.LogWarning($"[Card] Map {Quote(match.Value)}: \"{regionName}\" isn't a region — use one of " +
+                                 $"{string.Join(", ", MapRegions.Names)}. Skipped.");
+                continue;
+            }
+            MapData.Region region = MapData.GetRegion(regionName);
+            if (region == null)
+            {
+                Debug.LogWarning($"[Card] Map {Quote(match.Value)}: no baked map data for {regionName} — skipped.");
+                continue;
+            }
+            var fields = new[] { regionName, match.Groups[2].Value, match.Groups[3].Value, match.Groups[4].Value };
+            MapData.CodeCheck check = MapData.CheckCodes(region, fields[1]);
+            foreach (string code in check.Unknown)
+                Debug.LogWarning($"[Card] Map {Quote(match.Value)} at {time:F2}s: \"{code}\" isn't a country code — skipped.");
+            foreach (string code in check.OutOfView)
+                Debug.LogWarning($"[Card] Map {Quote(match.Value)} at {time:F2}s: {code} is outside the {regionName} view — skipped.");
+            if (check.Lit.Count == 0)
+                Debug.LogWarning($"[Card] Map {Quote(match.Value)} at {time:F2}s: no country to light — the map is shown unlit.");
+
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.Map,
+                primaryText = fields[2],
+                secondaryText = fields[3],
+                fields = fields,
+                duration = ParseDuration(match.Groups[6].Value),
+                entryDirectionOverride = ParseSide(match.Groups[7]),
+            });
+            Debug.Log($"  Map at {time:F2}s: {regionName}, {check.Lit.Count} lit ({string.Join("+", check.Lit)})");
+        }
+
+        foreach (Match match in MapAnyRegex.Matches(script))
+        {
+            if (taken.Contains(match.Index)) continue;
+            Debug.LogWarning($"[Card] Map {Quote(match.Value)} isn't valid — it needs four quoted fields (a region, the " +
+                             "country codes joined with +, the caption, the source), then a duration or Start, then an " +
+                             "optional ,Left/,Right. Skipped.");
+        }
+    }
+
+    static string Quote(string tag) => tag.Length <= 90 ? tag : tag.Substring(0, 87) + "…}";
 
     private static void ExtractStats(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
     {

@@ -231,12 +231,40 @@ public class CardEntryAnimator : MonoBehaviour
         foreach (ContentCardType t in Enum.GetValues(typeof(ContentCardType)))
         {
             if (present.Contains(t)) continue;
-            perCardSettings.Add(new CardSettings
-            {
-                cardType = t,
-                direction = DefaultDirectionFor(t),
-            });
+            // A side card added after the scene was authored (Compare, Document,
+            // …) has no row yet: give it a copy of its sibling's (Stat for
+            // Compare, Excerpt for Document), so it slides exactly like it.
+            CardSettings stat = IsLaterSideCard(t) ? FindRow(SiblingOf(t)) : null;
+            perCardSettings.Add(stat != null
+                ? new CardSettings
+                  {
+                      cardType = t,
+                      overrideDirection = stat.overrideDirection,
+                      direction = stat.direction,
+                      slideDuration = stat.slideDuration,
+                      fadeInDuration = stat.fadeInDuration,
+                      slideDistanceFactor = stat.slideDistanceFactor,
+                  }
+                : new CardSettings
+                  {
+                      cardType = t,
+                      direction = DefaultDirectionFor(t),
+                  });
         }
+    }
+
+    private static bool IsLaterSideCard(ContentCardType t) =>
+        t == ContentCardType.Compare || t == ContentCardType.Document || t == ContentCardType.Timeline ||
+        t == ContentCardType.Map;
+
+    private static ContentCardType SiblingOf(ContentCardType t) =>
+        t == ContentCardType.Document ? ContentCardType.Excerpt : ContentCardType.Stat;
+
+    private CardSettings FindRow(ContentCardType t)
+    {
+        foreach (var s in perCardSettings)
+            if (s != null && s.cardType == t) return s;
+        return null;
     }
 
     private static EntryDirection DefaultDirectionFor(ContentCardType t)

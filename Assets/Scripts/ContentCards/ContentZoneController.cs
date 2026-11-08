@@ -71,6 +71,11 @@ public class ContentZoneController : MonoBehaviour
     // the card was still waiting — there is nothing left for them to close.
     private readonly HashSet<int> skippedEndIndices = new HashSet<int>();
 
+    // True once a Timeline was cleared (a transition, Center, a close-up) before
+    // its {Timeline:End}: its later nodes are ignored, and the End is a quiet
+    // no-op that resets this. Warned once, when it happens.
+    private bool timelineCleared;
+
     // Lazily-built mirror of `contentZone` on the right side of the screen. Side
     // cards tagged ",Right" rest here so they land on the right, mirroring how
     // default/",Left" cards sit in `contentZone` on the left.
@@ -82,7 +87,7 @@ public class ContentZoneController : MonoBehaviour
     /// <summary>The card on screen now (null when none) — read by the chapter titles.</summary>
     public ContentCard ActiveCard => activeCard;
 
-    /// <summary>True when the card on screen is a fullscreen one (BigText / ,bigCenter / BigMedia / BigImage).</summary>
+    /// <summary>True when the card on screen is a fullscreen one (BigText / ,bigCenter / BigMedia / BigImage / Versus).</summary>
     public bool ActiveCardIsFeature => activeCard != null && IsFeatureCard(activeCardType);
 
     /// <summary>True while a card is visible OR more are queued to play. The
@@ -101,6 +106,7 @@ public class ContentZoneController : MonoBehaviour
         // assets are 33 MB each and the heavy one is built at runtime, so
         // loading them on the take's first card would stall a captured frame.
         CardTypography.Prewarm();
+        MapData.Prewarm(); // the baked country shapes (~0.9 MB), read before the take starts
 
         // Auto-wire MediaPresentationSystem if not set
         if (mediaPresentationSystem == null)
@@ -235,6 +241,7 @@ public class ContentZoneController : MonoBehaviour
         heldCardIndex = -1;
         heldCardSeconds = 0f;
         skippedEndIndices.Clear();
+        timelineCleared = false;
 
         Debug.Log($"ContentZoneController: Timeline set with {events.Count} events");
     }
@@ -286,6 +293,7 @@ public class ContentZoneController : MonoBehaviour
                     if (SkippedWhileCentered(timeline[i]))
                     {
                         BlockIfInCloseUp(timeline[i]); // skipped either way — this names the mistake
+                        NoteTimelineSkippedAtCenter(timeline[i]);
                         lastTriggeredIndex = i;
                         continue;
                     }
@@ -330,6 +338,7 @@ public class ContentZoneController : MonoBehaviour
                 if (SkippedWhileCentered(timeline[i]))
                 {
                     BlockIfInCloseUp(timeline[i]);
+                    NoteTimelineSkippedAtCenter(timeline[i]);
                     lastTriggeredIndex = i;
                     continue;
                 }
@@ -372,6 +381,7 @@ public class ContentZoneController : MonoBehaviour
 
         ContentCardEvent evt = timeline[index];
         if (mediaPresentationSystem == null || evt.dismissesCard || IsFeatureCard(evt.cardType) ||
+            (evt.cardType == ContentCardType.Timeline && (OpenTimeline != null || timelineCleared)) ||
             !mediaPresentationSystem.IsPresenterGliding ||
             heldCardSeconds >= mediaPresentationSystem.PresenterLandCap)
             return false;
@@ -398,6 +408,10 @@ public class ContentZoneController : MonoBehaviour
             if (timeline[i].dismissesCard && timeline[i].cardType == evt.cardType)
             {
                 skippedEndIndices.Add(i);
+                // A Timeline's later nodes go with it — they'd open a timeline of their own.
+                if (evt.cardType == ContentCardType.Timeline)
+                    for (int j = index + 1; j < i; j++)
+                        if (timeline[j].cardType == ContentCardType.Timeline) skippedEndIndices.Add(j);
                 Debug.Log($"Skipped held {evt.cardType} card — its {{{evt.cardType}:End}} " +
                           "came due while it waited for the presenter.");
                 return true;
@@ -427,6 +441,13 @@ public class ContentZoneController : MonoBehaviour
         // up later with nothing left to ever close it.
         if (evt.dismissesCard)
         {
+            if (evt.cardType == ContentCardType.Timeline && timelineCleared)
+            {
+                timelineCleared = false;
+                closeUpCutHeldTypes.Remove(ContentCardType.Timeline);
+                Debug.Log("{Timeline:End} — its timeline was already cleared; nothing to close.");
+                return;
+            }
             if (EndClosesActiveCard(evt.cardType))
             {
                 activeCardPersistent = false; // hand the close to the normal hide flow
@@ -459,6 +480,12 @@ public class ContentZoneController : MonoBehaviour
                 TagSfxPlayer.Instance.Play(ContentCardType.BigText);
             return;
         }
+
+        // A {Timeline:…} node: added to the open timeline, ignored after the
+        // timeline was cleared, folded into one still waiting in the queue
+        // (it catches up when it shows) — or it opens a new timeline below.
+        if (evt.cardType == ContentCardType.Timeline && RouteTimelineNode(evt))
+            return;
 
         // If a card is already on screen (or others are waiting), queue this one
         // so co-timed / overlapping cards play back-to-back instead of cutting
@@ -500,6 +527,95 @@ public class ContentZoneController : MonoBehaviour
         return true;
     }
 
+    // ---- Timeline nodes ------------------------------------------------------------
+
+    // True when the node was handled here (added, folded or ignored); false
+    // when it opens a new timeline.
+    private bool RouteTimelineNode(ContentCardEvent evt)
+    {
+        if (timelineCleared)
+        {
+            Debug.Log($"[Card] Timeline node \"{evt.primaryText}\" ignored — its timeline was cleared before {{Timeline:End}}.");
+            return true;
+        }
+        if (OpenTimeline is TimelineCard open)
+        {
+            AddTimelineNode(open, evt, instant: false);
+            return true;
+        }
+        foreach (ContentCardEvent q in cardQueue)
+            if (q.cardType == ContentCardType.Timeline && !q.dismissesCard)
+                return true; // the queued timeline reads it ahead and adds it as it shows
+        return false;
+    }
+
+    private void AddTimelineNode(TimelineCard open, ContentCardEvent evt, bool instant)
+    {
+        if (evt.entryDirectionOverride != null)
+            Debug.LogWarning($"[Card] Timeline node \"{evt.primaryText}\": " +
+                             $",{(evt.entryDirectionOverride == EntryDirection.FromRight ? "Right" : "Left")} on a later node is " +
+                             "ignored — the first node's side applies.");
+        if (!open.AppendNode(evt.primaryText, evt.secondaryText, instant))
+        {
+            Debug.LogWarning($"[Card] Timeline node \"{evt.primaryText}\" ignored — a timeline holds at most " +
+                             $"{TimelineTypography.MaxNodes} nodes.");
+            return;
+        }
+        float t = voiceAudio != null ? voiceAudio.time : evt.triggerTime;
+        Debug.Log($"[Card] t={t:F2}s Timeline node {open.NodeCount} shown (\"{evt.primaryText}\")");
+        if (!instant) TagSfxPlayer.Instance.Play(ContentCardType.Timeline);
+    }
+
+    /// <summary>
+    /// Every node the Timeline opened by <paramref name="opening"/> will hold:
+    /// itself, then the Timeline nodes after it up to its {Timeline:End} (at
+    /// most five). An event that isn't in the timeline gets only itself.
+    /// </summary>
+    public static List<ContentCardEvent> AnticipateTimelineNodes(IList<ContentCardEvent> timeline, ContentCardEvent opening)
+    {
+        var nodes = new List<ContentCardEvent> { opening };
+        int idx = timeline != null ? timeline.IndexOf(opening) : -1;
+        if (idx < 0) return nodes;
+        for (int i = idx + 1; i < timeline.Count && nodes.Count < TimelineTypography.MaxNodes; i++)
+        {
+            ContentCardEvent e = timeline[i];
+            if (e.cardType != ContentCardType.Timeline) continue;
+            if (e.dismissesCard) break;
+            nodes.Add(e);
+        }
+        return nodes;
+    }
+
+    // The timeline on screen (or waiting in the queue) is gone before its End:
+    // say so once; its later nodes are ignored until that End.
+    private void NoteTimelineCleared(string by)
+    {
+        if (timelineCleared) return;
+        timelineCleared = true;
+        Debug.LogWarning($"[Card] Timeline cleared by {by} before {{Timeline:End}} — its later nodes are ignored.");
+    }
+
+    // The timeline on screen that a node can still join (not one fading out after its End).
+    private TimelineCard OpenTimeline => activeCard is TimelineCard t && !t.IsClosing ? t : null;
+
+    private bool TimelineOnScreenOrQueued()
+    {
+        if (OpenTimeline != null) return true;
+        foreach (ContentCardEvent q in cardQueue)
+            if (q.cardType == ContentCardType.Timeline && !q.dismissesCard) return true;
+        return false;
+    }
+
+    // Centered, side cards are skipped as they come due. A Timeline's first
+    // node skipped there takes its whole timeline with it; its End (skipped
+    // too) still ends that.
+    private void NoteTimelineSkippedAtCenter(ContentCardEvent evt)
+    {
+        if (evt.cardType != ContentCardType.Timeline) return;
+        if (evt.dismissesCard) { timelineCleared = false; return; }
+        if (!TimelineOnScreenOrQueued()) NoteTimelineCleared("Center (the presenter was centred as it came due)");
+    }
+
     /// <summary>
     /// Shows the next queued card once the current one has finished. While the
     /// timeline is paused (character centered) it skips — and drops — side cards
@@ -523,7 +639,10 @@ public class ContentZoneController : MonoBehaviour
             ContentCardEvent next = cardQueue.Dequeue();
 
             if (isPaused && !IsFeatureCard(next.cardType))
+            {
+                if (next.cardType == ContentCardType.Timeline && !next.dismissesCard) NoteTimelineCleared("Center");
                 continue; // centered — drop pending side cards
+            }
 
             RectTransform zone = GetZoneForCard(next);
             if (zone == null)
@@ -645,17 +764,19 @@ public class ContentZoneController : MonoBehaviour
     }
 
     /// <summary>
-    /// Fullscreen feature cards (BigMedia / BigCenter / BigText) render in the
+    /// Fullscreen feature cards (BigMedia / BigCenter / BigText / BigImage /
+    /// Versus) render in the
     /// featureMediaZone in FRONT of the character, so they don't clash with a
     /// centered character — they're allowed to appear even while the timeline is
     /// paused (character centered). Side cards share the character's space and
     /// stay suppressed at Center.
     /// </summary>
-    private static bool IsFeatureCard(ContentCardType type)
+    public static bool IsFeatureCard(ContentCardType type)
         => type == ContentCardType.BigMedia
         || type == ContentCardType.BigCenter
         || type == ContentCardType.BigText
-        || type == ContentCardType.BigImage;
+        || type == ContentCardType.BigImage
+        || type == ContentCardType.Versus;
 
     // Gives a zone its own override-sorting canvas so its cards render at a fixed
     // order regardless of the parent canvas — used to lift side cards above the
@@ -723,6 +844,11 @@ public class ContentZoneController : MonoBehaviour
             case ContentCardType.BigCenter: activeCard = cardObj.AddComponent<BigCenterCard>(); break;
             case ContentCardType.BigText: activeCard = cardObj.AddComponent<BigTextCard>(); break;
             case ContentCardType.BigImage: activeCard = cardObj.AddComponent<BigImageCard>(); break;
+            case ContentCardType.Compare: activeCard = cardObj.AddComponent<CompareCard>(); break;
+            case ContentCardType.Versus: activeCard = cardObj.AddComponent<VersusCard>(); break;
+            case ContentCardType.Document: activeCard = cardObj.AddComponent<DocumentCard>(); break;
+            case ContentCardType.Timeline: activeCard = cardObj.AddComponent<TimelineCard>(); break;
+            case ContentCardType.Map: activeCard = cardObj.AddComponent<MapCard>(); break;
             default:
                 Debug.LogWarning($"Unknown card type: {evt.cardType}");
                 Destroy(cardObj);
@@ -730,13 +856,27 @@ public class ContentZoneController : MonoBehaviour
         }
 
         activeCardType = evt.cardType;
+        activeCard.EnsureBuilt();
 
         // A BigText stack is sized once, from its longest line — including the
         // held flow's later {BigText:LINE} tags, read ahead from the timeline.
         if (activeCard is BigTextCard bigText)
             bigText.AnticipatedLines = AnticipateBigTextLines(timeline, evt);
 
+        // A Timeline likewise, from all its nodes up to its End.
+        List<ContentCardEvent> timelineNodes = null;
+        if (activeCard is TimelineCard timelineCard)
+        {
+            timelineNodes = AnticipateTimelineNodes(timeline, evt);
+            timelineCard.AnticipatedNodes = timelineNodes.ConvertAll(n => (n.primaryText, n.secondaryText));
+        }
+
         activeCard.Initialize(evt, cardAssets);
+
+        // Nodes whose beat passed while this timeline waited in the queue land at once.
+        if (activeCard is TimelineCard late && timelineNodes != null && voiceAudio != null)
+            for (int i = 1; i < timelineNodes.Count && timelineNodes[i].triggerTime <= voiceAudio.time; i++)
+                AddTimelineNode(late, timelineNodes[i], instant: true);
 
         // Compute and apply entry direction based on the active style preset
         // (falls back to FromBottom if no preset is active).
@@ -757,6 +897,7 @@ public class ContentZoneController : MonoBehaviour
         EndZoomRunForFeatureCard(evt.cardType);
 
         activeCard.Show();
+        LogCardShown(evt);
 
         // Per-tag sound effect — fires as the card actually appears. Queued or
         // centered-suppressed cards never reach here, so there are no phantom
@@ -806,6 +947,21 @@ public class ContentZoneController : MonoBehaviour
         return lines;
     }
 
+    // Card types added by the 2026-11 visual-devices brief log one line as they
+    // appear — "[Card] t=12.40s Compare shown (side=Left)" — which the MugsTech
+    // render report reads from Player.log. The older cards keep their own lines.
+    static readonly HashSet<ContentCardType> s_LoggedShown = new HashSet<ContentCardType>
+        { ContentCardType.Compare, ContentCardType.Versus, ContentCardType.Document, ContentCardType.Timeline, ContentCardType.Map };
+
+    private void LogCardShown(ContentCardEvent evt)
+    {
+        if (!s_LoggedShown.Contains(evt.cardType)) return;
+        float t = voiceAudio != null ? voiceAudio.time : evt.triggerTime;
+        string side = IsFeatureCard(evt.cardType) ? "Full" :
+                      evt.entryDirectionOverride == EntryDirection.FromRight ? "Right" : "Left";
+        Debug.Log($"[Card] t={t:F2}s {evt.cardType} shown (side={side})");
+    }
+
     // A fullscreen feature card ends any {Zoom:In} run as it appears. Only
     // the big headline's panel is opaque edge to edge, and it slides up over
     // panelSlideDuration — so the camera snaps back once the panel lands,
@@ -830,6 +986,7 @@ public class ContentZoneController : MonoBehaviour
             case ContentCardType.BigText:
             case ContentCardType.BigMedia:
             case ContentCardType.BigImage:
+            case ContentCardType.Versus:
                 mediaPresentationSystem.EndZoomRun($"{{{type}}}", hiddenBehindCover: false);
                 break;
         }
@@ -877,8 +1034,11 @@ public class ContentZoneController : MonoBehaviour
     /// the old card is gone the instant the screen reveals (the cover hides the
     /// pop-out). Does NOT touch the future timeline — later cards still fire.
     /// </summary>
-    public void ClearForTransition()
+    public void ClearForTransition() => ClearZone("a transition");
+
+    private void ClearZone(string by)
     {
+        if (TimelineOnScreenOrQueued()) NoteTimelineCleared(by);
         cardQueue.Clear();
 
         if (durationCoroutine != null) { StopCoroutine(durationCoroutine); durationCoroutine = null; }
@@ -890,7 +1050,8 @@ public class ContentZoneController : MonoBehaviour
             activeCard = null;
             card.OnHideComplete = null;
             card.KillAllTweens(); // nothing may keep animating the destroyed hierarchy
-            Destroy(card.gameObject);
+            if (Application.isPlaying) Destroy(card.gameObject);
+            else DestroyImmediate(card.gameObject); // the self-tests drive the controller in edit mode
         }
     }
 
@@ -916,7 +1077,7 @@ public class ContentZoneController : MonoBehaviour
                       (activeCard != null ? $"the {activeCardType} card" : "no active card") +
                       (cardQueue.Count > 0 ? $" and {cardQueue.Count} queued" : "") + ".");
 
-        ClearForTransition();
+        ClearZone("a {Zoom:ExtremeIn} close-up");
         activeCardPersistent = false;
     }
 
@@ -977,6 +1138,7 @@ public class ContentZoneController : MonoBehaviour
     private void FastHideSideCard()
     {
         if (activeCard == null || IsFeatureCard(activeCardType)) return;
+        if (OpenTimeline != null) NoteTimelineCleared("Center");
 
         activeCard.OnHideComplete = () =>
         {

@@ -200,13 +200,18 @@ public class TagSfxPlayer : MonoBehaviour
         {
             case ContentCardType.Headline:  Play(TagSfxEvent.Headline);  break;
             case ContentCardType.Excerpt:   Play(TagSfxEvent.Excerpt);   break;
+            case ContentCardType.Document:  Play(TagSfxEvent.Excerpt);   break; // a passage on paper
             case ContentCardType.Quote:     Play(TagSfxEvent.Quote);     break;
             case ContentCardType.Stat:      Play(TagSfxEvent.Stat);      break;
+            case ContentCardType.Compare:   Play(TagSfxEvent.Stat);      break; // a two-number Stat
+            case ContentCardType.Timeline:  Play(TagSfxEvent.Stat);      break; // each node, like a Stat landing
+            case ContentCardType.Map:       Play(TagSfxEvent.Stat);      break;
             case ContentCardType.Logo:      Play(TagSfxEvent.Logo);      break;
             case ContentCardType.BRoll:     Play(TagSfxEvent.BRoll);     break;
             case ContentCardType.BigMedia:  Play(TagSfxEvent.BigMedia);  break;
             case ContentCardType.BigCenter: Play(TagSfxEvent.BigCenter); break;
             case ContentCardType.BigText:   Play(TagSfxEvent.BigText);   break;
+            case ContentCardType.Versus:    Play(TagSfxEvent.BigText);   break; // the same fullscreen dim moment
         }
     }
 }

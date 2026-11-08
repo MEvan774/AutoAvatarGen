@@ -118,7 +118,12 @@ _ALL_MARKERS = re.compile(
        r'|\{Stat:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Win|Loss|NoArrow|Left|Right)){0,2}\}'  # stat cards (+optional arrow keyword and/or side, either order)
        r'|\{Logo:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
        r'|\{BRoll:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
-       r'|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End\}'                         # held pair closing edge ({Tag:...,Start}…{Tag:End})
+       r'|\{Compare:"[^"]*","[^"]*","[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'  # compare cards: value A, label A, value B, label B, source (+optional side); lockstep with TtsScriptProcessor.cs
+       r'|\{Versus:"[^"]*","[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*Vs)?\}'  # versus cards: left label, left text, right label, right text (+optional ,Vs); lockstep with TtsScriptProcessor.cs
+       r'|\{Document:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Allegation|Filing|Ruling|Report))?(?:,\s*(?:Left|Right))?\}'  # document cards: passage, phrase, source (+optional stamp, +optional side); lockstep with TtsScriptProcessor.cs
+       r'|\{Timeline:"[^"]*","[^"]*"(?:,\s*(?:Left|Right))?\}'  # timeline nodes: date, event (+optional side on the first); no duration; lockstep with TtsScriptProcessor.cs
+       r'|\{Map:"[^"]*","[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'  # map cards: region, countries (ISO codes joined with +), caption, source (+optional side); lockstep with TtsScriptProcessor.cs
+       r'|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End\}' # held pair closing edge ({Tag:...,Start}…{Tag:End})
        r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                # big-media feature cards
        r'|\{BigText:[^,}]+(?:,\d+(?:\.\d+)?)?\}'            # big-text cards — duration OPTIONAL (persistent {BigText:LINE}…{BigText:End} flow); lockstep with TtsScriptProcessor.cs
        r'|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}'                # big-image article cards
@@ -585,7 +590,7 @@ def _stamp_marker(marker: str, t: float) -> str:
     # {Headline:End} / {Quote:End} / {Logo:End} / … — the held pair's closing
     # edge ({Tag:...,Start}…{Tag:End}); keep the keyword verbatim (like
     # {Black:End}) so the runtime parser sees the close.
-    if re.match(r'^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End$', inner):
+    if re.match(r'^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End$', inner):
         return f"{{{inner},{ts}}}"
 
     # {Image:file,5}  /  {Video:file,0}  /  {Image:file,Start} held pair
@@ -626,6 +631,13 @@ def _stamp_marker(marker: str, t: float) -> str:
     if m_bt:
         return f"{{BigText:{m_bt.group(1)},{ts},D=0}}"
 
+    # {Timeline:"date","event"[,Left|,Right]} — a line-by-line node like
+    # {BigText:LINE}: D=0 (held), its side kept after it. Lockstep with
+    # TtsScriptProcessor.cs.
+    m_tl = re.match(r'^Timeline:("[^"]*","[^"]*")((?:,\s*(?:Left|Right))?)$', inner)
+    if m_tl:
+        return f"{{Timeline:{m_tl.group(1)},{ts},D=0{m_tl.group(2)}}}"
+
     # Content cards: Headline / Excerpt / Quote / Stat
     # Preserve an optional trailing modifier after D= — ",bigCenter" (Headline →
     # centered feature card) or ",Left"/",Right" (the side a side card flies in
@@ -635,7 +647,7 @@ def _stamp_marker(marker: str, t: float) -> str:
     # is the held pair form ({Quote:...,Start}…{Quote:End}) and stamps D=0 —
     # the same persistent marker the duration-less BigText flow uses.
     # Lockstep with TtsScriptProcessor.cs.
-    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right)){0,2})$',
+    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Allegation|Filing|Ruling|Report)){0,2})$',
                       inner, re.DOTALL)
     if m_card:
         suffix = m_card.group(4)

@@ -514,9 +514,10 @@ namespace MugsTech.Tts
             bool zero = d == "0";
             switch (kind)
             {
-                case "Image": case "Video": case "BigText":
+                case "Image": case "Video": case "BigText": case "Timeline":
                     return zero ? "" : "," + d;
                 case "Headline": case "Excerpt": case "Quote": case "Stat": case "Logo": case "BRoll":
+                case "Compare": case "Versus": case "Document": case "Map":
                     return zero ? ",Start" : "," + d;
                 default:
                     return "," + d;

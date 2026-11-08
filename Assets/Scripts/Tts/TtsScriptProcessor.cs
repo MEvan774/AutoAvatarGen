@@ -97,7 +97,17 @@ namespace MugsTech.Tts
             @"|\{Stat:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Win|Loss|NoArrow|Left|Right)){0,2}\}" +
             @"|\{Logo:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
             @"|\{BRoll:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
-            @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End\}" +
+            // {Compare:"value A","label A","value B","label B","source",duration|Start[,Left|,Right]}
+            @"|\{Compare:""[^""]*"",""[^""]*"",""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+            // {Versus:"left label","left text","right label","right text",duration|Start[,Vs]}
+            @"|\{Versus:""[^""]*"",""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*Vs)?\}" +
+            // {Document:"passage","phrase","source",duration|Start[,Allegation|,Filing|,Ruling|,Report][,Left|,Right]}
+            @"|\{Document:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Allegation|Filing|Ruling|Report))?(?:,\s*(?:Left|Right))?\}" +
+            // {Timeline:"date","event"[,Left|,Right]} — one node, no duration
+            @"|\{Timeline:""[^""]*"",""[^""]*""(?:,\s*(?:Left|Right))?\}" +
+            // {Map:"region","countries","caption","source",duration|Start[,Left|,Right]}
+            @"|\{Map:""[^""]*"",""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+            @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End\}" +
             @"|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}" +
             // BigText duration is OPTIONAL — duration-less is the persistent
             // line-by-line flow ({BigText:LINE}…{BigText:End}); kept in
@@ -486,7 +496,7 @@ namespace MugsTech.Tts
             // {Headline:End} / {Quote:End} / {Logo:End} / … — the held pair's
             // closing edge ({Tag:...,Start}…{Tag:End}); keep the keyword
             // verbatim (like {Black:End}) so the runtime parser sees the close.
-            if (Regex.IsMatch(innerCurly, @"^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll):End$"))
+            if (Regex.IsMatch(innerCurly, @"^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End$"))
                 return "{" + innerCurly + "," + ts + "}";
 
             // {Image:file,5}  /  {Video:file,0}  /  {Image:file,Start} held pair
@@ -540,6 +550,12 @@ namespace MugsTech.Tts
             if (mBigText.Success)
                 return "{BigText:" + mBigText.Groups[1].Value + "," + ts + ",D=0}";
 
+            // {Timeline:"date","event"[,Left|,Right]} — a line-by-line node like
+            // {BigText:LINE}: D=0 (held), its side kept after it.
+            Match mTimeline = Regex.Match(innerCurly, @"^Timeline:(""[^""]*"",""[^""]*"")((?:,\s*(?:Left|Right))?)$");
+            if (mTimeline.Success)
+                return "{Timeline:" + mTimeline.Groups[1].Value + "," + ts + ",D=0" + mTimeline.Groups[2].Value + "}";
+
             // Content cards: Headline / Excerpt / Quote / Stat
             // (DOTALL so embedded newlines in quoted text are tolerated). Preserve
             // an optional trailing modifier after D= — ",bigCenter" (Headline →
@@ -551,7 +567,7 @@ namespace MugsTech.Tts
             // ({Quote:...,Start}…{Quote:End}) and stamps D=0 — the same
             // persistent marker the duration-less BigText flow uses.
             Match mCard = Regex.Match(innerCurly,
-                @"^(Headline|Excerpt|Quote|Stat):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right)){0,2})$",
+                @"^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Allegation|Filing|Ruling|Report)){0,2})$",
                 RegexOptions.Singleline);
             if (mCard.Success)
             {

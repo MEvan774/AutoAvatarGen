@@ -74,6 +74,11 @@ public static partial class TtsPipelineSelfTests
         RunBigTextGroup(log);
         RunChapterGroup(log);
         RunSequenceGroup(log);
+        RunCompareGroup(log);
+        RunVersusGroup(log);
+        RunDocumentGroup(log);
+        RunTimelineGroup(log);
+        RunMapGroup(log);
 
         log.Report();
     }

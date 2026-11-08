@@ -12,7 +12,25 @@ public enum ContentCardType
     BigMedia,
     BigCenter,
     BigText,
-    BigImage
+    BigImage,
+    // Added at the END so the scene's serialized per-type rows (by number) keep their meaning.
+    Compare,
+    Versus,
+    Document,
+    Timeline,
+    Map
+}
+
+// The Document card's stamp, picked by an optional ",Allegation" / ",Filing" /
+// ",Ruling" / ",Report" keyword after the tag's duration. The stamp's words
+// come from the keyword (DocumentTypography.StampWords), never from the script.
+public enum DocumentStamp
+{
+    None,
+    Allegation,
+    Filing,
+    Ruling,
+    Report
 }
 
 // The Stat card's win/loss arrow, chosen by an optional ",Win" / ",Loss" /
@@ -43,9 +61,25 @@ public class ContentCardEvent
     //   BigCenter: primaryText=headline, secondaryText=source (Headline tag with ",bigCenter" modifier)
     //   BigText:   primaryText=text or '+'-joined texts (e.g. "Line One+Line Two+Line Three")
     //   BigImage:  primaryText=image name (left-3/4 article/headline screenshot; same lookup as {Image:})
+    //   Document:  primaryText=passage, secondaryText=highlighted phrase, tertiaryText=source
+    //   Timeline:  primaryText=date, secondaryText=event (one node; the first opens the card)
+    //   Map:       fields=region, countries, caption, source (primaryText=caption)
     public string primaryText;
     public string secondaryText;
     public string tertiaryText;
+
+    // Cards with more than three text fields keep all of them here, in tag
+    // order (Compare: value A, label A, value B, label B, source;
+    // Versus: left label, left text, right label, right text;
+    // Map: region, countries, caption, source).
+    public string[] fields;
+
+    // Versus only: the ",Vs" keyword — the glyph between the panels reads VS
+    // instead of ≠.
+    public bool versusVs;
+
+    // Document only: the stamp keyword (None = no stamp).
+    public DocumentStamp documentStamp;
 
     // Side cards (Headline/Excerpt/Quote/Stat/Logo/BRoll) accept an optional
     // trailing ",Left" / ",Right" that forces the side the card flies in from.
