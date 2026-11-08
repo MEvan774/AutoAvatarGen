@@ -79,6 +79,12 @@ public class ContentZoneController : MonoBehaviour
     /// <summary>True when a content card is currently visible.</summary>
     public bool IsCardActive => activeCard != null;
 
+    /// <summary>The card on screen now (null when none) — read by the chapter titles.</summary>
+    public ContentCard ActiveCard => activeCard;
+
+    /// <summary>True when the card on screen is a fullscreen one (BigText / ,bigCenter / BigMedia / BigImage).</summary>
+    public bool ActiveCardIsFeature => activeCard != null && IsFeatureCard(activeCardType);
+
     /// <summary>True while a card is visible OR more are queued to play. The
     /// recorder polls this so the take is held open until the queue drains.</summary>
     public bool HasActiveOrQueuedCard => activeCard != null || cardQueue.Count > 0;
@@ -90,6 +96,11 @@ public class ContentZoneController : MonoBehaviour
         // settings visible right next to the controller in the inspector.
         if (FindObjectOfType<CardEntryAnimator>() == null)
             gameObject.AddComponent<CardEntryAnimator>();
+
+        // Load the card fonts now, before the recorder starts — the Inter SDF
+        // assets are 33 MB each and the heavy one is built at runtime, so
+        // loading them on the take's first card would stall a captured frame.
+        CardTypography.Prewarm();
 
         // Auto-wire MediaPresentationSystem if not set
         if (mediaPresentationSystem == null)
@@ -719,6 +730,12 @@ public class ContentZoneController : MonoBehaviour
         }
 
         activeCardType = evt.cardType;
+
+        // A BigText stack is sized once, from its longest line — including the
+        // held flow's later {BigText:LINE} tags, read ahead from the timeline.
+        if (activeCard is BigTextCard bigText)
+            bigText.AnticipatedLines = AnticipateBigTextLines(timeline, evt);
+
         activeCard.Initialize(evt, cardAssets);
 
         // Compute and apply entry direction based on the active style preset
@@ -753,6 +770,40 @@ public class ContentZoneController : MonoBehaviour
         activeCardPersistent = evt.duration <= 0f;
         if (!activeCardPersistent)
             durationCoroutine = StartCoroutine(DurationTimer(evt.duration));
+    }
+
+    /// <summary>
+    /// Every line the BigText stack opened by <paramref name="opening"/> will
+    /// hold: its own '+'-joined lines, then the duration-less BigText tags after
+    /// it in the timeline up to its {BigText:End} (for a timed BigText: those
+    /// that come due within its duration). Stops at a new timed BigText (it
+    /// queues as its own card) and at the 4-line limit. An event that isn't in
+    /// the timeline (a card claimed by a transition line) gets its own lines.
+    /// </summary>
+    public static List<string> AnticipateBigTextLines(IList<ContentCardEvent> timeline, ContentCardEvent opening)
+    {
+        const int maxLines = 4;
+        var lines = new List<string>(maxLines);
+        void Add(string raw)
+        {
+            foreach (string part in (raw ?? string.Empty).Split('+'))
+                if (lines.Count < maxLines) lines.Add(part.Trim());
+        }
+
+        Add(opening.primaryText);
+        int idx = timeline != null ? timeline.IndexOf(opening) : -1;
+        if (idx < 0) return lines;
+
+        float end = opening.duration > 0f ? opening.triggerTime + opening.duration : float.MaxValue;
+        for (int i = idx + 1; i < timeline.Count && lines.Count < maxLines; i++)
+        {
+            ContentCardEvent e = timeline[i];
+            if (e.triggerTime > end) break;
+            if (e.cardType != ContentCardType.BigText) continue;
+            if (e.dismissesCard || e.duration > 0f) break; // its End, or the next timed card
+            Add(e.primaryText);
+        }
+        return lines;
     }
 
     // A fullscreen feature card ends any {Zoom:In} run as it appears. Only

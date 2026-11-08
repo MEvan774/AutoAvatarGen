@@ -163,6 +163,8 @@ public partial class MainMenuController : MonoBehaviour
         WirePresenterTransitionRow();
         EnsureCardEntryControls();
         WireCardEntryRow();
+        EnsureChapterTitleControls();
+        WireChapterTitleRow();
         EnsureBackgroundStyleControls();
         WireBackgroundStyleRow();
         EnsureOutputLibrary();

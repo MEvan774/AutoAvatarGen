@@ -19,7 +19,7 @@ using UnityEngine;
 /// Pipeline Self-Tests</b>. Everything here is offline — no API key, no
 /// credits, no ffmpeg.
 /// </summary>
-public static class TtsPipelineSelfTests
+public static partial class TtsPipelineSelfTests
 {
     [MenuItem("MugsTech/TTS/Run Pipeline Self-Tests")]
     public static void RunAll()
@@ -70,6 +70,10 @@ public static class TtsPipelineSelfTests
         Moods_LookFollowsThePicture(log);
         Moods_VignetteDarkensOnlyWhereAsked(log);
         Moods_TagOnlyEditsAreAllowed(log);
+        RunCardGroup(log);
+        RunBigTextGroup(log);
+        RunChapterGroup(log);
+        RunSequenceGroup(log);
 
         log.Report();
     }

@@ -1,11 +1,17 @@
+using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
 using DG.Tweening;
 
 /// <summary>
-/// Displays a quote with decorative quotation marks and attribution.
+/// Displays a quote with a large decorative opening mark and attribution.
 /// Tag: {Quote:"quote text","person name","role/title",duration}
 /// Self-building: constructs its own UI hierarchy in Awake.
+///
+/// Typography (see <see cref="CardTypography"/>): the quote, left-aligned and
+/// upright, auto-fits 56–80 px (warning under 44); the name (bold) and role
+/// sit beneath it, and the three form one vertically centred group. One big
+/// translucent “ in the accent colour sits behind the quote's top-left.
 /// </summary>
 public class QuoteCard : ContentCard
 {
@@ -14,88 +20,113 @@ public class QuoteCard : ContentCard
     private TextMeshProUGUI quoteText;
     private TextMeshProUGUI personName;
     private TextMeshProUGUI roleTitle;
-    private RectTransform openQuoteMark;
-    private RectTransform closeQuoteMark;
+    private TextMeshProUGUI quoteMarkText;
+    private RectTransform quoteMark;
+
+    private Vector2 laidOutSize = new Vector2(-1f, -1f);
+
+    /// <summary>The last layout (sizes, warnings) — read by the self-tests.</summary>
+    public CardTypography.Report Layout { get; private set; }
 
     protected override void BuildUI()
     {
         ContentCardUIBuilder.CreateBackground(rectTransform);
 
-        // Open quote mark (top-left)
-        TextMeshProUGUI openQuote = ContentCardUIBuilder.CreateText(
-            rectTransform, "OpenQuote", ContentCardUIBuilder.AccentColor,
-            80f, TextAlignmentOptions.TopLeft, FontStyles.Bold);
-        openQuote.text = "\u201C";
-        openQuoteMark = openQuote.rectTransform;
-        openQuoteMark.anchorMin = new Vector2(0f, 1f);
-        openQuoteMark.anchorMax = new Vector2(0f, 1f);
-        openQuoteMark.pivot = new Vector2(0f, 1f);
-        openQuoteMark.anchoredPosition = new Vector2(24f, -16f);
-        openQuoteMark.sizeDelta = new Vector2(80f, 80f);
+        // Decorative opening mark — created first so it renders BEHIND the quote.
+        Color markColor = ContentCardUIBuilder.AccentColor;
+        markColor.a = CardTypography.QuoteMarkAlpha;
+        quoteMarkText = ContentCardUIBuilder.CreateText(
+            rectTransform, "QuoteMark", markColor,
+            CardTypography.QuoteMarkPx, TextAlignmentOptions.TopLeft);
+        CardTypography.PrepareText(quoteMarkText, CardTypography.Weight.Heavy, TextAlignmentOptions.TopLeft);
+        quoteMarkText.textWrappingMode = TextWrappingModes.NoWrap;
+        quoteMarkText.text = "“";
+        quoteMark = quoteMarkText.rectTransform;
 
-        // Close quote mark (bottom-right)
-        TextMeshProUGUI closeQuote = ContentCardUIBuilder.CreateText(
-            rectTransform, "CloseQuote", ContentCardUIBuilder.AccentColor,
-            80f, TextAlignmentOptions.BottomRight, FontStyles.Bold);
-        closeQuote.text = "\u201D";
-        closeQuoteMark = closeQuote.rectTransform;
-        closeQuoteMark.anchorMin = new Vector2(1f, 0f);
-        closeQuoteMark.anchorMax = new Vector2(1f, 0f);
-        closeQuoteMark.pivot = new Vector2(1f, 0f);
-        closeQuoteMark.anchoredPosition = new Vector2(-24f, 16f);
-        closeQuoteMark.sizeDelta = new Vector2(80f, 80f);
-
-        // Quote text (centered)
         quoteText = ContentCardUIBuilder.CreateText(
-            rectTransform, "QuoteText",
-            ContentCardUIBuilder.TextPrimary,
-            36f, TextAlignmentOptions.Center, FontStyles.Italic);
-        ContentCardUIBuilder.SetStretch(quoteText.rectTransform, 48f, 64f, 48f, 140f);
-        quoteText.enableAutoSizing = true;
-        quoteText.fontSizeMin = 28f;
-        quoteText.fontSizeMax = 40f;
+            rectTransform, "QuoteText", ContentCardUIBuilder.TextPrimary,
+            CardTypography.BodyMaxPx, TextAlignmentOptions.TopLeft);
+        CardTypography.PrepareText(quoteText, CardTypography.Weight.Regular, TextAlignmentOptions.TopLeft);
 
-        // Person name (below quote)
         personName = ContentCardUIBuilder.CreateText(
-            rectTransform, "PersonName",
-            ContentCardUIBuilder.TextPrimary,
-            32f, TextAlignmentOptions.Center, FontStyles.Bold);
-        personName.rectTransform.anchorMin = new Vector2(0f, 0f);
-        personName.rectTransform.anchorMax = new Vector2(1f, 0f);
-        personName.rectTransform.pivot = new Vector2(0.5f, 0f);
-        personName.rectTransform.anchoredPosition = new Vector2(0f, 80f);
-        personName.rectTransform.sizeDelta = new Vector2(-96f, 32f);
+            rectTransform, "PersonName", ContentCardUIBuilder.TextPrimary,
+            CardTypography.NamePx, TextAlignmentOptions.TopLeft);
+        CardTypography.PrepareText(personName, CardTypography.Weight.Bold, TextAlignmentOptions.TopLeft);
 
-        // Role title (below name)
         roleTitle = ContentCardUIBuilder.CreateText(
-            rectTransform, "RoleTitle",
-            ContentCardUIBuilder.TextSecondary,
-            25f, TextAlignmentOptions.Center);
-        roleTitle.rectTransform.anchorMin = new Vector2(0f, 0f);
-        roleTitle.rectTransform.anchorMax = new Vector2(1f, 0f);
-        roleTitle.rectTransform.pivot = new Vector2(0.5f, 0f);
-        roleTitle.rectTransform.anchoredPosition = new Vector2(0f, 48f);
-        roleTitle.rectTransform.sizeDelta = new Vector2(-96f, 28f);
+            rectTransform, "RoleTitle", ContentCardUIBuilder.TextSecondary,
+            CardTypography.RolePx, TextAlignmentOptions.TopLeft);
+        CardTypography.PrepareText(roleTitle, CardTypography.Weight.Regular, TextAlignmentOptions.TopLeft);
     }
 
     public override void Initialize(ContentCardEvent data, ContentCardAssets assets)
     {
-        quoteText.text = data.primaryText;
-        personName.text = data.secondaryText;
-        roleTitle.text = data.tertiaryText;
+        quoteText.text = data.primaryText ?? string.Empty;
+        personName.text = data.secondaryText ?? string.Empty;
+        roleTitle.text = data.tertiaryText ?? string.Empty;
+        LayoutCard(log: true);
+    }
+
+    void LateUpdate()
+    {
+        // Re-lay out only if the card's size changed after Initialize (its rect
+        // wasn't resolved yet) — the slide moves the card, it never resizes it.
+        if (CardTypography.CardSize(rectTransform) != laidOutSize)
+            LayoutCard(log: false);
+    }
+
+    private void LayoutCard(bool log)
+    {
+        Vector2 size = CardTypography.CardSize(rectTransform);
+        laidOutSize = size;
+        float k = CardTypography.ScaleFor(size);
+        float pad = CardTypography.PaddingFor(size);
+
+        var report = new CardTypography.Report { Card = CardTypography.CardLabel("Quote", quoteText.text) };
+        var body = new CardTypography.Row { Name = "quote", Text = quoteText };
+        var rows = new List<CardTypography.Row>
+        {
+            new CardTypography.Row { Name = "name", Text = personName, SizePx = CardTypography.NamePx,
+                                     FloorPx = CardTypography.NameFloorPx, GapAbovePx = CardTypography.BodyToAttributionGapPx },
+            new CardTypography.Row { Name = "role", Text = roleTitle, SizePx = CardTypography.RolePx,
+                                     FloorPx = CardTypography.RoleFloorPx,
+                                     GapAbovePx = personName.text.Length > 0 ? CardTypography.NameToRoleGapPx
+                                                                              : CardTypography.BodyToAttributionGapPx },
+        };
+        float top = CardTypography.LayoutBodyGroup(rectTransform, report, body,
+            CardTypography.BodyMinPx, CardTypography.BodyMaxPx, CardTypography.BodyWarnFloorPx, rows);
+
+        PlaceQuoteMark(k, pad, top);
+        report.Add("mark", quoteMarkText, quoteMarkText.fontSize / k, CardTypography.HardFloorPx);
+
+        Layout = report;
+        if (log) report.LogSummary();
+    }
+
+    // The mark's ink sits at the inner area's left edge, rising
+    // QuoteMarkRise of its own height above the quote's first line — but never
+    // above the inner padding.
+    private void PlaceQuoteMark(float k, float pad, float bodyTop)
+    {
+        quoteMarkText.fontSize = CardTypography.QuoteMarkPx * k;
+        float boxW = quoteMarkText.fontSize * 1.2f, boxH = quoteMarkText.fontSize * 1.4f;
+        CardTypography.PlaceBox(quoteMarkText, pad, pad, boxW, boxH);
+
+        Rect ink = CardTypography.InkInCard(quoteMarkText, rectTransform);
+        if (ink.width <= 0f) return;
+
+        float targetTop = Mathf.Max(pad, bodyTop - ink.height * CardTypography.QuoteMarkRise);
+        float dx = pad - ink.xMin;
+        float dy = targetTop - ink.yMin;
+        CardTypography.PlaceBox(quoteMarkText, pad + dx, pad + dy, boxW, boxH);
     }
 
     public override void Show()
     {
-        if (openQuoteMark != null)
+        if (quoteMark != null)
         {
-            openQuoteMark.localScale = Vector3.one * 0.95f;
-            openQuoteMark.DOScale(Vector3.one, FadeInDuration).SetEase(Ease.OutQuad);
-        }
-        if (closeQuoteMark != null)
-        {
-            closeQuoteMark.localScale = Vector3.one * 0.95f;
-            closeQuoteMark.DOScale(Vector3.one, FadeInDuration).SetEase(Ease.OutQuad);
+            quoteMark.localScale = Vector3.one * 0.95f;
+            quoteMark.DOScale(Vector3.one, FadeInDuration).SetEase(Ease.OutQuad);
         }
 
         base.Show();

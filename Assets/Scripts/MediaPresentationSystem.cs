@@ -385,6 +385,7 @@ public class MediaPresentationSystem : MonoBehaviour
 
     // --- Timestamp (YouTube chapter) tracking ---
     private List<TimestampMarkerData> timestampMarkers;
+    private ChapterTitleController chapterTitles;
     private int lastTriggeredTimestampMarker = -1;
 
     // Authored size of the mediaDisplay rect, captured before anything resizes
@@ -810,6 +811,11 @@ public class MediaPresentationSystem : MonoBehaviour
         var trResult = ParseTransitionMarkers(scriptAfterTimestamps, audio.length);
         string scriptAfterTransitions = trResult.Item1;
         transitionMarkers = trResult.Item2;
+
+        // On-screen chapter titles (main-menu switch; null when off or with a
+        // single {Timestamp}). Reads the markers — never changes what they record.
+        if (chapterTitles != null) Destroy(chapterTitles.gameObject);
+        chapterTitles = ChapterTitleController.Create(this, voiceAudio, timestampMarkers, transitionMarkers);
 
         // Parse standalone {Mood:X} markers (transition-claimed ones already gone).
         var moodResult = ParseMoodMarkers(scriptAfterTransitions, audio.length);
@@ -2990,7 +2996,9 @@ public class MediaPresentationSystem : MonoBehaviour
         if (controller == null)
         {
             Debug.LogWarning("[Transition] No ScreenTransitionController — applying the scene change with no cover.");
+            if (chapterTitles != null) chapterTitles.OnTransitionStarted(m);
             ApplyTransitionCover(m);
+            if (chapterTitles != null) chapterTitles.OnTransitionRevealed(m);
             return;
         }
 
@@ -2998,7 +3006,10 @@ public class MediaPresentationSystem : MonoBehaviour
         // transition will actually run. Play() ignores the call while another
         // transition is mid-flight, so gating on IsBusy avoids a stray double whoosh.
         if (!controller.IsBusy)
+        {
             PlayTransitionSfx(m.transition);
+            if (chapterTitles != null) chapterTitles.OnTransitionStarted(m);
+        }
 
         // Play does nothing if a transition is already running, so two transition
         // tags can't overlap. The mutation runs at the cover midpoint, and the
@@ -3012,7 +3023,10 @@ public class MediaPresentationSystem : MonoBehaviour
                 ApplyTransitionCover(m);
                 PlayTransitionSfx(m.transition, reveal: true);
             },
-            null, m.durationScale);
+            // The cover has fully opened again — a chapter title waiting on
+            // this transition shows 0.2 s later.
+            () => { if (chapterTitles != null) chapterTitles.OnTransitionRevealed(m); },
+            m.durationScale);
     }
 
     // Plays the Inspector-assigned clip for this transition half (if any) on a

@@ -14,6 +14,13 @@ using System.Text.RegularExpressions;
 ///   - NoArrow / omitted → no arrow
 /// It is never inferred from the text — a "-" in the context ("year-over-year",
 /// "2019-2024") used to read as a loss and put a down arrow on neutral stats.
+///
+/// Typography (see <see cref="CardTypography"/>): the value in the heavy
+/// weight, sized to ~70 % of the inner width with a 160–260 px cap height
+/// (widening to 85 % to reach the floor; a value too long for that logs a
+/// warning); the label (bold) and context beneath it; the three lines are one
+/// group centred in the card. The arrow is as tall as the value's capitals and
+/// sits beside it, the pair centred.
 /// </summary>
 public class StatCard : ContentCard
 {
@@ -40,115 +47,195 @@ public class StatCard : ContentCard
     private bool isNumeric;
     private string rawNumber;
 
+    private Vector2 laidOutSize = new Vector2(-1f, -1f);
+    private Vector3 arrowTargetScale = Vector3.one;
+
+    /// <summary>The last layout (sizes, warnings) — read by the self-tests.</summary>
+    public CardTypography.Report Layout { get; private set; }
+
     protected override void BuildUI()
     {
         ContentCardUIBuilder.CreateBackground(rectTransform);
 
-        // ---- Upper row: Arrow + Number ----
-        // All layout uses proportional anchors so it scales with any content zone size.
-
         GameObject arrowGO = new GameObject("DirectionArrow", typeof(RectTransform));
         arrowGO.transform.SetParent(rectTransform, false);
         arrowRect = arrowGO.GetComponent<RectTransform>();
-        // Anchor: single point at left-edge, vertically centered on where the text sits.
-        // Text RT is anchored 0.40 to 1.00, so its vertical center is at 0.70.
-        // Size is set dynamically in LateUpdate to match the number's actual font size.
-        arrowRect.anchorMin = new Vector2(0f, 0.70f);
-        arrowRect.anchorMax = new Vector2(0f, 0.70f);
-        arrowRect.pivot = new Vector2(0f, 0.5f);
-        arrowRect.anchoredPosition = new Vector2(24f, 0f); // 24px padding from left
-        arrowRect.sizeDelta = new Vector2(100f, 100f); // placeholder; LateUpdate sizes this
+        arrowRect.anchorMin = arrowRect.anchorMax = new Vector2(0f, 1f);
+        arrowRect.pivot = new Vector2(0.5f, 0.5f); // centre pivot: the Y-flip for "up" stays in place
 
         arrow = arrowGO.AddComponent<Image>();
         arrow.sprite = ContentCardUIBuilder.GetArrowSprite();
         arrow.preserveAspect = true;
         arrow.raycastTarget = false;
-
-        // Keeps the arrow square: width = height × 1.0.
-        // Combined with LateUpdate's sizeDelta.y = fontSize * scale, this gives a
-        // square arrow whose side length tracks the rendered text height.
-        var fitter = arrowGO.AddComponent<AspectRatioFitter>();
-        fitter.aspectMode = AspectRatioFitter.AspectMode.HeightControlsWidth;
-        fitter.aspectRatio = 1f;
-
-        arrowGO.SetActive(false); // hidden until direction detected
+        arrowGO.SetActive(false); // shown for Win / Loss only
 
         numberText = ContentCardUIBuilder.CreateText(
             rectTransform, "NumberText",
             ContentCardUIBuilder.AccentColor,
-            84f, TextAlignmentOptions.Center, FontStyles.Bold);
-        numberText.rectTransform.anchorMin = new Vector2(0.05f, 0.40f);
-        numberText.rectTransform.anchorMax = new Vector2(0.95f, 1f);
-        numberText.rectTransform.offsetMin = Vector2.zero;
-        numberText.rectTransform.offsetMax = Vector2.zero;
-        numberText.enableAutoSizing = true;
-        numberText.fontSizeMin = 60f;
-        numberText.fontSizeMax = 96f;
+            CardTypography.StatCapMinPx, TextAlignmentOptions.Top);
+        CardTypography.PrepareText(numberText, CardTypography.Weight.Heavy, TextAlignmentOptions.Top);
+        numberText.textWrappingMode = TextWrappingModes.NoWrap;
 
-        // Label
         labelText = ContentCardUIBuilder.CreateText(
             rectTransform, "LabelText",
             ContentCardUIBuilder.TextPrimary,
-            32f, TextAlignmentOptions.Center);
-        labelText.rectTransform.anchorMin = new Vector2(0f, 0.2f);
-        labelText.rectTransform.anchorMax = new Vector2(1f, 0.35f);
-        labelText.rectTransform.offsetMin = new Vector2(24f, 0f);
-        labelText.rectTransform.offsetMax = new Vector2(-24f, 0f);
+            CardTypography.StatLabelPx, TextAlignmentOptions.Top);
+        CardTypography.PrepareText(labelText, CardTypography.Weight.Bold, TextAlignmentOptions.Top);
 
-        // Context
         contextText = ContentCardUIBuilder.CreateText(
             rectTransform, "ContextText",
             ContentCardUIBuilder.TextSecondary,
-            27f, TextAlignmentOptions.Center);
-        contextText.rectTransform.anchorMin = new Vector2(0f, 0.05f);
-        contextText.rectTransform.anchorMax = new Vector2(1f, 0.2f);
-        contextText.rectTransform.offsetMin = new Vector2(24f, 0f);
-        contextText.rectTransform.offsetMax = new Vector2(-24f, 0f);
+            CardTypography.StatContextPx, TextAlignmentOptions.Top);
+        CardTypography.PrepareText(contextText, CardTypography.Weight.Regular, TextAlignmentOptions.Top);
     }
 
     public override void Initialize(ContentCardEvent data, ContentCardAssets assets)
     {
-        rawNumber = data.primaryText;
+        rawNumber = data.primaryText ?? string.Empty;
         ParseNumericValue(rawNumber);
 
         StatArrow dir = data.statArrow;
         Color directionColor = GetDirectionColor(dir);
 
-        // Configure the arrow graphic
-        if (showDirectionArrow && dir != StatArrow.None)
+        bool showArrow = showDirectionArrow && dir != StatArrow.None;
+        arrow.gameObject.SetActive(showArrow);
+        if (showArrow)
         {
-            arrow.gameObject.SetActive(true);
             arrow.color = directionColor;
             // Sprite is drawn as down-pointing; flip Y for up-pointing
-            arrowRect.localScale = (dir == StatArrow.Win)
-                ? new Vector3(1f, -1f, 1f)
-                : Vector3.one;
-
-            // Number is sized & positioned in LateUpdate — here we just set anchors
-            // so LateUpdate's pivot-based placement works cleanly.
-            numberText.rectTransform.anchorMin = new Vector2(0f, 0.40f);
-            numberText.rectTransform.anchorMax = new Vector2(0f, 1f);
-            numberText.rectTransform.pivot = new Vector2(0f, 0.5f);
-            numberText.alignment = TextAlignmentOptions.Left;
-        }
-        else
-        {
-            arrow.gameObject.SetActive(false);
-            // No arrow: number uses the full width, centered
-            numberText.rectTransform.anchorMin = new Vector2(0f, 0.40f);
-            numberText.rectTransform.anchorMax = new Vector2(1f, 1f);
-            numberText.rectTransform.pivot = new Vector2(0.5f, 0.5f);
-            numberText.rectTransform.offsetMin = new Vector2(24f, 0f);
-            numberText.rectTransform.offsetMax = new Vector2(-24f, 0f);
-            numberText.alignment = TextAlignmentOptions.Center;
+            arrowTargetScale = (dir == StatArrow.Win) ? new Vector3(1f, -1f, 1f) : Vector3.one;
+            arrowRect.localScale = arrowTargetScale;
         }
 
         numberText.color = directionColor;
-        numberText.text = (!useCountUp || !isNumeric) ? rawNumber : prefix + "0" + suffix;
-
-        labelText.text = data.secondaryText;
-        contextText.text = data.tertiaryText;
+        labelText.text = data.secondaryText ?? string.Empty;
+        contextText.text = data.tertiaryText ?? string.Empty;
         contextText.color = directionColor;
+
+        LayoutCard(log: true);
+
+        // Lay out with the FINAL value, then show the count-up's starting text.
+        numberText.text = (!useCountUp || !isNumeric) ? rawNumber : prefix + "0" + suffix;
+    }
+
+    void LateUpdate()
+    {
+        // Only when the card's size changed after Initialize — the slide moves
+        // the card, it never resizes it.
+        if (CardTypography.CardSize(rectTransform) != laidOutSize)
+        {
+            string shown = numberText.text;
+            LayoutCard(log: false);
+            numberText.text = shown;
+        }
+    }
+
+    private void LayoutCard(bool log)
+    {
+        Vector2 size = CardTypography.CardSize(rectTransform);
+        laidOutSize = size;
+        float k = CardTypography.ScaleFor(size);
+        float pad = CardTypography.PaddingFor(size);
+        float innerW = size.x - 2f * pad;
+        float innerH = size.y - 2f * pad;
+        bool hasArrow = arrow.gameObject.activeSelf;
+
+        var report = new CardTypography.Report { Card = CardTypography.CardLabel("Stat", rawNumber) };
+
+        // ---- Value: measure the FINAL text (the count-up runs at this layout) ----
+        numberText.text = BuildFinalNumberText();
+        float capRatio = CardTypography.CapHeight(numberText.font, 100f) / 100f;
+        float widthPer100 = CardTypography.MeasureLineWidth(numberText, 100f);
+        float valueSize = CardTypography.StatValueSize(widthPer100, capRatio, innerW, hasArrow, k);
+
+        // ---- Label + context: fixed sizes, wrapped to the inner width ----
+        float labelSize = CardTypography.StatLabelPx * k;
+        float contextSize = CardTypography.StatContextPx * k;
+        float labelH = labelText.text.Length > 0 ? CardTypography.MeasureHeight(labelText, labelSize, innerW) : 0f;
+        float contextH = contextText.text.Length > 0 ? CardTypography.MeasureHeight(contextText, contextSize, innerW) : 0f;
+        float gap1 = labelH > 0f ? CardTypography.StatValueToLabelGapPx * k : 0f;
+        float gap2 = (contextH > 0f && labelH > 0f) ? CardTypography.StatLabelToContextGapPx * k
+                   : (contextH > 0f ? CardTypography.StatValueToLabelGapPx * k : 0f);
+        float rowsH = gap1 + labelH + gap2 + contextH;
+
+        // The value's visible band (its ink) is what the group stacks — the
+        // TMP line box has a lot of air above the capitals at these sizes.
+        // Shrink the value if the group would not fit the inner height.
+        Rect valueInk = MeasureValueInk(valueSize, pad, innerW);
+        float maxInk = innerH - rowsH;
+        if (valueInk.height > maxInk && valueInk.height > 0f)
+        {
+            valueSize = Mathf.Max(CardTypography.HardFloorPx * k, valueSize * maxInk / valueInk.height);
+            valueInk = MeasureValueInk(valueSize, pad, innerW);
+        }
+
+        float valueCap = CardTypography.CapHeight(numberText.font, valueSize);
+        // The value is reported by its CAP HEIGHT — that is what its floor is.
+        CardTypography.Element valueEl = report.Add("value cap", numberText, valueCap / k, CardTypography.StatCapMinPx);
+        if (valueEl.BelowFloor)
+            report.Warn($"{report.Card}: value cap height {valueCap / k:F0} px — below the {CardTypography.StatCapMinPx:F0} px floor " +
+                        "(too wide for the card at that size).");
+
+        // ---- Stack the group, centred vertically ----
+        float groupH = valueInk.height + rowsH;
+        float top = pad + Mathf.Max(0f, (innerH - groupH) * 0.5f);
+        report.GroupHeight = groupH;
+        report.InnerHeight = innerH;
+
+        // Move the value so its ink top lands at the group top.
+        RectTransform nrt = numberText.rectTransform;
+        float valueRectTop = -nrt.anchoredPosition.y; // PlaceBox anchors at the card top
+        float valueShift = top - valueInk.yMin;
+        nrt.anchoredPosition = new Vector2(nrt.anchoredPosition.x, -(valueRectTop + valueShift));
+        float y = top + valueInk.height;
+
+        if (labelH > 0f)
+        {
+            y += gap1;
+            labelText.fontSize = labelSize;
+            CardTypography.PlaceRow(labelText, pad, y, labelH);
+            report.Add("label", labelText, CardTypography.StatLabelPx, CardTypography.StatLabelFloorPx);
+            y += labelH;
+        }
+        if (contextH > 0f)
+        {
+            y += gap2;
+            contextText.fontSize = contextSize;
+            CardTypography.PlaceRow(contextText, pad, y, contextH);
+            report.Add("context", contextText, CardTypography.StatContextPx, CardTypography.StatContextFloorPx);
+        }
+
+        // ---- Arrow: as tall as the capitals, centred on them, left of the value ----
+        if (hasArrow)
+        {
+            float baseline = CardTypography.BaselineInCard(numberText, rectTransform);
+            float side = valueCap * CardTypography.StatArrowToCap;
+            float arrowGap = valueCap * CardTypography.StatArrowGapToCap;
+            float valueW = CardTypography.MeasureLineWidth(numberText, valueSize);
+            float rowW = side + arrowGap + valueW;
+            float startX = (size.x - rowW) * 0.5f;
+
+            arrowRect.sizeDelta = new Vector2(side, side);
+            arrowRect.anchoredPosition = new Vector2(startX + side * 0.5f, -(baseline - valueCap * 0.5f));
+
+            numberText.alignment = TextAlignmentOptions.TopLeft;
+            float valueTop = -nrt.anchoredPosition.y;
+            CardTypography.PlaceBox(numberText, startX + side + arrowGap, valueTop, valueW + 8f * k, nrt.sizeDelta.y);
+        }
+
+        Layout = report;
+        if (log) report.LogSummary();
+    }
+
+    // Places the value (full inner width, centred) at the card's inner top
+    // at the given size and returns its ink in card space.
+    private Rect MeasureValueInk(float valueSize, float pad, float innerW)
+    {
+        numberText.alignment = TextAlignmentOptions.Top;
+        numberText.fontSize = valueSize;
+        float lineH = numberText.GetPreferredValues(100000f, 100000f).y;
+        CardTypography.PlaceBox(numberText, pad, pad, innerW, lineH);
+        return CardTypography.InkInCard(numberText, rectTransform);
     }
 
     public override void Show()
@@ -158,11 +245,10 @@ public class StatCard : ContentCard
         // Scale arrow 90% → 100% for subtle pop (preserve Y-flip for up arrow)
         if (arrow.gameObject.activeSelf)
         {
-            Vector3 targetScale = arrowRect.localScale; // may be (1,-1,1) for up
-            arrowRect.localScale = targetScale * 0.9f;
+            arrowRect.localScale = arrowTargetScale * 0.9f;
             // OutBack is a mini-overshoot; drop it with the rest when the menu
             // picks the smooth 'Ease in + fade' entry style.
-            arrowRect.DOScale(targetScale, EntryFadeDuration)
+            arrowRect.DOScale(arrowTargetScale, EntryFadeDuration)
                 .SetEase(UseOvershootEntry ? Ease.OutBack : EntryFadeEase);
         }
 
@@ -175,67 +261,6 @@ public class StatCard : ContentCard
                 countUpDuration
             ).SetEase(Ease.OutQuad).SetTarget(numberText); // so KillAllTweens finds it
         }
-    }
-
-    // Multiplier applied to the number's fontSize to get the arrow's pixel height.
-    // 1.0 = exactly the text height; slightly larger (e.g. 1.1) makes the arrow
-    // slightly bulkier than the text glyphs so it reads as an icon.
-    [SerializeField] private float arrowSizeMultiplier = 1.0f;
-
-    // Spacing between arrow and number text in pixels.
-    private const float ARROW_TEXT_SPACING = 24f;
-
-    // Cached "last applied" layout state. LateUpdate is gated on these — TMP's
-    // auto-sizing reflow usually settles within ~2 frames after Initialize, so
-    // for the rest of the card's lifetime (5+ seconds typically) we'd be re-
-    // calling GetPreferredValues every frame for nothing. That layout call is
-    // measurably expensive (it builds a layout to measure text) and is one of
-    // the bigger per-frame costs during recording when stat cards are active.
-    float lastFontSize = float.NaN;
-    float lastCardWidth = float.NaN;
-    string lastMeasuredText = null;
-
-    void LateUpdate()
-    {
-        if (arrow == null || !arrow.gameObject.activeSelf || numberText == null)
-            return;
-
-        float fontSize  = numberText.fontSize;
-        float cardWidth = rectTransform.rect.width;
-        // The measured text only changes if count-up is mid-animation OR
-        // initial values get re-assigned. We use the final-value string so
-        // layout is stable during the count, which means measureText is
-        // effectively constant — comparing it with lastMeasuredText is a
-        // fast reference check until something actually re-Initializes.
-        string measureText = BuildFinalNumberText();
-
-        if (fontSize == lastFontSize &&
-            cardWidth == lastCardWidth &&
-            ReferenceEquals(measureText, lastMeasuredText))
-            return; // nothing changed — skip the expensive reflow
-
-        // --- 1. Size the arrow to match the rendered text height ---
-        float arrowSide = fontSize * arrowSizeMultiplier;
-        arrowRect.sizeDelta = new Vector2(arrowSide, arrowSide);
-
-        // --- 2. Measure the text's width using the FINAL value (not the count-up
-        //       intermediate) so the layout stays stable during the count animation.
-        Vector2 textSize = numberText.GetPreferredValues(measureText);
-        float textWidth = textSize.x;
-
-        // --- 3. Center the (arrow + spacing + text) group horizontally in the card ---
-        float totalWidth = arrowSide + ARROW_TEXT_SPACING + textWidth;
-        float startX = Mathf.Max(24f, (cardWidth - totalWidth) * 0.5f);
-
-        arrowRect.anchoredPosition = new Vector2(startX, 0f);
-
-        var textRT = numberText.rectTransform;
-        textRT.anchoredPosition = new Vector2(startX + arrowSide + ARROW_TEXT_SPACING, 0f);
-        textRT.sizeDelta = new Vector2(textWidth + 8f, textRT.sizeDelta.y);
-
-        lastFontSize     = fontSize;
-        lastCardWidth    = cardWidth;
-        lastMeasuredText = measureText;
     }
 
     /// <summary>Reconstructs the final fully-counted number string for measurement.</summary>

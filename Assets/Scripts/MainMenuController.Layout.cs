@@ -186,6 +186,7 @@ public partial class MainMenuController
         LookRow(card, "Background mode",      backgroundModePrevButton,      backgroundModeLabel,      backgroundModeNextButton);
         LookRow(card, "Presenter transition", presenterTransitionPrevButton, presenterTransitionLabel, presenterTransitionNextButton);
         LookRow(card, "Card animation",       cardEntryPrevButton,           cardEntryLabel,           cardEntryNextButton);
+        LookRow(card, "Show chapter titles",  chapterTitlesPrevButton,       chapterTitlesLabel,       chapterTitlesNextButton);
         LookRow(card, "Visuals preset",       activeSavePrevButton,          activeSaveLabel,          activeSaveNextButton);
 
         // Opens the Visuals editor (the scene button's own onClick does that).

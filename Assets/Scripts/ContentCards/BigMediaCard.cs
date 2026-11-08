@@ -241,6 +241,7 @@ public class BigMediaCard : ContentCard
         canvasGroup.alpha = 1f;
 
         Sequence seq = DOTween.Sequence();
+        var join = new StaggeredJoin(seq); // each slot at stagger × i from the start — not stacked
         float dur = SlideDuration;
         float stagger = BigMediaCfg.staggerDelay;
 
@@ -250,14 +251,14 @@ public class BigMediaCard : ContentCard
             rt.localEulerAngles = Vector3.zero;
             rt.localScale = Vector3.zero;
 
-            // Build the per-slot tween fully — ease + delay — BEFORE handing
-            // it to the sequence. Sequence.Insert with an AnimationCurve ease
-            // has been observed to silently drop the curve in some DOTween
-            // builds; Join + SetDelay applies the curve reliably.
-            Tween popTween = ApplyEntryEase(rt.DOScale(Vector3.one, dur))
-                .SetDelay(stagger * i);
-
-            seq.Join(popTween);
+            // Build the per-slot tween fully (ease) BEFORE handing it to the
+            // sequence. Sequence.Insert with an AnimationCurve ease has been
+            // observed to silently drop the curve in some DOTween builds, so
+            // the slot is joined (Join + SetDelay applies the curve reliably)
+            // — through StaggeredJoin, which gives each join only the delay
+            // since the previous one; a plain SetDelay(stagger * i) per join
+            // piles the delays up (logos 3 and 4 landed at 1.05 s / 2.1 s).
+            join.At(stagger * i, ApplyEntryEase(rt.DOScale(Vector3.one, dur)));
 
             // 'Ease in + fade': the logo dissolves in while it grows, on the
             // same stagger. Overshoot: opaque from the first frame, as before.
@@ -269,7 +270,7 @@ public class BigMediaCard : ContentCard
             else
             {
                 g.alpha = 0f;
-                seq.Join(g.DOFade(1f, EntryFadeDuration).SetEase(EntryFadeEase).SetDelay(stagger * i));
+                join.At(stagger * i, g.DOFade(1f, EntryFadeDuration).SetEase(EntryFadeEase));
             }
         }
 
