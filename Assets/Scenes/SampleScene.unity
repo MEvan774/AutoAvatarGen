@@ -441,7 +441,7 @@ MonoBehaviour:
     sprite: {fileID: 21300000, guid: 7cf76869f07f1136fabff2960446563a, type: 3}
   timingOffset: 0
   useCrossfade: 1
-  crossfadeDuration: 0.4
+  crossfadeDuration: 0.1
   growDuration: 0.9
   growAmount: 1.15
   shrinkDuration: 0.2
@@ -529,10 +529,13 @@ MonoBehaviour:
   useHardCuts: 0
   mainCamera: {fileID: 236571324}
   zoomDuration: 0.7
-  zoomInMultiplier: 1.12
+  zoomStep1Multiplier: 1.12
+  zoomStep2Multiplier: 1.24
+  zoomStep3Multiplier: 1.36
   extremeZoomMultiplier: 2
   extremeZoomFollowsCharacter: 1
   extremeZoomFaceOffset: {x: 0, y: 4.5}
+  closeUpCutWindow: 0.1
   pullbackStartMultiplier: 1.5
   pullbackEndMultiplier: 1.7
   pullbackDuration: 3
