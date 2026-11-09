@@ -165,13 +165,16 @@ namespace MugsTech.Captions
 
         // Nothing else on the frame: the voice running, no card (on screen or
         // queued), image, video, full-screen card, Echo, chapter title,
-        // close-up, black or transition.
+        // black or transition — and the camera at rest: no zoom run (any
+        // step, or the glide in or out), no held close-up. A push-in is a
+        // deliberately clean frame, so it stays text-free (creator, 2026-11-09;
+        // IsCameraBusy is the same test the idle drift uses).
         bool FrameBare()
         {
             if (!TakeLoudness.VoiceStarted) return false;
             ContentZoneController cards = mps.contentZoneController;
             if (cards != null && cards.HasActiveOrQueuedCard) return false;
-            if (mps.IsShowingMedia || mps.IsBlackShowing || mps.IsCloseUpHeld) return false;
+            if (mps.IsShowingMedia || mps.IsBlackShowing || mps.IsCameraBusy) return false;
             if (mps.IsEchoShowing || mps.IsChapterTitleShowing) return false;
             if (mps.screenTransitionController != null && mps.screenTransitionController.IsBusy) return false;
             return true;

@@ -4,8 +4,8 @@ namespace MugsTech.Captions
 {
     /// <summary>
     /// When captions may show: only after the frame has been bare (no card,
-    /// media, full-screen card, Echo, chapter title, close-up, black or
-    /// transition) for <see cref="HoldOffSeconds"/>, so short gaps between
+    /// media, full-screen card, Echo, chapter title, zoom run, close-up, black
+    /// or transition) for <see cref="HoldOffSeconds"/>, so short gaps between
     /// cards never flicker a caption in and out — and the instant anything
     /// arrives they're gone (no fade racing a card's slide-in). Pure.
     /// </summary>
