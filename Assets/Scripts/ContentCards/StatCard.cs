@@ -254,12 +254,25 @@ public class StatCard : ContentCard
 
         if (useCountUp && isNumeric)
         {
+            // One quiet click per step of the count (at most 12, the last on
+            // the final value) — the sound-effect layer; silent when it's off.
+            var clicker = new MugsTech.Sound.CountUpClicker(countUpDuration);
             DOTween.To(
                 () => 0f,
-                value => numberText.text = prefix + FormatNumber(value) + suffix,
+                value =>
+                {
+                    numberText.text = prefix + FormatNumber(value) + suffix;
+                    if (clicker.Step(numberText.text, Time.time))
+                        MugsTech.Sound.SoundLayer.Fire(MugsTech.Sound.SfxKind.CountClick);
+                },
                 numericValue,
                 countUpDuration
-            ).SetEase(Ease.OutQuad).SetTarget(numberText); // so KillAllTweens finds it
+            ).SetEase(Ease.OutQuad).SetTarget(numberText) // so KillAllTweens finds it
+             .OnComplete(() =>
+             {
+                 if (clicker.Finish(numberText.text, Time.time))
+                     MugsTech.Sound.SoundLayer.Fire(MugsTech.Sound.SfxKind.CountClick);
+             });
         }
     }
 

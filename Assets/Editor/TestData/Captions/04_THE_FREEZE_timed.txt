@@ -1,0 +1,45 @@
+{Timestamp:"The Freeze",T=0.000}
+{Transition:Iris,T=0.000} {Position:Center,T=0.000} {Mood:Playful,T=0.000} {EyebrowRaised,T=0.000}
+{Headline:"Binance freezes assets after US$6.3 billion heist","iTnews (Reuters)",T=0.000,D=0,bigCenter}
+[wry, smirk in the voice,T=0.000] Then came the freezing. Reuters, on Friday. Binance freezes assets after six point three billion dollar heist.
+{Headline:End,T=10.084}
+{Position:Left,Smooth,T=10.390}
+{Image:article_fbi_north_korea_binance,T=10.697,Start,Right}
+{Frowned,T=11.017}
+First, who did it. TRM Labs, Chainalysis and then the FBI all point to North Korea, and a hacking unit called Trader Traitor.
+{Image:End,T=22.297,D=0}
+{Image:x_post_paoloardoino,T=22.377,Start,Right}
+{PointCard,T=22.457}
+Tether's CEO, Paolo Ardoino, posted it on X. Tether froze more than one point five six seven billion U-S-D-T, related to a potential Binance exchange hack.
+{OpenPalmSideLower,T=35.657}
+That's a stablecoin, a crypto token pegged to the dollar and issued by a company. Which means the company can freeze it.
+{Image:End,T=44.617,D=0}
+{Image:x_post_jerallaire,T=44.697,Start,Right}
+{NarrowedEyes,T=44.777}
+Circle's CEO, Jeremy Allaire, posted that Circle froze more than eight hundred million U-S-D-C, in coordination with law enforcement.
+{Image:End,T=55.310,D=0}
+{Excerpt:"The attacker still holds about USD 2.4 billion in assets beyond issuer reach.","beyond issuer reach","TRM Labs",T=55.364,D=0,Right}
+{Concerned,T=55.417}
+But TRM Labs says the attacker still holds about two point four billion dollars beyond any issuer's reach.
+{Shrug,T=63.897}
+Freezing only works on coins a company controls.
+{Excerpt:End,T=66.799}
+{Position:Center,Smooth,T=66.800}
+{Smirk,T=66.802}
+[tired but clearly entertained, a smile you can hear,T=66.803] Somewhere, I like to think, a hacker is on hold with stablecoin customer support. Hi. My stolen money stopped working.
+{Position:Right,Smooth,T=77.473}
+{Quote:"Bottom line - your money is safe, and we're covering every loss.","Richard Teng","co-CEO, Binance, on X",T=77.513,D=0,Left}
+{OpenPalmSide,T=77.593}
+And in fairness, here's Teng again, on X. Bottom line, your money is safe, and we're covering every loss.
+{Quote:End,T=86.361}
+{Excerpt:"approximately 95% of the impacted amount, up from 90%","approximately 95%","Binance, via CoinDesk, Nov 1",T=86.409,D=0,Left}
+{EyebrowRaised,T=86.457}
+As of Sunday, Binance says it has covered approximately ninety-five percent of the impacted amount.
+{Toast,T=92.746}
+The same day, withdrawals started reopening, in phases, starting with bitcoin. Credit where it's due.
+{Excerpt:End,T=98.573}
+{Position:Center,Smooth,T=98.574}
+{ChinScratching,T=98.575}
+[knowing, slow, like he's seen the ending,T=98.576] Still. Notice what that first sentence asks of you.
+{LookingAtViewer,T=103.940}
+Your money is safe, says the company that just got robbed.

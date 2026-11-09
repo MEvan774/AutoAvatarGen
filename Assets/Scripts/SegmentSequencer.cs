@@ -135,6 +135,17 @@ public class SegmentSequencer : MonoBehaviour
     // Outputs — populated by LoadAndBuild.
     [HideInInspector] public AudioClip combinedClip;
     [HideInInspector] public string combinedScript;
+
+    /// <summary>
+    /// The take's captions ("Captions in gaps"): the script's spoken words with
+    /// times from word_timestamps/, mapped onto the stitched clip exactly the
+    /// way each section's T= stamps are (measured-span rescale, pause snap,
+    /// {Pause} silence, the section's place in the take). Null when the
+    /// generation has no word timings. <see cref="LastCaptionsClip"/> is the
+    /// clip it belongs to.
+    /// </summary>
+    public static MugsTech.Captions.CaptionTrack LastCaptions { get; private set; }
+    public static AudioClip LastCaptionsClip { get; private set; }
     [HideInInspector] public string titleSlug;
     [HideInInspector] public List<SegmentManifestEntry> orderedSegments;
 
@@ -152,6 +163,8 @@ public class SegmentSequencer : MonoBehaviour
         titleSlug = null;
         orderedSegments = null;
         LastPauseReport.Clear();
+        LastCaptions = null;
+        LastCaptionsClip = null;
 
         string manifestPath = Path.Combine(folder, "manifest.json");
         if (!File.Exists(manifestPath))
@@ -181,6 +194,7 @@ public class SegmentSequencer : MonoBehaviour
 
         List<AudioClip> clips = new List<AudioClip>(manifest.segments.Count);
         List<string> scripts = new List<string>(manifest.segments.Count);
+        var wordTimings = new List<List<MugsTech.Captions.RawWord>>(manifest.segments.Count);
 
         foreach (var seg in manifest.segments)
         {
@@ -203,9 +217,10 @@ public class SegmentSequencer : MonoBehaviour
 
             clips.Add(clip);
             scripts.Add(File.ReadAllText(scriptPath));
+            wordTimings.Add(LoadWordTimings(folder, seg.slug));
         }
 
-        BuildCombined(manifest.segments, clips, scripts);
+        BuildCombined(manifest.segments, clips, scripts, wordTimings);
 
         orderedSegments = manifest.segments;
         titleSlug = manifest.segments.Count == 1
@@ -216,8 +231,10 @@ public class SegmentSequencer : MonoBehaviour
                   $"{combinedClip.length:F2}s combined clip ('{titleSlug}')");
     }
 
-    void BuildCombined(List<SegmentManifestEntry> segs, List<AudioClip> clips, List<string> scripts)
+    void BuildCombined(List<SegmentManifestEntry> segs, List<AudioClip> clips, List<string> scripts,
+                       List<List<MugsTech.Captions.RawWord>> wordTimings = null)
     {
+        var captionSections = new List<MugsTech.Captions.CaptionBuilder.Section>();
         int sampleRate = clips[0].frequency;
         int channels   = clips[0].channels;
 
@@ -421,6 +438,33 @@ public class SegmentSequencer : MonoBehaviour
             if (pauseTags[i].Count > 0)
                 shifted = PauseInserter.StripTags(shifted);
 
+            // Captions: this section's words, timed the way its T= just were.
+            if (wordTimings != null && i < wordTimings.Count && wordTimings[i] != null)
+            {
+                SegmentAudioTiming t = timing;
+                PauseInserter.Result pz = paused;
+                float d = delta, floorT = minAllowedT;
+                Func<float, float> silence = u => pz != null ? InsertedBeforeTime(pz.Shift, u) : 0f;
+                var gaps = new List<(float From, float To)>();
+                if (t != null && t.pauses != null)
+                    foreach (Vector2 g in t.pauses)
+                        gaps.Add((g.x + silence(g.x) + d, g.y + silence(g.x) + d));
+                captionSections.Add(new MugsTech.Captions.CaptionBuilder.Section
+                {
+                    Index  = i,
+                    Script = shifted,
+                    Words  = wordTimings[i],
+                    Map    = (x, snap) =>
+                    {
+                        float u = t != null ? t.MapToReal(x, snap) : x;
+                        return Mathf.Max(floorT, u + silence(u) + d);
+                    },
+                    Pauses = gaps,
+                    // The measured end of speech, on the take's clock (every inserted {Pause} is before it).
+                    SpeechEnd = speechEnd[i] + d + (pz != null ? pz.TotalInserted : 0f),
+                });
+            }
+
             scriptSb.AppendLine(shifted);
 
             if (paused != null)
@@ -450,6 +494,16 @@ public class SegmentSequencer : MonoBehaviour
         combinedClip = AudioClip.Create("StitchedSegments", totalFrames, channels, sampleRate, false);
         combinedClip.SetData(samples.ToArray(), 0);
         combinedScript = scriptSb.ToString();
+
+        if (captionSections.Count > 0)
+        {
+            LastCaptions = MugsTech.Captions.CaptionBuilder.Build(captionSections);
+            LastCaptionsClip = combinedClip;
+            Debug.Log($"[Captions] {LastCaptions.Phrases.Count} phrase(s) from {LastCaptions.Words} word(s) " +
+                      $"({LastCaptions.Unmatched} without timing): {LastCaptions.Count(MugsTech.Captions.PhraseTiming.Words)} word-timed, " +
+                      $"{LastCaptions.Count(MugsTech.Captions.PhraseTiming.Span)} whole-phrase, " +
+                      $"{LastCaptions.Count(MugsTech.Captions.PhraseTiming.Fallback)} on the T= fallback.");
+        }
 
         LastPauseReport.Clear();
         LastPauseReport.AddRange(report);
@@ -511,6 +565,37 @@ public class SegmentSequencer : MonoBehaviour
         LastPauseReport.AddRange(report);
         LogPauseReport(report);
     }
+
+    // Silence a mid-section {Pause} laid in before measured-section time u
+    // (the splice sits at its At; anything later moves by what it added).
+    static float InsertedBeforeTime(PauseInserter.Shift shift, float u)
+    {
+        float before = 0f;
+        if (shift == null) return 0f;
+        foreach (var sp in shift.Splices)
+            if (u > sp.At) before += sp.Inserted;
+        return before;
+    }
+
+    // word_timestamps/<slug>_words.json — a bare JSON array, so it is wrapped
+    // for JsonUtility. Missing or unreadable: no captions for that section.
+    static List<MugsTech.Captions.RawWord> LoadWordTimings(string folder, string slug)
+    {
+        string path = Path.Combine(folder, "word_timestamps", slug + "_words.json");
+        if (!File.Exists(path)) return null;
+        try
+        {
+            var list = JsonUtility.FromJson<RawWordList>("{\"items\":" + File.ReadAllText(path) + "}");
+            return list != null ? list.items : null;
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[Captions] {path} couldn't be read ({e.Message}) — no captions for {slug}.");
+            return null;
+        }
+    }
+
+    [Serializable] class RawWordList { public List<MugsTech.Captions.RawWord> items; }
 
     static bool HasMidSectionPause(List<PauseInserter.PauseTag> tags)
     {

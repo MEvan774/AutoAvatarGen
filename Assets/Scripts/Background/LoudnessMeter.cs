@@ -172,6 +172,86 @@ namespace MugsTech.Background
             return relCount == 0 ? double.NaN : integrated;
         }
 
+        /// <summary>
+        /// The same measurement fed in pieces — for a take's mix, which is built
+        /// a block at a time (AudioClip data can only be read on the main
+        /// thread, so it is fetched in slices and measured on a worker). Feeding
+        /// the whole buffer in one Add gives exactly
+        /// <see cref="MeasureIntegratedLufs"/>'s result: the same filters, hop
+        /// size, blocks and gates.
+        /// </summary>
+        public sealed class Accumulator
+        {
+            readonly int channels, hopFrames;
+            readonly Biquad[] stage1, stage2;
+            readonly double[] running;
+            int inHop;
+            readonly System.Collections.Generic.List<double[]> hops = new System.Collections.Generic.List<double[]>();
+
+            public int Channels => channels;
+
+            public Accumulator(int channels, int sampleRate)
+            {
+                this.channels = Math.Max(1, channels);
+                int blockFrames = (int)Math.Round(0.400 * sampleRate);
+                hopFrames = Math.Max(1, blockFrames / 4);
+                stage1 = new Biquad[this.channels];
+                stage2 = new Biquad[this.channels];
+                for (int c = 0; c < this.channels; c++)
+                {
+                    stage1[c] = MakeStage1(sampleRate);
+                    stage2[c] = MakeStage2(sampleRate);
+                }
+                running = new double[this.channels];
+            }
+
+            /// <summary>Adds <paramref name="frames"/> interleaved frames.</summary>
+            public void Add(float[] interleaved, int frames)
+            {
+                for (int i = 0; i < frames; i++)
+                {
+                    for (int c = 0; c < channels; c++)
+                    {
+                        double z = stage2[c].Process(stage1[c].Process(interleaved[i * channels + c]));
+                        running[c] += z * z;
+                    }
+                    if (++inHop == hopFrames)
+                    {
+                        hops.Add((double[])running.Clone());
+                        Array.Clear(running, 0, channels);
+                        inHop = 0;
+                    }
+                }
+            }
+
+            /// <summary>Integrated loudness of everything added so far (NaN if unmeasurable).</summary>
+            public double IntegratedLufs()
+            {
+                int blockCount = hops.Count - 3;
+                if (blockCount <= 0) return double.NaN;
+                double blockLen = 4.0 * hopFrames;
+                var blockMs = new double[blockCount][];
+                var blockLoudness = new double[blockCount];
+                for (int j = 0; j < blockCount; j++)
+                {
+                    var ms = new double[channels];
+                    double weighted = 0.0;
+                    for (int c = 0; c < channels; c++)
+                    {
+                        double e = hops[j][c] + hops[j + 1][c] + hops[j + 2][c] + hops[j + 3][c];
+                        ms[c] = e / blockLen;
+                        weighted += ChannelWeight(c, channels) * ms[c];
+                    }
+                    blockMs[j] = ms;
+                    blockLoudness[j] = weighted > 0.0 ? MeasureOffset + 10.0 * Math.Log10(weighted) : double.NegativeInfinity;
+                }
+                double relThreshold = ComputeGatedLoudness(blockMs, blockLoudness, channels, AbsoluteGateLufs, out int absCount);
+                if (absCount == 0 || double.IsNaN(relThreshold)) return double.NaN;
+                double integrated = ComputeGatedLoudness(blockMs, blockLoudness, channels, relThreshold + RelativeGateLu, out int relCount);
+                return relCount == 0 ? double.NaN : integrated;
+            }
+        }
+
         // Mean loudness of all blocks whose loudness exceeds `threshold`:
         // per-channel mean squares are averaged over the surviving blocks
         // first, then weighted, summed and converted — the order BS.1770

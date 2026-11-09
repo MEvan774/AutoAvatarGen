@@ -201,6 +201,7 @@ public class BigTextCard : ContentCard
                     punchDrawn[i] = true;
                     punchStart[i] = clock;
                     age = 0f;
+                    MugsTech.Sound.SoundLayer.Fire(MugsTech.Sound.SfxKind.BigTextLine); // the line lands
                 }
                 lineContainers[i].localScale = Vector3.one * BigTextTypography.PunchScaleAt(age);
                 lineGroups[i].alpha = BigTextTypography.LineAlphaAt(age);

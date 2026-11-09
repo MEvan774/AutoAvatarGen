@@ -1,0 +1,3 @@
+{Timestamp:"Ending",T=0.000}
+{Transition:Wipe,T=0.000} {Position:Center,T=0.000} {Smirk,T=0.000}
+[warm,T=0.000] Last part. After my final word, the music fades out over a second and a half, and the video holds two more seconds before it ends. Mugs out.

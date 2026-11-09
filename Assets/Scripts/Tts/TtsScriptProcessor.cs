@@ -72,6 +72,9 @@ namespace MugsTech.Tts
         private const string KnownMarkers =
             EmotionTag +                                   // emotion states — ANY bare {Word} / {Word,Style}
             @"|\{Timestamp:""[^""]*""\}" +                  // YouTube chapter markers — never voiced/shown
+            // {Echo:"HEADLINE","accent word",seconds} — the thumbnail's headline on
+            // screen from frame 0; lockstep with elevenlabs_tts_processor.py.
+            @"|\{Echo:""[^""]*"",""[^""]*"",\d+(?:\.\d+)?\}" +
             @"|\{Position:\w+(?:,\w+)?\}" +
             @"|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}" +
             @"|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}" +     // whole-screen transitions (+optional duration scale)
@@ -451,6 +454,12 @@ namespace MugsTech.Tts
             // clock: {Timestamp:"Label"} -> {Timestamp:"Label",T=X.XXX}
             if (innerCurly.StartsWith("Timestamp:", System.StringComparison.Ordinal))
                 return "{" + innerCurly + "," + ts + "}";
+
+            // {Echo:"HEADLINE","accent",3} -> {Echo:"HEADLINE","accent",T=X.XXX,D=3},
+            // the card layout; TagOnlyRetimer.UnstampDuration turns D= back into ",3".
+            Match mEcho = Regex.Match(innerCurly, @"^Echo:(""[^""]*"",""[^""]*""),(\d+(?:\.\d+)?)$");
+            if (mEcho.Success)
+                return "{Echo:" + mEcho.Groups[1].Value + "," + ts + ",D=" + mEcho.Groups[2].Value + "}";
 
             // {Emotion} / {Emotion,Style} — any bare one-word tag, matching
             // EmotionTag. Unity reads {Smirk,T=12.480} and {Smirk,Blink,T=12.480}

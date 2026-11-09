@@ -6,6 +6,7 @@ Free fonts and data bundled with AutoAvatarGen, and where their terms live.
 |---|---|---|
 | **Inter** (Regular, Medium, SemiBold, Bold, ExtraBold) — the card font | `Assets/Resources/Fonts/Inter*.ttf` | SIL Open Font License 1.1 — `Assets/Resources/Fonts/Inter-OFL.txt` |
 | **Noto Serif** (Regular, Bold) — the `{Document:}` card's paper face | `Assets/Resources/Fonts/NotoSerif-*.ttf` | SIL Open Font License 1.1 — `Assets/Resources/Fonts/NotoSerif-OFL.txt` |
+| **Anton SC** (Regular) — the `{Echo:}` headline, the thumbnail's own face | `Assets/Resources/Fonts/AntonSC-Regular.ttf` (copied unchanged from the MugsTech repo's `ThumbnailEditor/assets/fonts/`) | SIL Open Font License 1.1 — `Assets/Resources/Fonts/AntonSC-OFL.txt` |
 | **Natural Earth** 1:50m Admin-0 Countries — the `{Map:}` card's country shapes | source: `ThirdParty/NaturalEarth/ne_50m_admin_0_countries.geojson` (editor-only, not shipped); baked: `Assets/Resources/Maps/NaturalEarthRegions.bytes` | Public domain |
 
 ## Natural Earth

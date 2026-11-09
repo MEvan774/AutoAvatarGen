@@ -27,6 +27,7 @@ What gets STRIPPED before TTS (never read aloud):
                      adding a sprite to the avatar's emotion array is all it
                      takes for a new emotion to work. Also {Emotion,Style}.
   - {Timestamp:...}  e.g. {Timestamp:"Cold Open"}  (YouTube chapter marker — non-spoken, non-visual)
+  - {Echo:...}       e.g. {Echo:"NO KEY LEAKED?","LEAKED",3}  (the thumbnail's headline on screen from frame 0; one per script)
   - {Position:...}   e.g. {Position:Left,Cut}
   - {Zoom:...}       e.g. {Zoom:In}
   - {Transition:...} e.g. {Transition:Wipe} {Transition:Iris,1.2}  (whole-screen scene transition; optional duration scale)
@@ -101,6 +102,7 @@ _EMOTION = rf'\{{[A-Za-z]\w*(?:,(?:{_STYLE_ALT}))?\}}'
 _ALL_MARKERS = re.compile(
     _EMOTION                                                # emotion states — ANY bare {Word} / {Word,Style}
     + (r'|\{Timestamp:"[^"]*"\}'                            # YouTube chapter markers (never voiced/shown)
+       r'|\{Echo:"[^"]*","[^"]*",\d+(?:\.\d+)?\}'             # {Echo:"HEADLINE","accent word",seconds} — the thumbnail headline from frame 0; lockstep with TtsScriptProcessor.cs
        r'|\{Position:\w+(?:,\w+)?\}'                        # position markers
        r'|\{Zoom:\w+(?:,(?:Cut|D=\d+(?:\.\d+)?))*\}'        # zoom markers (+optional Cut / D=)
        r'|\{Transition:\w+(?:,\d+(?:\.\d+)?)?\}'            # whole-screen transitions (+optional scale)
@@ -548,6 +550,12 @@ def _stamp_marker(marker: str, t: float) -> str:
     # Just append the timestamp: {Timestamp:"Label"} -> {Timestamp:"Label",T=X.XXX}
     if inner.startswith('Timestamp:'):
         return f"{{{inner},{ts}}}"
+
+    # {Echo:"HEADLINE","accent",3} -> {Echo:"HEADLINE","accent",T=X.XXX,D=3}
+    # (the card layout). Lockstep with TtsScriptProcessor.cs.
+    m_echo = re.match(r'^Echo:("[^"]*","[^"]*"),(\d+(?:\.\d+)?)$', inner)
+    if m_echo:
+        return f"{{Echo:{m_echo.group(1)},{ts},D={m_echo.group(2)}}}"
 
     # {Emotion} / {Emotion,Style} — any bare one-word tag, matching _EMOTION.
     # Unity reads {Smirk,T=12.480} and {Smirk,Blink,T=12.480} equally well.

@@ -75,6 +75,7 @@ public partial class MainMenuController
 
         BuildVoiceCard(left);
         BuildGenerationCard(left);
+        BuildSoundCard(left);    // the right column is full with the Look card
         BuildLookCard(right);
         BuildRecordBar(root);
         BuildSettingsPanel();
@@ -179,7 +180,7 @@ public partial class MainMenuController
     void BuildLookCard(Transform column)
     {
         var card = UITheme.MakeCard(column, "LookCard");
-        UITheme.MakeText(card, "Heading", "3   Look", UITheme.TextRole.Heading);
+        UITheme.MakeText(card, "Heading", "4   Look", UITheme.TextRole.Heading);
         Hint(card, "How the video looks. Each choice is saved as soon as you change it.");
 
         LookRow(card, "Background",           backgroundStylePrevButton,     backgroundStyleLabel,     backgroundStyleNextButton);
@@ -187,6 +188,10 @@ public partial class MainMenuController
         LookRow(card, "Presenter transition", presenterTransitionPrevButton, presenterTransitionLabel, presenterTransitionNextButton);
         LookRow(card, "Card animation",       cardEntryPrevButton,           cardEntryLabel,           cardEntryNextButton);
         LookRow(card, "Show chapter titles",  chapterTitlesPrevButton,       chapterTitlesLabel,       chapterTitlesNextButton);
+        LookRow(card, "Idle camera drift",    idleDriftPrevButton,           idleDriftLabel,           idleDriftNextButton);
+        LookRow(card, "Thumbnail echo",       thumbnailEchoPrevButton,       thumbnailEchoLabel,       thumbnailEchoNextButton);
+        LookRow(card, "Captions in gaps",     captionsPrevButton,            captionsLabel,            captionsNextButton);
+        LookRow(card, "Highlight words",      captionHighlightPrevButton,    captionHighlightLabel,    captionHighlightNextButton);
         LookRow(card, "Visuals preset",       activeSavePrevButton,          activeSaveLabel,          activeSaveNextButton);
 
         // Opens the Visuals editor (the scene button's own onClick does that).

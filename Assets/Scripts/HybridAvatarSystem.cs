@@ -423,7 +423,8 @@ public class HybridAvatarSystem : MonoBehaviour
         // off, the preload reports not-pending and this stays the original
         // fully synchronous flow.
         MugsTech.Background.BackgroundMusicPlayer.BeginFolderPreload(audio.length);
-        if (MugsTech.Background.BackgroundMusicPlayer.FolderPreloadPending)
+        MugsTech.Background.TakeLoudness.Begin(audio, voiceAudio); // no-op when the media path already started it
+        if (MugsTech.Background.BackgroundMusicPlayer.FolderPreloadPending || MugsTech.Background.TakeLoudness.Pending)
         {
             StartCoroutine(BeginPlaybackWhenMusicReady(scriptWithMarkers, audio));
             return;
@@ -436,9 +437,10 @@ public class HybridAvatarSystem : MonoBehaviour
     // only a belt-and-braces backstop above that.
     IEnumerator BeginPlaybackWhenMusicReady(string scriptWithMarkers, AudioClip audio)
     {
-        const float timeout = 35f;
+        const float timeout = 65f; // music preload (self-caps at 30 s) + the loudness pass
         float waited = 0f;
-        while (waited < timeout && MugsTech.Background.BackgroundMusicPlayer.FolderPreloadPending)
+        while (waited < timeout && (MugsTech.Background.BackgroundMusicPlayer.FolderPreloadPending ||
+                                    MugsTech.Background.TakeLoudness.Pending))
         {
             waited += Time.unscaledDeltaTime;
             yield return null;

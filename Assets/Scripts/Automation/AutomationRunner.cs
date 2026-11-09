@@ -465,6 +465,86 @@ public class AutomationRunner : MonoBehaviour
         sb.Append("  \"musicError\": ")
           .Append(JsonStr(MugsTech.Background.MusicTakeLog.Error)).Append(",\n");
 
+        // The take's loudness normalisation (TakeLoudness): the mix as measured
+        // before the gain, the gain applied, the target, and what it predicts.
+        var loud = MugsTech.Background.TakeLoudness.Last;
+        if (loud == null)
+            sb.Append("  \"loudness\": null,\n");
+        else
+            sb.Append("  \"loudness\": {")
+              .Append("\"enabled\": ").Append(loud.Enabled ? "true" : "false")
+              .Append(", \"inputLufs\": ").Append(FN(loud.InputLufs))
+              .Append(", \"gainDb\": ").Append(F(loud.GainDb))
+              .Append(", \"targetLufs\": ").Append(F(loud.TargetLufs))
+              .Append(", \"predictedLufs\": ").Append(FN(loud.PredictedLufs))
+              .Append(", \"voiceLufs\": ").Append(FN(loud.VoiceLufs))
+              .Append(", \"truePeakDbtp\": ").Append(FN(loud.InputTruePeakDbtp))
+              .Append(", \"predictedTruePeakDbtp\": ").Append(FN(loud.PredictedTruePeakDbtp))
+              .Append(", \"truePeakCapped\": ").Append(loud.Capped ? "true" : "false")
+              .Append(", \"gainInFile\": ").Append(loud.GainInFile ? "true" : "false")
+              .Append(", \"note\": ").Append(JsonStr(loud.Note))
+              .Append("},\n");
+
+        // The sound-effect layer (MugsTech.Sound.SoundLayer): the menu's level
+        // (0 = off) and how many effects this take handed to its AudioSource.
+        sb.Append("  \"sfxVolume\": ").Append(F(MugsTech.Sound.SoundLayer.Volume)).Append(",\n");
+        // The idle camera drift (MugsTech.Motion.IdleDrift): how long the frame
+        // breathed, in how many bare stretches, and how many zooms found it not
+        // yet home (should be 0 — each is logged as a [Drift] warning).
+        var drift = MugsTech.Motion.IdleDrift.Last;
+        if (drift == null)
+            sb.Append("  \"idleDrift\": null,\n");
+        else
+            sb.Append("  \"idleDrift\": {")
+              .Append("\"enabled\": ").Append(drift.Enabled ? "true" : "false")
+              .Append(", \"driftSeconds\": ").Append(F(drift.DriftSeconds))
+              .Append(", \"stretches\": ").Append(drift.Stretches)
+              .Append(", \"snaps\": ").Append(drift.Snaps)
+              .Append(", \"background\": ").Append(JsonStr(drift.Background))
+              .Append("},\n");
+        // The thumbnail echo ({Echo:…}; MugsTech.Echo.EchoOverlay): what it said,
+        // whether it showed from the first frame, its size, what ended it, and
+        // any warning (a second Echo, over five words, an accent not in it).
+        var echo = MugsTech.Echo.EchoOverlay.Last;
+        if (echo == null || echo.Headline == null && echo.Warnings.Count == 0)
+            sb.Append("  \"echo\": null,\n");
+        else
+        {
+            sb.Append("  \"echo\": {")
+              .Append("\"enabled\": ").Append(echo.Enabled ? "true" : "false")
+              .Append(", \"headline\": ").Append(JsonStr(echo.Headline))
+              .Append(", \"accent\": ").Append(JsonStr(echo.Accent))
+              .Append(", \"accentShown\": ").Append(echo.AccentShown ? "true" : "false")
+              .Append(", \"duration\": ").Append(F(echo.Duration))
+              .Append(", \"shown\": ").Append(echo.Shown ? "true" : "false")
+              .Append(", \"fromFirstFrame\": ").Append(echo.AtFirstFrame ? "true" : "false")
+              .Append(", \"capPx\": ").Append(F(echo.CapPx))
+              .Append(", \"endedBy\": ").Append(JsonStr(echo.EndedBy))
+              .Append(", \"warnings\": [");
+            for (int i = 0; i < echo.Warnings.Count; i++)
+                sb.Append(i > 0 ? ", " : "").Append(JsonStr(echo.Warnings[i]));
+            sb.Append("]},\n");
+        }
+        // Captions in the gaps (MugsTech.Captions.CaptionOverlay): phrases built,
+        // phrases that were on screen, how many highlighted the spoken word and
+        // how many were timed from the bracketing T= stamps instead.
+        var cap = MugsTech.Captions.CaptionOverlay.Last;
+        if (cap == null)
+            sb.Append("  \"captions\": null,\n");
+        else
+            sb.Append("  \"captions\": {")
+              .Append("\"enabled\": ").Append(cap.Enabled ? "true" : "false")
+              .Append(", \"highlight\": ").Append(cap.Highlight ? "true" : "false")
+              .Append(", \"shown\": ").Append(cap.Shown)
+              .Append(", \"phrases\": ").Append(cap.Phrases)
+              .Append(", \"highlightedPhrases\": ").Append(cap.HighlightedPhrases)
+              .Append(", \"fallbackPhrases\": ").Append(cap.FallbackPhrases)
+              .Append(", \"note\": ").Append(JsonStr(cap.Note))
+              .Append("},\n");
+        sb.Append("  \"sfxPlayed\": ").Append(MugsTech.Sound.SoundLayer.Enabled ? MugsTech.Sound.SoundLayer.Played : 0).Append(",\n");
+        // Samples the −1 dBFS soft ceiling bent where an effect met a loud syllable (0 = it never acted).
+        sb.Append("  \"sfxCeilingSamples\": ").Append(MugsTech.Sound.SoundLayer.Enabled ? MugsTech.Background.ListenerGain.SoftenedSamples : 0).Append(",\n");
+
         // {Timestamp:"..."} chapter markers captured during the take — handed
         // through so the caller can build YouTube chapters without hunting for
         // the persistentDataPath JSON.
@@ -577,4 +657,5 @@ public class AutomationRunner : MonoBehaviour
     }
 
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+    static string FN(float v) => float.IsNaN(v) || float.IsInfinity(v) ? "null" : F(v);
 }

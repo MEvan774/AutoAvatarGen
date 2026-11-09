@@ -121,6 +121,35 @@ offline. The `--auto-script` result JSON reports each one in `pauses[]`.
   in *linear* mode, so it is one uniform gain. Normalising sections individually
   (or letting loudnorm fall back to dynamic mode) flattens the quiet beats the
   script writes deliberately.
+- **The take's −14 LUFS gain is a `ListenerGain` filter on the AudioListener's
+  object, and it must sit BEFORE Evereal's `AudioRecorder` there** (both are
+  `OnAudioFilterRead` filters; order = component order). Evereal appends its
+  recorder at `StartCapture`, so `TakeLoudness` adds the filter before the take;
+  `ListenerGain` checks the order once the recorder exists and logs an error
+  (`gainInFile: false`) if it isn't. AudioSource.volume can't boost and there is
+  no AudioMixer — don't move the gain onto the clips' samples. While *Sound
+  effects* is on the same filter (added even at gain 1) bends samples past
+  −1 dBFS softly toward 0 dBFS: the gain keeps voice + bed under it, so it only
+  ever touches an effect landing on a loud syllable (`sfxCeilingSamples`).
+- **The idle camera drift (`Motion/IdleDrift`) borrows the camera between
+  events.** It eases back to the exact rest framing before every marker
+  `MediaPresentationSystem.NextCameraStop` lists (zooms, media, black,
+  transitions, cards), and `ApplyZoom` calls `IdleDrift.Settle` before it reads
+  the camera, so zoom steps keep their size. A new tag that moves the camera or
+  lands on the frame must be added to `NextCameraStop`; a zoom that ever finds
+  the drift not home is counted in the result JSON's `idleDrift.snaps`.
+- **Captions take their times through SegmentSequencer, never on their own.**
+  `word_timestamps/<slug>_words.json` only lends times to the script's own
+  words (`Captions/CaptionBuilder`); each section's times go through the exact
+  mapping its `T=` stamps get in `BuildCombined` (measured-span rescale, pause
+  snap, `{Pause}` silence, section offset). Change one, change both — and keep
+  the plausibility verdict: v3's alignment collapses words to a few ms
+  ("money under my mattress." in 25 ms), so a phrase only highlights word by
+  word when every word passes, else it shows whole or on the `T=` span. The
+  verdict reads each word's start AFTER the pause snap (v3 starts the word
+  after a breath inside the measured pause; judging the raw start sent 23 of
+  48 phrases of the 2026-11-09 test to the guess), and a `T=`-span guess is
+  kept between its script neighbours — it never cuts a timed phrase short.
 - Section files are **mp3** because `ScriptFileReader`/`SegmentSequencer` load
   them; both now pick `AudioType` from the extension, so the no-ffmpeg WAV
   fallback also plays. `MugsTech ▸ TTS ▸ Run Pipeline Self-Tests` covers the

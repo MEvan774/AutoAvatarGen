@@ -165,6 +165,14 @@ public partial class MainMenuController : MonoBehaviour
         WireCardEntryRow();
         EnsureChapterTitleControls();
         WireChapterTitleRow();
+        EnsureIdleDriftControls();
+        WireIdleDriftRow();
+        EnsureThumbnailEchoControls();
+        WireThumbnailEchoRow();
+        EnsureCaptionControls();
+        WireCaptionRows();
+        EnsureSoundControls();
+        WireSoundRows();
         EnsureBackgroundStyleControls();
         WireBackgroundStyleRow();
         EnsureOutputLibrary();
@@ -952,7 +960,7 @@ public partial class MainMenuController : MonoBehaviour
     [Header("Background Music Folder")]
     [Tooltip("Optional. If left null, the controller spawns its own row at runtime. " +
              "A non-empty folder enables folder-mode background music: random tracks " +
-             "from the folder are equalized to -16 LUFS, ducked to 10%, and recorded " +
+             "from the folder are equalized to -16 LUFS, ducked to the Music volume (18% by default), and recorded " +
              "under the voice, with a credits sidecar next to each video.")]
     [SerializeField] TMP_InputField musicFolderInput;
     [SerializeField] Button         musicFolderBrowseButton;

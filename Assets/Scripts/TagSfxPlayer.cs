@@ -126,18 +126,49 @@ public class TagSfxPlayer : MonoBehaviour
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Play the configured sound for a visual tag event. No-op if no row exists,
-    /// the row has no clip, or the audio source is missing.
+    /// Play the configured sound for a visual tag event. A row with a clip plays
+    /// it exactly as before; with no clip, the sound-effect layer's synthesised
+    /// default plays instead (if the event has one and the main menu's "Sound
+    /// effects" is on — off, this stays the old silent no-op).
     /// </summary>
-    public void Play(TagSfxEvent ev)
+    public void Play(TagSfxEvent ev) => Play(ev, DefaultSound(ev));
+
+    private void Play(TagSfxEvent ev, MugsTech.Sound.SfxKind? fallback)
     {
         TagSfxEntry entry = GetEntry(ev);
-        if (entry == null || entry.clip == null || source == null) return;
+        if (entry == null || entry.clip == null)
+        {
+            if (fallback.HasValue) MugsTech.Sound.SoundLayer.Fire(fallback.Value);
+            return;
+        }
+        if (source == null) return;
 
         if (entry.delay > 0f)
             StartCoroutine(PlayDelayed(entry.clip, entry.delay, entry.volume));
         else
             source.PlayOneShot(entry.clip, entry.volume);
+    }
+
+    // The sound-effect layer's sound for an event with no clip of its own.
+    // BigText lines score themselves (BigTextCard, as each line lands);
+    // {Black}, the close-up, positions, the ordinary zoom steps and every way
+    // out (a card leaving included) stay silent.
+    public static MugsTech.Sound.SfxKind? DefaultSound(TagSfxEvent ev)
+    {
+        switch (ev)
+        {
+            case TagSfxEvent.Headline:
+            case TagSfxEvent.Excerpt:
+            case TagSfxEvent.Quote:
+            case TagSfxEvent.Stat:
+            case TagSfxEvent.Logo:
+            case TagSfxEvent.BRoll:
+            case TagSfxEvent.Image:
+            case TagSfxEvent.Video:       return MugsTech.Sound.SfxKind.CardIn;
+            case TagSfxEvent.BigCenter:
+            case TagSfxEvent.BigMedia:    return MugsTech.Sound.SfxKind.BigCardIn;
+            default:                      return null;
+        }
     }
 
     private IEnumerator PlayDelayed(AudioClip clip, float delay, float volume)
@@ -211,7 +242,11 @@ public class TagSfxPlayer : MonoBehaviour
             case ContentCardType.BigMedia:  Play(TagSfxEvent.BigMedia);  break;
             case ContentCardType.BigCenter: Play(TagSfxEvent.BigCenter); break;
             case ContentCardType.BigText:   Play(TagSfxEvent.BigText);   break;
-            case ContentCardType.Versus:    Play(TagSfxEvent.BigText);   break; // the same fullscreen dim moment
+            // The same fullscreen dim moment as BigText for an Inspector clip;
+            // the layer's default is the big card's low tick.
+            case ContentCardType.Versus:    Play(TagSfxEvent.BigText, MugsTech.Sound.SfxKind.BigCardIn); break;
+            // No Inspector row (rows are serialized by number) — the layer's default only.
+            case ContentCardType.BigImage:  MugsTech.Sound.SoundLayer.Fire(MugsTech.Sound.SfxKind.BigCardIn); break;
         }
     }
 }

@@ -1,0 +1,907 @@
+[
+  {
+    "word": "[with",
+    "start": -0.18,
+    "end": 0.003
+  },
+  {
+    "word": "a",
+    "start": 0.014,
+    "end": 0.026
+  },
+  {
+    "word": "sigh]",
+    "start": 0.037,
+    "end": 0.588
+  },
+  {
+    "word": "Hold",
+    "start": 0.812,
+    "end": 1.899
+  },
+  {
+    "word": "on.",
+    "start": 1.9,
+    "end": 1.903
+  },
+  {
+    "word": "[sips",
+    "start": 1.904,
+    "end": 1.909
+  },
+  {
+    "word": "coffee]",
+    "start": 1.91,
+    "end": 1.917
+  },
+  {
+    "word": "Okay.",
+    "start": 1.918,
+    "end": 1.923
+  },
+  {
+    "word": "[conversational,",
+    "start": 1.925,
+    "end": 2.33
+  },
+  {
+    "word": "loose,",
+    "start": 2.41,
+    "end": 2.698
+  },
+  {
+    "word": "off",
+    "start": 2.73,
+    "end": 2.826
+  },
+  {
+    "word": "the",
+    "start": 2.858,
+    "end": 2.93
+  },
+  {
+    "word": "cuff]",
+    "start": 2.95,
+    "end": 3.148
+  },
+  {
+    "word": "Yes,",
+    "start": 3.192,
+    "end": 3.37
+  },
+  {
+    "word": "I",
+    "start": 3.39,
+    "end": 3.41
+  },
+  {
+    "word": "know",
+    "start": 3.43,
+    "end": 3.656
+  },
+  {
+    "word": "what",
+    "start": 3.724,
+    "end": 4.01
+  },
+  {
+    "word": "the",
+    "start": 4.17,
+    "end": 4.65
+  },
+  {
+    "word": "comments",
+    "start": 4.682,
+    "end": 5.258
+  },
+  {
+    "word": "are",
+    "start": 5.37,
+    "end": 5.73
+  },
+  {
+    "word": "typing.",
+    "start": 5.79,
+    "end": 6.023
+  },
+  {
+    "word": "Not",
+    "start": 6.117,
+    "end": 6.397
+  },
+  {
+    "word": "your",
+    "start": 6.49,
+    "end": 7.05
+  },
+  {
+    "word": "keys,",
+    "start": 7.13,
+    "end": 7.53
+  },
+  {
+    "word": "not",
+    "start": 7.61,
+    "end": 8.077
+  },
+  {
+    "word": "your",
+    "start": 8.17,
+    "end": 8.25
+  },
+  {
+    "word": "coins.",
+    "start": 8.314,
+    "end": 8.61
+  },
+  {
+    "word": "And",
+    "start": 8.65,
+    "end": 8.89
+  },
+  {
+    "word": "sure.",
+    "start": 8.97,
+    "end": 9.477
+  },
+  {
+    "word": "If",
+    "start": 9.53,
+    "end": 9.654
+  },
+  {
+    "word": "the",
+    "start": 9.717,
+    "end": 9.903
+  },
+  {
+    "word": "keys",
+    "start": 9.966,
+    "end": 10.17
+  },
+  {
+    "word": "are",
+    "start": 10.21,
+    "end": 10.378
+  },
+  {
+    "word": "yours,",
+    "start": 10.442,
+    "end": 10.698
+  },
+  {
+    "word": "no",
+    "start": 10.73,
+    "end": 10.81
+  },
+  {
+    "word": "exchange",
+    "start": 10.85,
+    "end": 11.69
+  },
+  {
+    "word": "can",
+    "start": 11.85,
+    "end": 11.877
+  },
+  {
+    "word": "lose",
+    "start": 11.903,
+    "end": 11.93
+  },
+  {
+    "word": "them",
+    "start": 11.978,
+    "end": 12.17
+  },
+  {
+    "word": "for",
+    "start": 12.23,
+    "end": 12.41
+  },
+  {
+    "word": "you.",
+    "start": 12.437,
+    "end": 12.57
+  },
+  {
+    "word": "[dry]",
+    "start": 12.65,
+    "end": 13.05
+  },
+  {
+    "word": "But",
+    "start": 13.13,
+    "end": 13.37
+  },
+  {
+    "word": "then",
+    "start": 13.69,
+    "end": 14.011
+  },
+  {
+    "word": "you're",
+    "start": 14.012,
+    "end": 14.018
+  },
+  {
+    "word": "the",
+    "start": 14.019,
+    "end": 14.022
+  },
+  {
+    "word": "exchange.",
+    "start": 14.023,
+    "end": 14.037
+  },
+  {
+    "word": "[leaning",
+    "start": 14.043,
+    "end": 14.062
+  },
+  {
+    "word": "in,",
+    "start": 14.063,
+    "end": 14.067
+  },
+  {
+    "word": "quieter",
+    "start": 14.068,
+    "end": 14.078
+  },
+  {
+    "word": "but",
+    "start": 14.079,
+    "end": 14.092
+  },
+  {
+    "word": "quicker,",
+    "start": 14.094,
+    "end": 14.582
+  },
+  {
+    "word": "conspiratorial]",
+    "start": 14.662,
+    "end": 15.734
+  },
+  {
+    "word": "For",
+    "start": 15.846,
+    "end": 16.182
+  },
+  {
+    "word": "Binance,",
+    "start": 16.246,
+    "end": 16.758
+  },
+  {
+    "word": "this",
+    "start": 16.822,
+    "end": 17.078
+  },
+  {
+    "word": "was",
+    "start": 17.142,
+    "end": 17.782
+  },
+  {
+    "word": "a",
+    "start": 17.802,
+    "end": 17.822
+  },
+  {
+    "word": "very",
+    "start": 17.842,
+    "end": 18.042
+  },
+  {
+    "word": "expensive",
+    "start": 18.102,
+    "end": 18.942
+  },
+  {
+    "word": "week.",
+    "start": 18.982,
+    "end": 19.126
+  },
+  {
+    "word": "And",
+    "start": 19.318,
+    "end": 19.489
+  },
+  {
+    "word": "for",
+    "start": 19.542,
+    "end": 19.702
+  },
+  {
+    "word": "you,",
+    "start": 19.755,
+    "end": 20.022
+  },
+  {
+    "word": "it's",
+    "start": 20.102,
+    "end": 20.422
+  },
+  {
+    "word": "the",
+    "start": 20.502,
+    "end": 20.782
+  },
+  {
+    "word": "same",
+    "start": 20.902,
+    "end": 21.582
+  },
+  {
+    "word": "question",
+    "start": 21.762,
+    "end": 21.998
+  },
+  {
+    "word": "it",
+    "start": 22.025,
+    "end": 22.078
+  },
+  {
+    "word": "always",
+    "start": 22.105,
+    "end": 22.745
+  },
+  {
+    "word": "was.",
+    "start": 22.825,
+    "end": 23.105
+  },
+  {
+    "word": "[flat]",
+    "start": 23.185,
+    "end": 23.455
+  },
+  {
+    "word": "There",
+    "start": 23.525,
+    "end": 23.875
+  },
+  {
+    "word": "is",
+    "start": 23.945,
+    "end": 24.105
+  },
+  {
+    "word": "no",
+    "start": 24.185,
+    "end": 24.345
+  },
+  {
+    "word": "one",
+    "start": 24.402,
+    "end": 24.574
+  },
+  {
+    "word": "hundred",
+    "start": 24.631,
+    "end": 24.985
+  },
+  {
+    "word": "percent",
+    "start": 25.065,
+    "end": 25.865
+  },
+  {
+    "word": "safe",
+    "start": 25.936,
+    "end": 26.221
+  },
+  {
+    "word": "option",
+    "start": 26.292,
+    "end": 26.905
+  },
+  {
+    "word": "here.",
+    "start": 26.955,
+    "end": 27.205
+  },
+  {
+    "word": "On",
+    "start": 27.305,
+    "end": 27.385
+  },
+  {
+    "word": "an",
+    "start": 27.425,
+    "end": 27.513
+  },
+  {
+    "word": "exchange,",
+    "start": 27.561,
+    "end": 27.965
+  },
+  {
+    "word": "a",
+    "start": 28.025,
+    "end": 28.085
+  },
+  {
+    "word": "company",
+    "start": 28.145,
+    "end": 29.177
+  },
+  {
+    "word": "can",
+    "start": 29.209,
+    "end": 29.305
+  },
+  {
+    "word": "lose",
+    "start": 29.385,
+    "end": 29.765
+  },
+  {
+    "word": "it",
+    "start": 29.905,
+    "end": 30.185
+  },
+  {
+    "word": "for",
+    "start": 30.252,
+    "end": 30.452
+  },
+  {
+    "word": "you.",
+    "start": 30.518,
+    "end": 30.825
+  },
+  {
+    "word": "On",
+    "start": 30.857,
+    "end": 30.921
+  },
+  {
+    "word": "your",
+    "start": 30.953,
+    "end": 31.165
+  },
+  {
+    "word": "own",
+    "start": 31.225,
+    "end": 31.412
+  },
+  {
+    "word": "USB",
+    "start": 31.474,
+    "end": 31.661
+  },
+  {
+    "word": "stick",
+    "start": 31.723,
+    "end": 32.245
+  },
+  {
+    "word": "or",
+    "start": 32.265,
+    "end": 32.385
+  },
+  {
+    "word": "your",
+    "start": 32.445,
+    "end": 32.601
+  },
+  {
+    "word": "own",
+    "start": 32.633,
+    "end": 32.772
+  },
+  {
+    "word": "computer,",
+    "start": 32.825,
+    "end": 33.305
+  },
+  {
+    "word": "you",
+    "start": 33.385,
+    "end": 34.052
+  },
+  {
+    "word": "can",
+    "start": 34.185,
+    "end": 34.425
+  },
+  {
+    "word": "lose",
+    "start": 34.505,
+    "end": 34.772
+  },
+  {
+    "word": "it",
+    "start": 34.838,
+    "end": 35.145
+  },
+  {
+    "word": "yourself.",
+    "start": 35.265,
+    "end": 36.065
+  },
+  {
+    "word": "Drives",
+    "start": 36.265,
+    "end": 36.789
+  },
+  {
+    "word": "break.",
+    "start": 36.878,
+    "end": 37.248
+  },
+  {
+    "word": "Laptops",
+    "start": 37.282,
+    "end": 37.465
+  },
+  {
+    "word": "die.",
+    "start": 37.527,
+    "end": 37.776
+  },
+  {
+    "word": "Somebody",
+    "start": 37.838,
+    "end": 38.265
+  },
+  {
+    "word": "writes",
+    "start": 38.311,
+    "end": 38.585
+  },
+  {
+    "word": "the",
+    "start": 38.649,
+    "end": 38.841
+  },
+  {
+    "word": "password",
+    "start": 38.905,
+    "end": 39.305
+  },
+  {
+    "word": "on",
+    "start": 39.353,
+    "end": 39.449
+  },
+  {
+    "word": "a",
+    "start": 39.497,
+    "end": 39.545
+  },
+  {
+    "word": "sticky",
+    "start": 39.625,
+    "end": 40.505
+  },
+  {
+    "word": "note",
+    "start": 40.553,
+    "end": 40.745
+  },
+  {
+    "word": "and",
+    "start": 40.798,
+    "end": 40.953
+  },
+  {
+    "word": "recycles",
+    "start": 41.001,
+    "end": 41.385
+  },
+  {
+    "word": "it.",
+    "start": 41.438,
+    "end": 41.598
+  },
+  {
+    "word": "I",
+    "start": 41.705,
+    "end": 41.745
+  },
+  {
+    "word": "keep",
+    "start": 41.785,
+    "end": 41.945
+  },
+  {
+    "word": "my",
+    "start": 41.972,
+    "end": 42.025
+  },
+  {
+    "word": "emergency",
+    "start": 42.096,
+    "end": 42.945
+  },
+  {
+    "word": "money",
+    "start": 43.224,
+    "end": 43.229
+  },
+  {
+    "word": "under",
+    "start": 43.23,
+    "end": 43.235
+  },
+  {
+    "word": "my",
+    "start": 43.236,
+    "end": 43.238
+  },
+  {
+    "word": "mattress.",
+    "start": 43.239,
+    "end": 43.248
+  },
+  {
+    "word": "[knowing,",
+    "start": 43.25,
+    "end": 43.281
+  },
+  {
+    "word": "slow,",
+    "start": 43.283,
+    "end": 43.295
+  },
+  {
+    "word": "like",
+    "start": 43.297,
+    "end": 43.329
+  },
+  {
+    "word": "he's",
+    "start": 43.382,
+    "end": 43.569
+  },
+  {
+    "word": "seen",
+    "start": 43.609,
+    "end": 43.777
+  },
+  {
+    "word": "the",
+    "start": 43.825,
+    "end": 43.969
+  },
+  {
+    "word": "ending]",
+    "start": 43.996,
+    "end": 44.309
+  },
+  {
+    "word": "So",
+    "start": 44.329,
+    "end": 44.369
+  },
+  {
+    "word": "it",
+    "start": 44.409,
+    "end": 44.495
+  },
+  {
+    "word": "comes",
+    "start": 44.54,
+    "end": 44.769
+  },
+  {
+    "word": "down",
+    "start": 44.849,
+    "end": 45.169
+  },
+  {
+    "word": "to",
+    "start": 45.249,
+    "end": 45.729
+  },
+  {
+    "word": "who",
+    "start": 45.889,
+    "end": 46.039
+  },
+  {
+    "word": "you'd",
+    "start": 46.089,
+    "end": 46.305
+  },
+  {
+    "word": "rather",
+    "start": 46.321,
+    "end": 46.489
+  },
+  {
+    "word": "trust.",
+    "start": 46.529,
+    "end": 46.906
+  },
+  {
+    "word": "A",
+    "start": 46.975,
+    "end": 47.043
+  },
+  {
+    "word": "company",
+    "start": 47.112,
+    "end": 47.72
+  },
+  {
+    "word": "that",
+    "start": 47.791,
+    "end": 48.076
+  },
+  {
+    "word": "can",
+    "start": 48.147,
+    "end": 48.449
+  },
+  {
+    "word": "get",
+    "start": 48.476,
+    "end": 48.561
+  },
+  {
+    "word": "robbed,",
+    "start": 48.593,
+    "end": 48.902
+  },
+  {
+    "word": "or",
+    "start": 48.956,
+    "end": 49.089
+  },
+  {
+    "word": "yourself,",
+    "start": 49.169,
+    "end": 50.289
+  },
+  {
+    "word": "on",
+    "start": 50.369,
+    "end": 50.529
+  },
+  {
+    "word": "your",
+    "start": 50.609,
+    "end": 51.116
+  },
+  {
+    "word": "worst",
+    "start": 51.142,
+    "end": 51.345
+  },
+  {
+    "word": "day.",
+    "start": 51.393,
+    "end": 51.603
+  },
+  {
+    "word": "In",
+    "start": 51.718,
+    "end": 51.832
+  },
+  {
+    "word": "short...",
+    "start": 51.889,
+    "end": 52.865
+  },
+  {
+    "word": "it's",
+    "start": 52.921,
+    "end": 53.116
+  },
+  {
+    "word": "your",
+    "start": 53.142,
+    "end": 53.289
+  },
+  {
+    "word": "choice.",
+    "start": 53.329,
+    "end": 53.569
+  },
+  {
+    "word": "Subscribe",
+    "start": 53.622,
+    "end": 53.969
+  },
+  {
+    "word": "if",
+    "start": 53.999,
+    "end": 54.059
+  },
+  {
+    "word": "you'd",
+    "start": 54.089,
+    "end": 54.253
+  },
+  {
+    "word": "like",
+    "start": 54.298,
+    "end": 54.476
+  },
+  {
+    "word": "me",
+    "start": 54.52,
+    "end": 54.609
+  },
+  {
+    "word": "to",
+    "start": 54.669,
+    "end": 54.789
+  },
+  {
+    "word": "keep",
+    "start": 54.849,
+    "end": 55.089
+  },
+  {
+    "word": "reading",
+    "start": 55.116,
+    "end": 55.382
+  },
+  {
+    "word": "incident",
+    "start": 55.436,
+    "end": 55.764
+  },
+  {
+    "word": "reports",
+    "start": 55.789,
+    "end": 56.165
+  },
+  {
+    "word": "at",
+    "start": 56.262,
+    "end": 56.458
+  },
+  {
+    "word": "two",
+    "start": 56.556,
+    "end": 56.849
+  },
+  {
+    "word": "in",
+    "start": 56.909,
+    "end": 57.029
+  },
+  {
+    "word": "the",
+    "start": 57.089,
+    "end": 57.329
+  },
+  {
+    "word": "morning.",
+    "start": 57.409,
+    "end": 58.409
+  },
+  {
+    "word": "Somebody",
+    "start": 58.509,
+    "end": 58.769
+  },
+  {
+    "word": "has",
+    "start": 58.769,
+    "end": 58.769
+  },
+  {
+    "word": "to.",
+    "start": 58.769,
+    "end": 58.769
+  },
+  {
+    "word": "Mugs",
+    "start": 58.769,
+    "end": 58.769
+  },
+  {
+    "word": "out.",
+    "start": 58.769,
+    "end": 58.769
+  }
+]

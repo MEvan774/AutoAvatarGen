@@ -519,6 +519,8 @@ namespace MugsTech.Tts
                 case "Headline": case "Excerpt": case "Quote": case "Stat": case "Logo": case "BRoll":
                 case "Compare": case "Versus": case "Document": case "Map":
                     return zero ? ",Start" : "," + d;
+                case "Echo":   // {Echo:"…","…",T=…,D=3} → {Echo:"…","…",3}
+                    return "," + d;
                 default:
                     return "," + d;
             }

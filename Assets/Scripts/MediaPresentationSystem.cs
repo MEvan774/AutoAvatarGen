@@ -303,6 +303,48 @@ public class MediaPresentationSystem : MonoBehaviour
     public bool IsCloseUpHeld => !float.IsNaN(extremeRestoreSize);
 
     /// <summary>
+    /// True while the zoom system owns the camera: a {Zoom:In} run, any glide
+    /// (a step, Out, a run gliding home) or pullback, or a held close-up. The
+    /// idle drift (MugsTech.Motion.IdleDrift) stays off the camera meanwhile.
+    /// </summary>
+    public bool IsCameraBusy => zoomStep > 0 || zoomCoroutine != null || IsCloseUpHeld;
+
+    /// <summary>True while the {Black} panel covers the frame.</summary>
+    public bool IsBlackShowing => blackPanelController != null && blackPanelController.IsShowing;
+
+    /// <summary>True while the {Echo} headline is on screen (sliding in, holding or sliding out).</summary>
+    public bool IsEchoShowing => echo != null && echo.IsShowing;
+
+    /// <summary>True while a chapter title is on screen.</summary>
+    public bool IsChapterTitleShowing => chapterTitles != null && chapterTitles.IsShowing;
+
+    /// <summary>
+    /// The voice time of the next marker after <paramref name="now"/> that
+    /// lands on the frame — a zoom of any kind, an image or video, black, a
+    /// transition, or any card event — or +∞ when none is left. The idle drift
+    /// eases back to the rest framing before it. Reads the parsed lists only.
+    /// </summary>
+    public float NextCameraStop(float now)
+    {
+        float next = float.PositiveInfinity;
+        if (zoomMarkers != null)
+            foreach (ZoomMarkerData z in zoomMarkers)
+                if (z.triggerTime > now && z.triggerTime < next) next = z.triggerTime;
+        if (mediaMarkers != null)
+            foreach (MediaMarkerData m in mediaMarkers)
+                if (!m.endsMedia && m.triggerTime > now && m.triggerTime < next) next = m.triggerTime;
+        if (blackPanelMarkers != null)
+            foreach (BlackPanelMarkerData b in blackPanelMarkers)
+                if (!b.endsPanel && b.triggerTime > now && b.triggerTime < next) next = b.triggerTime;
+        if (transitionMarkers != null)
+            foreach (TransitionMarkerData t in transitionMarkers)
+                if (t.triggerTime > now && t.triggerTime < next) next = t.triggerTime;
+        if (contentZoneController != null)
+            next = Mathf.Min(next, contentZoneController.NextCardTime(now));
+        return next;
+    }
+
+    /// <summary>
     /// True when a {Zoom:ExtremeIn} that hasn't fired yet is due within
     /// <see cref="closeUpCutWindow"/> of the narration clock. Anything about to
     /// fade or close now is left for that cut, so it vanishes on the camera
@@ -335,8 +377,17 @@ public class MediaPresentationSystem : MonoBehaviour
     /// {Black:2}, etc.) is captured for its full duration instead of being cut
     /// off the instant the audio stops.
     /// </summary>
+    /// <summary>
+    /// How long a take keeps recording after the voice has run to its end —
+    /// the minimum tail, so the music bed's 1.5 s fade after the last word is
+    /// in the file (Evereal's stop watchdog waits on HasActiveTrailingVisual
+    /// below, then adds its own 0.5 s). The one place the tail is set.
+    /// </summary>
+    public const float EndTailSeconds = 2.0f;
+
     public bool HasActiveTrailingVisual =>
-        isShowingMedia
+        MugsTech.Background.TakeLoudness.InEndTail
+        || isShowingMedia
         || (blackPanelController != null && blackPanelController.IsShowing)
         || (contentZoneController != null && contentZoneController.HasActiveOrQueuedCard);
 
@@ -382,6 +433,12 @@ public class MediaPresentationSystem : MonoBehaviour
     private List<MoodMarkerData> moodMarkers;
     private int lastTriggeredMoodMarker = -1;
     private AudioSource transitionSfxSource;
+
+    // --- The thumbnail echo ({Echo:…}); null when none / switched off ---
+    private MugsTech.Echo.EchoOverlay echo;
+
+    // --- Captions in the gaps; null when off or the take has no word timings ---
+    private MugsTech.Captions.CaptionOverlay captions;
 
     // --- Timestamp (YouTube chapter) tracking ---
     private List<TimestampMarkerData> timestampMarkers;
@@ -792,6 +849,15 @@ public class MediaPresentationSystem : MonoBehaviour
         // waits for it before the take starts (no-op when folder mode is off).
         MugsTech.Background.BackgroundMusicPlayer.BeginFolderPreload(audio.length);
 
+        // The take's level and ending (last word, −14 LUFS gain, 2 s tail) —
+        // measured before playback, after the bed above is planned.
+        MugsTech.Background.TakeLoudness.Begin(audio, voiceAudio);
+
+        // Idle camera drift (main-menu switch; nothing at all when off). It
+        // reads the marker lists parsed below each frame, so starting it
+        // before they exist is fine — it can't move until the voice starts.
+        MugsTech.Motion.IdleDrift.Begin(this);
+
         // Parse {Timestamp:"..."} chapter markers FIRST and strip them. They are
         // pure timeline markers — never voiced, never shown, and they drive nothing
         // visual — so removing them up front keeps them out of every other parser
@@ -801,6 +867,20 @@ public class MediaPresentationSystem : MonoBehaviour
         var tsResult = ParseTimestampMarkers(scriptWithMarkers, audio.length);
         string scriptAfterTimestamps = tsResult.Item1;
         timestampMarkers = tsResult.Item2;
+
+        // {Echo:"HEADLINE","accent",N} — the thumbnail's headline from the first
+        // frame (main-menu switch "Thumbnail echo"). Parsed and stripped here,
+        // like {Timestamp}, so no other parser ever sees one; warnings (a second
+        // Echo, over five words, an accent not in the headline) are logged.
+        var echoResult = MugsTech.Echo.EchoTag.Parse(scriptAfterTimestamps, MugsTech.Echo.EchoTypography.AccentHex);
+        scriptAfterTimestamps = echoResult.Script;
+        if (echo != null) Destroy(echo.gameObject);
+        echo = MugsTech.Echo.EchoOverlay.Create(this, voiceAudio, echoResult);
+
+        // Captions in the gaps (main-menu switch): the stitched take's words,
+        // timed by SegmentSequencer the way its T= stamps are.
+        if (captions != null) Destroy(captions.gameObject);
+        captions = MugsTech.Captions.CaptionOverlay.Create(this, audio);
 
         // Parse transition markers FIRST. A {Transition:...} claims the other
         // state tags on its line — {Position:...}, the emotion tag, {Mood:...} and
@@ -890,16 +970,21 @@ public class MediaPresentationSystem : MonoBehaviour
         // inside ProcessWithExistingAudio alone would strand them if the
         // preload ran long. The preloader self-caps at 30s and flags failures
         // via MusicTakeLog — a music hiccup never wastes a render.
-        const float musicTimeout = 35f;
+        const float musicTimeout = 65f; // music preload (self-caps at 30 s) + the loudness pass
         float musicWaited = 0f;
         while (musicWaited < musicTimeout &&
-               MugsTech.Background.BackgroundMusicPlayer.FolderPreloadPending)
+               (MugsTech.Background.BackgroundMusicPlayer.FolderPreloadPending ||
+                MugsTech.Background.TakeLoudness.Pending))
         {
             musicWaited += Time.unscaledDeltaTime;
             yield return null;
         }
         if (musicWaited > 0f)
-            Debug.Log($"[MediaPresentation] Waited {musicWaited:F1}s for background music preload.");
+            Debug.Log($"[MediaPresentation] Waited {musicWaited:F1}s for the background music preload and the take's loudness.");
+
+        // The Echo slides in on this frame: the voice and the recorder start
+        // inside ProcessWithExistingAudio, so this is the take's first frame.
+        if (echo != null) echo.BeginAtFirstFrame();
 
         // Forward to avatar system for emotion processing (unchanged)
         avatarSystem.ProcessWithExistingAudio(cleanScript, audio);
@@ -1131,6 +1216,11 @@ public class MediaPresentationSystem : MonoBehaviour
                       "big card) before leaning in again.");
             return;
         }
+
+        // The idle drift is normally home already (it eases back before every
+        // zoom marker); if not, put the camera on its rest framing before this
+        // zoom reads or captures it, so every step starts from the same base.
+        MugsTech.Motion.IdleDrift.Settle($"{{Zoom:{type}}}");
 
         // Per-tag sound effect ({Zoom:In/Out/Reset/Pullback/Extreme}).
         TagSfxPlayer.Instance.Play(type);

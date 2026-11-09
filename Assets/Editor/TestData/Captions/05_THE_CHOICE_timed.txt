@@ -1,0 +1,31 @@
+{Timestamp:"The Choice",T=0.000}
+{Transition:Wipe,T=0.000} {Position:Center,T=0.000} {Mood:Calm,T=0.000} {Sip,T=0.000}
+[with a sigh,T=0.000] Hold on. [sips coffee,T=1.904] Okay.
+{Smirk,T=1.924}
+[conversational, loose, off the cuff,T=1.925] Yes, I know what the comments are typing. Not your keys, not your coins.
+{OpenPalmSideLookingAtViewer,T=8.630}
+And sure. If the keys are yours, no exchange can lose them for you.
+{Smug,T=12.610}
+[dry,T=12.650] But then you're the exchange.
+{Neutral,T=14.040}
+{Zoom:In,T=14.042}
+[leaning in, quieter but quicker, conspiratorial,T=14.043] For Binance, this was a very expensive week.
+{Zoom:In,T=19.190}
+{LookingAtViewer,T=19.254}
+And for you, it's the same question it always was.
+{OpenPalmSideLower,T=23.145}
+[flat,T=23.185] {BigText:THERE IS NO 100% SAFE OPTION,T=23.525,D=0}There is no one hundred percent safe option here.
+{OpenPalmSide,T=27.255}
+{BigText:End,T=27.305,D=0}On an exchange, {BigText:A COMPANY CAN LOSE IT,T=28.025,D=0}a company can lose it for you. On your own USB stick or your own computer, {BigText:YOU CAN LOSE IT,T=33.385,D=0}you can lose it yourself.
+{Shrug,T=36.165}
+{BigText:End,T=36.265,D=0}Drives break. Laptops die. Somebody writes the password on a sticky note and recycles it.
+{SmugSip,T=41.652}
+I keep my emergency money under my mattress.
+{ChinScratching,T=43.249}
+[knowing, slow, like he's seen the ending,T=43.250] So it comes down to who you'd rather trust. A company that can get robbed, or yourself, on your worst day.
+{OpenPalmSideLowerLookingAtViewer,T=51.660}
+In short... it's your choice.
+{Smirk,T=53.596}
+Subscribe if you'd like me to keep reading incident reports at two in the morning. Somebody has to.
+{Sip,T=58.655}
+Mugs out.

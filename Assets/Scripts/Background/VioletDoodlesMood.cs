@@ -119,6 +119,16 @@ namespace MugsTech.Background
 
         public void SetActive(bool active) => gameObject.SetActive(active);
 
+        /// <summary>
+        /// The rig's backdrop picture (the mood layers are its children) — the
+        /// layer the idle camera drift moves at 40 % parallax. Null if the rig
+        /// has none.
+        /// </summary>
+        public SpriteRenderer Backdrop
+        {
+            get { EnsureInitialised(); return backdrop; }
+        }
+
         /// <summary>Where a mood's picture comes from, for the [Mood] log lines.</summary>
         public string DescribeBackground(BackgroundMoodController.MoodType mood)
         {

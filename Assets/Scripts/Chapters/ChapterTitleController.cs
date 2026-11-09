@@ -675,6 +675,9 @@ public class ChapterTitleController : MonoBehaviour
     // ---- Self-test access ----------------------------------------------------
     public TMP_Text LabelText => label;
     public RectTransform TitleRect => title;
+
+    /// <summary>True while a chapter title is on screen (captions keep out of its way).</summary>
+    public bool IsShowing => title != null && title.gameObject.activeInHierarchy;
     public IReadOnlyList<Image> PipImages => pips;
     public void PlaceForTest(ChapterTitles.Side side, Vector2 blockPx)
     {

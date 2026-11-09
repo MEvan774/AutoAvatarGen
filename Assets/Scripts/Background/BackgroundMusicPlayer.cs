@@ -21,7 +21,9 @@ namespace MugsTech.Background
     ///   1. <see cref="FolderPrefKey"/>         — folder mode (main menu "Music
     ///      folder" row): a random playlist drawn from the folder, planned to
     ///      cover the take's voice length, LUFS-equalized (BS.1770) to −16 LUFS
-    ///      per track, sequential 2 s fades, constant 0.10 duck. Mirrors the
+    ///      per track, sequential 2 s fades, constant duck (main menu "Music
+    ///      volume", default 0.18), held through the last word and faded over
+    ///      1.5 s after it. Mirrors the
     ///      Python mixer (music_mixer/add_music.py) so the post-mux step can
     ///      be retired; MusicTakeLog records what played for the credits file.
     ///   2. <see cref="OverridePathPrefKey"/>  — single track from main menu;
@@ -36,9 +38,10 @@ namespace MugsTech.Background
     /// flagged via MusicTakeLog (result panel + automation JSON).
     ///
     /// Playback is gated on the script's voice AudioSource: music starts when
-    /// voice starts and stops the instant voice ends. That guarantees the
-    /// recording's audible duration is bounded by the script alone — music
-    /// can never extend a recording or play after the voice has finished.
+    /// voice starts. In folder mode it plays its 1.5 s end fade past the last
+    /// word — into the take's fixed 2 s tail (MediaPresentationSystem.
+    /// EndTailSeconds), never longer; modes 2/3 still stop the instant the
+    /// voice ends.
     /// </summary>
     public class BackgroundMusicPlayer : MonoBehaviour
     {
@@ -50,12 +53,21 @@ namespace MugsTech.Background
 
         public const float  DefaultVolume = 0.15f;
 
-        // Folder mode: the channel's mixer settings. Duck 0.10 = the bed sits
-        // at a constant 10% of full scale after per-track equalization (no
-        // sidechain — matches add_music.py's constant `--volume`).
-        public const float  FolderModeDuckVolume = 0.10f;
+        // Folder mode: the channel's mixer settings. The duck is a constant
+        // fraction of full scale after per-track equalization (no sidechain).
+        // 0.10 came from add_music.py's default and left the bed 25–30 dB under
+        // the voice — inaudible on a phone; 0.18 puts it ~15–20 dB under. The
+        // main menu's "Music volume" sets it (0.05–0.40).
+        public const float  FolderModeDuckVolume = 0.18f;
+        public const float  MinDuckVolume = 0.05f, MaxDuckVolume = 0.40f;
+
+        /// <summary>The folder-mode duck from PlayerPrefs (main menu "Music volume"), clamped.</summary>
+        public static float MusicVolume
+        {
+            get => Mathf.Clamp(PlayerPrefs.GetFloat(FolderVolumePrefKey, FolderModeDuckVolume), MinDuckVolume, MaxDuckVolume);
+            set { PlayerPrefs.SetFloat(FolderVolumePrefKey, Mathf.Clamp(value, MinDuckVolume, MaxDuckVolume)); PlayerPrefs.Save(); }
+        }
         const float  TargetLufs  = -16f;   // per-track equalization target
-        const float  FadeSeconds = 2f;     // fade-in/out at each track edge + final bed fade
 
         // Preload must never hang a take: the planner gives up after this and
         // the recording starts with whatever loaded (possibly nothing), with
@@ -179,7 +191,7 @@ namespace MugsTech.Background
             folderPreloadStarted = true;
 
             string folder = PlayerPrefs.GetString(FolderPrefKey, "").Trim();
-            duckVolume = PlayerPrefs.GetFloat(FolderVolumePrefKey, FolderModeDuckVolume);
+            duckVolume = MusicVolume;
             folderMode = folder.Length > 0;
             folderPath = folder;
             MusicTakeLog.BeginTake(folderMode ? folder : null, duckVolume);
@@ -482,7 +494,7 @@ namespace MugsTech.Background
             {
                 folderMode = true;
                 folderPath = folderPref;
-                duckVolume = PlayerPrefs.GetFloat(FolderVolumePrefKey, FolderModeDuckVolume);
+                duckVolume = MusicVolume;
                 Debug.Log($"[BgMusic] Folder mode configured: '{folderPath}' " +
                           $"(duck {duckVolume:F2}); waiting for the take's voice length.");
                 return;
@@ -628,26 +640,56 @@ namespace MugsTech.Background
 
         // Sequential playlist under the voice, matching the ffmpeg filter the
         // Python mixer built: per track, 2 s linear fade-in and fade-out
-        // (their envelopes multiply, exactly like chained afades), the whole
-        // bed fades out over the last 2 s of the voice clip, and everything
-        // sits at the constant duck volume after each track's equalization
-        // gain. The voice gate provides the bed trim: music stops the instant
-        // the voice stops, and never plays into trailing visuals.
+        // (their envelopes multiply, exactly like chained afades), everything
+        // at the constant duck after each track's equalization gain.
+        //
+        // The ending: the bed holds at full duck THROUGH the last word, then
+        // fades over 1.5 s (TakeLoudnessMath.EndEnvelope) — it used to fade over
+        // the voice's last 2 s and was gone under the sign-off. When the voice
+        // clip ends before that fade has finished, the bed keeps playing to the
+        // end of it; the take records a 2 s tail for it
+        // (MediaPresentationSystem.EndTailSeconds). The volume comes from
+        // TakeLoudnessMath.BedVolume — the same function TakeLoudness uses to
+        // measure the mix, so what is measured is what plays.
         void UpdateFolderPlayback(bool voicePlaying)
         {
+            float voiceLen = voiceAudio != null && voiceAudio.clip != null
+                ? voiceAudio.clip.length
+                : plannedVoiceLength;
+            float lastWord = LastWordEnd(voiceLen);
+
             if (!voicePlaying)
             {
-                // The recorder stops and restarts the voice once the encoder
-                // is warm — clearing the clip here is what re-syncs the bed to
-                // that restart (it replays from the top of the playlist).
+                // A voice that ran to its end: finish the bed's fade after it.
+                if (wasVoicePlaying && !tailDone && lastVoiceTime >= Mathf.Min(lastWord, voiceLen) - 0.1f
+                    && source.isPlaying && folderPlaylist.Count > 0)
+                {
+                    if (float.IsNaN(voiceStoppedAt)) voiceStoppedAt = Time.unscaledTime;
+                    float since = Mathf.Max(0f, voiceLen - lastWord) + (Time.unscaledTime - voiceStoppedAt);
+                    FolderTrack t = folderPlaylist[folderIndex].Track;
+                    float v = TakeLoudnessMath.BedVolume(duckVolume, t.GainLinear, source.time, t.Duration, since);
+                    if (v > 0f) { source.volume = v; return; }
+                    tailDone = true;
+                    Debug.Log($"[BgMusic] Bed faded out {since:F2}s after the last word.");
+                }
+
+                // Not started yet, stopped for the recorder's restart, or the
+                // fade is done. The recorder stops and restarts the voice once
+                // the encoder is warm — clearing the clip here is what re-syncs
+                // the bed to that restart (it replays from the top of the playlist).
                 if (source.isPlaying) source.Stop();
                 if (source.clip != null) source.clip = null;
                 folderIndex     = 0;
                 wasVoicePlaying = false;
+                lastVoiceTime   = 0f;
+                voiceStoppedAt  = float.NaN;
                 return;
             }
 
             wasVoicePlaying = true;
+            tailDone        = false;
+            voiceStoppedAt  = float.NaN;
+            lastVoiceTime   = voiceAudio.time;
             if (folderPlaylist.Count == 0) return;
 
             if (!source.isPlaying)
@@ -666,19 +708,50 @@ namespace MugsTech.Background
             }
 
             FolderTrack cur = folderPlaylist[folderIndex].Track;
-            float pos     = source.time;
-            float fadeIn  = Mathf.Clamp01(pos / FadeSeconds);
-            float fadeOut = Mathf.Clamp01((cur.Duration - pos) / FadeSeconds);
-
-            float endFade  = 1f;
-            float voiceLen = voiceAudio != null && voiceAudio.clip != null
-                ? voiceAudio.clip.length
-                : plannedVoiceLength;
-            if (voiceLen > 0f && voiceAudio != null)
-                endFade = Mathf.Clamp01((voiceLen - voiceAudio.time) / FadeSeconds);
-
-            source.volume = Mathf.Clamp01(duckVolume * cur.GainLinear * fadeIn * fadeOut * endFade);
+            source.volume = TakeLoudnessMath.BedVolume(duckVolume, cur.GainLinear, source.time, cur.Duration,
+                                                       voiceAudio.time - lastWord);
         }
+
+        // Where the last word ends on the voice clip (TakeLoudness measures it
+        // before the take starts); the clip's end when that isn't known.
+        static float LastWordEnd(float voiceLen)
+        {
+            float w = TakeLoudness.LastWordEnd;
+            return float.IsNaN(w) || w <= 0f ? voiceLen : Mathf.Min(w, voiceLen);
+        }
+
+        float lastVoiceTime;
+        float voiceStoppedAt = float.NaN;
+        bool  tailDone;
+
+        // -------------------------------------------------------------------
+        // The planned bed, for TakeLoudness's measurement of the mix
+        // -------------------------------------------------------------------
+
+        public struct BedTrack
+        {
+            public AudioClip Clip;
+            public float GainLinear;   // the track's equalising gain (before the duck)
+            public float Duration;     // seconds; tracks play back to back from the voice's start
+        }
+
+        /// <summary>
+        /// The folder-mode bed this take will play, in order, and its duck —
+        /// empty when folder mode is off or its preload hasn't finished.
+        /// </summary>
+        public static System.Collections.Generic.List<BedTrack> PlannedBed(out float duck)
+        {
+            var list = new System.Collections.Generic.List<BedTrack>();
+            duck = 0f;
+            if (s_Instance == null || !s_Instance.folderMode || !s_Instance.folderPreloadComplete) return list;
+            duck = s_Instance.duckVolume;
+            foreach (PlaylistEntry e in s_Instance.folderPlaylist)
+                list.Add(new BedTrack { Clip = e.Track.Clip, GainLinear = e.Track.GainLinear, Duration = e.Track.Duration });
+            return list;
+        }
+
+        /// <summary>True when music plays from the single-track / preset modes (not measured in the mix).</summary>
+        public static bool LegacyMusicActive => s_Instance != null && !s_Instance.folderMode && s_Instance.tracks.Count > 0;
 
         // Voice AudioSource discovery. The recorder often lives on the Main
         // Camera, which is INACTIVE during a take (its output is routed to the

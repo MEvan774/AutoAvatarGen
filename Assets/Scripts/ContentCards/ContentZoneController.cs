@@ -94,6 +94,20 @@ public class ContentZoneController : MonoBehaviour
     /// recorder polls this so the take is held open until the queue drains.</summary>
     public bool HasActiveOrQueuedCard => activeCard != null || cardQueue.Count > 0;
 
+    /// <summary>
+    /// The trigger time of the first card event after <paramref name="now"/>
+    /// (+∞ when none) — the idle camera drift eases home before it, so a card
+    /// slides into a still frame.
+    /// </summary>
+    public float NextCardTime(float now)
+    {
+        float next = float.PositiveInfinity;
+        if (timeline == null) return next;
+        foreach (ContentCardEvent e in timeline)
+            if (e.triggerTime > now && e.triggerTime < next) next = e.triggerTime;
+        return next;
+    }
+
     void Awake()
     {
         // Make sure a CardEntryAnimator exists in the scene before any card
