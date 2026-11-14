@@ -234,7 +234,7 @@ A hard punch-in to a **close-up on Mugs's face**, used to punctuate a punchline.
 - The camera **finds his face wherever he's standing** — `Left`, `Right` or `Center` all work, no position change needed.
 - **A close-up ends a `{Zoom:In}` run.** `ExtremeOut` comes back to **normal framing**, not to the push-in — if you want to lean in again afterwards, start over with a new `{Zoom:In}` (step 1). With no run active, `ExtremeOut` restores the exact framing that was on screen before the punch. You never need a `{Zoom:Reset}` after one.
 - `ExtremeIn` **instantly cuts away every card and media item on screen** (side cards, BigText/BigMedia/BigImage/`bigCenter` cards, anything queued, `{Image:}`/`{Video:}`) on the same frame as the camera snap, with no fade. They **do not come back on `ExtremeOut`**, and a later End tag for one of them (`{Stat:End}`, `{Image:End}`, `{Video:End}`…) is a harmless no-op. An End tag on the same word as `ExtremeIn` is part of that cut. Never put a card or media between `ExtremeIn` and `ExtremeOut`: it is blocked (with a warning) for as long as the close-up is held. `{Black:}` is not affected.
-- An emotion tag placed on the same beat as `ExtremeIn` / `ExtremeOut` (e.g. `{Shocked}` right next to the in tag) **swaps instantly** — the camera snap is the transition, so the global presenter animation (shrink / grow / crossfade…) is skipped for that swap. Write an explicit style (`{Shocked,Shrink}`) if you really want one there.
+- An emotion tag placed on the same beat as `ExtremeIn` / `ExtremeOut` (e.g. `{Shocked}` right next to the in tag, or `{Shrug,Cut}` on its own line just above the out tag) **swaps instantly, on the cut's own frame** — the camera snap is the transition, so the global presenter animation (shrink / grow / crossfade…) is skipped for that swap. "The same beat" means no spoken word between the two tags: side by side, or on adjacent lines (a `[stage direction]` between them doesn't count). Such tags always fire together, on the next word's onset (§5), and any emotion within 0.4 s of either cut is moved onto it. Write an explicit style (`{Shocked,Shrink}`) if you really want an animation there.
 - Silent by default — the missing sound is usually the joke.
 - **Forget the out tag and the close-up stays up for the rest of the video.** This is the one way to really break the effect.
 
@@ -573,7 +573,8 @@ Fields: `"left label","left text","right label","right text",duration|Start[,Vs]
 ## 5. Placement & timing
 
 - A tag fires at the moment the narration reaches **the next spoken word after the tag**. So place a tag on its own line *immediately before* the sentence (or right after the sentence whose end you're reacting to).
-- **The one exception is a `{Pause}`.** Tags written above a `{Pause}` fire as its silence begins — right after the previous word — and the tags below it fire on the next word, after the silence (§4 *"Pause"*).
+- **Tags with no spoken word between them are one beat and fire on the same frame**, whether they share a line or sit on adjacent lines (`[stage directions]` don't count as spoken words). `{Shrug,Cut}` on one line and `{Zoom:ExtremeOut}` on the next land together on the next word's onset. The voice's timing data spreads stacked tags across the silence before that word, so the engine lines them back up on the measured onset; it only ever pulls a tag earlier, by at most 0.9 s. A tag that should fire *later* than its neighbours needs a spoken word between them, e.g. inline in the next line (`So if buyers {Shrug}stopped…`).
+- **The one exception is a `{Pause}`.** Tags written above a `{Pause}` fire as its silence begins — right after the previous word — and the tags below it fire on the next word, after the silence (§4 *"Pause"*). That split wins over the same-beat rule above.
 - Typical pattern: the spoken line, then the visual that should accompany the *next* line:
 ```
 [deadpan] A company did a thing. It was bad. Let's talk about it.
@@ -593,6 +594,14 @@ Fields: `"left label","left text","right label","right text",duration|Start[,Vs]
 - **Don't place a tag on the script's very last word and expect it to fire late** — it's fine, the recording now holds until trailing tags (e.g. an end-card `{Logo:...,8}` or final `{Black:2}`) finish their full duration.
 - **A `Timeline` builds as you speak.** Put each `{Timeline:"date","event"}` on its own line right before the sentence that mentions that date, and `{Timeline:End}` after the last line the timeline should stay up for — like a line-by-line `BigText`.
 - Reasonable default durations: cards 5s, excerpts and documents 6s, compare and map 5–6s, versus 5s (or held), big text 3–4s, logos 3–4s, black cuts 2–3s.
+
+### Captions in the gaps (automatic, no tag)
+With the main menu's **Captions in gaps** on (the default), the script's own spoken words appear in a band along the bottom whenever nothing else is on screen. There is no tag. Captions follow from where you leave the frame bare, so this is what decides when they show:
+- **A caption is a phrase of 3–7 words, shown whole or not at all.** It appears on its first word and stays until just after its last (bridged to the next phrase when that follows within 0.6 s). It never pops in halfway through a line.
+- **It only starts if nothing is due before its last word**: a card or its End, an `{Image:}`/`{Video:}`, a zoom, `{Black}`, a transition, a chapter title, the `{Echo}`, or Mugs gliding to a new `{Position}`. A phrase that would be cut off is skipped, and the next one gets its turn.
+- **The frame must have been bare for 0.4 s first**, so a caption never arrives in the same breath as a card leaving. A line that starts on the same word a card ends gets no caption; the next phrase does.
+- **Never over a zoom.** No caption during a `{Zoom:In}` run, the glide home or an extreme close-up, and the cold open's first line never gets one.
+- The upshot: a stretch with no visual for a sentence or two shows captions; a section packed with cards shows almost none. To keep a passage text-free, put a visual on it; to give it captions, leave it bare.
 
 ---
 

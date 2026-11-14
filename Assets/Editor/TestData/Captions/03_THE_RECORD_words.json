@@ -1,0 +1,1017 @@
+[
+  {
+    "word": "[conversational,",
+    "start": 0.04,
+    "end": 0.201
+  },
+  {
+    "word": "loose,",
+    "start": 0.202,
+    "end": 0.208
+  },
+  {
+    "word": "off",
+    "start": 0.219,
+    "end": 0.255
+  },
+  {
+    "word": "the",
+    "start": 0.267,
+    "end": 0.303
+  },
+  {
+    "word": "cuff]",
+    "start": 0.313,
+    "end": 0.399
+  },
+  {
+    "word": "Last",
+    "start": 0.409,
+    "end": 0.447
+  },
+  {
+    "word": "year,",
+    "start": 0.511,
+    "end": 0.847
+  },
+  {
+    "word": "Americans",
+    "start": 0.895,
+    "end": 1.327
+  },
+  {
+    "word": "bought",
+    "start": 1.373,
+    "end": 1.647
+  },
+  {
+    "word": "about",
+    "start": 1.687,
+    "end": 1.887
+  },
+  {
+    "word": "twenty",
+    "start": 1.944,
+    "end": 2.287
+  },
+  {
+    "word": "thousand",
+    "start": 2.349,
+    "end": 2.847
+  },
+  {
+    "word": "Cybertrucks.",
+    "start": 2.927,
+    "end": 3.767
+  },
+  {
+    "word": "[matter-of-fact,",
+    "start": 4.007,
+    "end": 4.221
+  },
+  {
+    "word": "level",
+    "start": 4.222,
+    "end": 4.227
+  },
+  {
+    "word": "and",
+    "start": 4.228,
+    "end": 4.231
+  },
+  {
+    "word": "even]",
+    "start": 4.232,
+    "end": 4.237
+  },
+  {
+    "word": "Reuters",
+    "start": 4.276,
+    "end": 4.556
+  },
+  {
+    "word": "put",
+    "start": 4.596,
+    "end": 4.716
+  },
+  {
+    "word": "it",
+    "start": 4.769,
+    "end": 4.876
+  },
+  {
+    "word": "like",
+    "start": 4.908,
+    "end": 5.036
+  },
+  {
+    "word": "this.",
+    "start": 5.116,
+    "end": 6.036
+  },
+  {
+    "word": "Tesla",
+    "start": 6.136,
+    "end": 6.636
+  },
+  {
+    "word": "to",
+    "start": 6.689,
+    "end": 6.796
+  },
+  {
+    "word": "pull",
+    "start": 6.844,
+    "end": 7.036
+  },
+  {
+    "word": "plug",
+    "start": 7.132,
+    "end": 7.516
+  },
+  {
+    "word": "on",
+    "start": 7.569,
+    "end": 7.676
+  },
+  {
+    "word": "Cybertruck",
+    "start": 7.743,
+    "end": 8.396
+  },
+  {
+    "word": "after",
+    "start": 8.449,
+    "end": 8.716
+  },
+  {
+    "word": "years",
+    "start": 8.796,
+    "end": 9.196
+  },
+  {
+    "word": "of",
+    "start": 9.249,
+    "end": 9.356
+  },
+  {
+    "word": "poor",
+    "start": 9.42,
+    "end": 9.676
+  },
+  {
+    "word": "sales.",
+    "start": 9.769,
+    "end": 10.316
+  },
+  {
+    "word": "[deadpan]",
+    "start": 10.976,
+    "end": 11.556
+  },
+  {
+    "word": "Years.",
+    "start": 11.576,
+    "end": 11.756
+  },
+  {
+    "word": "Plural.",
+    "start": 11.916,
+    "end": 12.676
+  },
+  {
+    "word": "[leaning",
+    "start": 12.716,
+    "end": 12.724
+  },
+  {
+    "word": "in,",
+    "start": 12.725,
+    "end": 12.728
+  },
+  {
+    "word": "quieter",
+    "start": 12.729,
+    "end": 12.736
+  },
+  {
+    "word": "but",
+    "start": 12.737,
+    "end": 12.74
+  },
+  {
+    "word": "quicker,",
+    "start": 12.762,
+    "end": 13.112
+  },
+  {
+    "word": "conspiratorial]",
+    "start": 13.136,
+    "end": 13.379
+  },
+  {
+    "word": "Here's",
+    "start": 13.411,
+    "end": 13.619
+  },
+  {
+    "word": "the",
+    "start": 13.639,
+    "end": 13.699
+  },
+  {
+    "word": "gap.",
+    "start": 13.799,
+    "end": 14.179
+  },
+  {
+    "word": "Musk",
+    "start": 14.355,
+    "end": 15.059
+  },
+  {
+    "word": "predicted",
+    "start": 15.107,
+    "end": 15.539
+  },
+  {
+    "word": "Tesla",
+    "start": 15.619,
+    "end": 16.019
+  },
+  {
+    "word": "would",
+    "start": 16.046,
+    "end": 16.179
+  },
+  {
+    "word": "sell",
+    "start": 16.227,
+    "end": 16.419
+  },
+  {
+    "word": "around",
+    "start": 16.465,
+    "end": 16.739
+  },
+  {
+    "word": "two",
+    "start": 16.799,
+    "end": 16.979
+  },
+  {
+    "word": "hundred",
+    "start": 17.019,
+    "end": 17.299
+  },
+  {
+    "word": "and",
+    "start": 17.339,
+    "end": 17.459
+  },
+  {
+    "word": "fifty",
+    "start": 17.499,
+    "end": 17.699
+  },
+  {
+    "word": "thousand",
+    "start": 17.743,
+    "end": 18.099
+  },
+  {
+    "word": "a",
+    "start": 18.179,
+    "end": 18.259
+  },
+  {
+    "word": "year.",
+    "start": 18.339,
+    "end": 18.872
+  },
+  {
+    "word": "In",
+    "start": 19.157,
+    "end": 19.299
+  },
+  {
+    "word": "twenty",
+    "start": 19.333,
+    "end": 19.539
+  },
+  {
+    "word": "twenty-five,",
+    "start": 19.585,
+    "end": 20.579
+  },
+  {
+    "word": "by",
+    "start": 20.606,
+    "end": 20.659
+  },
+  {
+    "word": "Kelley",
+    "start": 20.716,
+    "end": 21.059
+  },
+  {
+    "word": "Blue",
+    "start": 21.107,
+    "end": 21.299
+  },
+  {
+    "word": "Book's",
+    "start": 21.347,
+    "end": 21.619
+  },
+  {
+    "word": "estimate,",
+    "start": 21.663,
+    "end": 22.339
+  },
+  {
+    "word": "it",
+    "start": 22.392,
+    "end": 22.499
+  },
+  {
+    "word": "sold",
+    "start": 22.579,
+    "end": 22.899
+  },
+  {
+    "word": "twenty",
+    "start": 22.956,
+    "end": 23.299
+  },
+  {
+    "word": "thousand",
+    "start": 23.37,
+    "end": 23.939
+  },
+  {
+    "word": "two",
+    "start": 23.979,
+    "end": 24.099
+  },
+  {
+    "word": "hundred",
+    "start": 24.139,
+    "end": 24.419
+  },
+  {
+    "word": "and",
+    "start": 24.479,
+    "end": 24.659
+  },
+  {
+    "word": "thirty-seven.",
+    "start": 24.682,
+    "end": 25.619
+  },
+  {
+    "word": "Down",
+    "start": 25.715,
+    "end": 26.099
+  },
+  {
+    "word": "from",
+    "start": 26.147,
+    "end": 26.339
+  },
+  {
+    "word": "almost",
+    "start": 26.408,
+    "end": 26.819
+  },
+  {
+    "word": "thirty-nine",
+    "start": 26.865,
+    "end": 27.379
+  },
+  {
+    "word": "thousand",
+    "start": 27.45,
+    "end": 28.019
+  },
+  {
+    "word": "the",
+    "start": 28.059,
+    "end": 28.179
+  },
+  {
+    "word": "year",
+    "start": 28.227,
+    "end": 28.419
+  },
+  {
+    "word": "before.",
+    "start": 28.488,
+    "end": 28.979
+  },
+  {
+    "word": "[slowing",
+    "start": 29.859,
+    "end": 29.867
+  },
+  {
+    "word": "down,",
+    "start": 29.868,
+    "end": 29.873
+  },
+  {
+    "word": "serious]",
+    "start": 29.879,
+    "end": 29.979
+  },
+  {
+    "word": "Once",
+    "start": 29.989,
+    "end": 30.032
+  },
+  {
+    "word": "the",
+    "start": 30.072,
+    "end": 30.192
+  },
+  {
+    "word": "hype",
+    "start": 30.24,
+    "end": 30.432
+  },
+  {
+    "word": "faded,",
+    "start": 30.512,
+    "end": 31.312
+  },
+  {
+    "word": "so",
+    "start": 31.365,
+    "end": 31.472
+  },
+  {
+    "word": "did",
+    "start": 31.512,
+    "end": 31.632
+  },
+  {
+    "word": "the",
+    "start": 31.652,
+    "end": 31.712
+  },
+  {
+    "word": "buyers.",
+    "start": 31.803,
+    "end": 32.792
+  },
+  {
+    "word": "[matter-of-fact,",
+    "start": 33.272,
+    "end": 33.337
+  },
+  {
+    "word": "level",
+    "start": 33.34,
+    "end": 33.351
+  },
+  {
+    "word": "and",
+    "start": 33.354,
+    "end": 33.364
+  },
+  {
+    "word": "even]",
+    "start": 33.367,
+    "end": 33.391
+  },
+  {
+    "word": "It",
+    "start": 33.395,
+    "end": 33.404
+  },
+  {
+    "word": "didn't",
+    "start": 33.436,
+    "end": 33.644
+  },
+  {
+    "word": "help",
+    "start": 33.708,
+    "end": 33.964
+  },
+  {
+    "word": "that",
+    "start": 33.996,
+    "end": 34.124
+  },
+  {
+    "word": "the",
+    "start": 34.144,
+    "end": 34.204
+  },
+  {
+    "word": "truck",
+    "start": 34.257,
+    "end": 34.524
+  },
+  {
+    "word": "has",
+    "start": 34.564,
+    "end": 34.684
+  },
+  {
+    "word": "had",
+    "start": 34.744,
+    "end": 34.924
+  },
+  {
+    "word": "eleven",
+    "start": 34.993,
+    "end": 35.404
+  },
+  {
+    "word": "recalls.",
+    "start": 35.484,
+    "end": 36.364
+  },
+  {
+    "word": "One",
+    "start": 36.444,
+    "end": 36.684
+  },
+  {
+    "word": "of",
+    "start": 36.737,
+    "end": 36.844
+  },
+  {
+    "word": "them",
+    "start": 36.892,
+    "end": 37.084
+  },
+  {
+    "word": "covered",
+    "start": 37.124,
+    "end": 37.404
+  },
+  {
+    "word": "forty-six",
+    "start": 37.457,
+    "end": 38.044
+  },
+  {
+    "word": "thousand",
+    "start": 38.106,
+    "end": 38.604
+  },
+  {
+    "word": "trucks,",
+    "start": 38.661,
+    "end": 39.084
+  },
+  {
+    "word": "over",
+    "start": 39.132,
+    "end": 39.324
+  },
+  {
+    "word": "a",
+    "start": 39.364,
+    "end": 39.404
+  },
+  {
+    "word": "steel",
+    "start": 39.457,
+    "end": 39.724
+  },
+  {
+    "word": "panel.",
+    "start": 39.804,
+    "end": 40.364
+  },
+  {
+    "word": "The",
+    "start": 40.624,
+    "end": 40.924
+  },
+  {
+    "word": "recall",
+    "start": 40.993,
+    "end": 41.404
+  },
+  {
+    "word": "report",
+    "start": 41.473,
+    "end": 41.884
+  },
+  {
+    "word": "says",
+    "start": 41.948,
+    "end": 42.204
+  },
+  {
+    "word": "the",
+    "start": 42.224,
+    "end": 42.284
+  },
+  {
+    "word": "panel",
+    "start": 42.351,
+    "end": 42.684
+  },
+  {
+    "word": "may",
+    "start": 42.744,
+    "end": 42.924
+  },
+  {
+    "word": "delaminate",
+    "start": 43.024,
+    "end": 43.884
+  },
+  {
+    "word": "at",
+    "start": 43.911,
+    "end": 43.964
+  },
+  {
+    "word": "the",
+    "start": 43.984,
+    "end": 44.044
+  },
+  {
+    "word": "adhesive",
+    "start": 44.106,
+    "end": 44.604
+  },
+  {
+    "word": "joint.",
+    "start": 44.671,
+    "end": 45.084
+  },
+  {
+    "word": "As",
+    "start": 45.271,
+    "end": 45.644
+  },
+  {
+    "word": "in,",
+    "start": 45.724,
+    "end": 46.124
+  },
+  {
+    "word": "come",
+    "start": 46.172,
+    "end": 46.364
+  },
+  {
+    "word": "unglued.",
+    "start": 46.417,
+    "end": 47.084
+  },
+  {
+    "word": "[dry]",
+    "start": 47.984,
+    "end": 48.084
+  },
+  {
+    "word": "They",
+    "start": 48.092,
+    "end": 48.124
+  },
+  {
+    "word": "really",
+    "start": 48.17,
+    "end": 48.444
+  },
+  {
+    "word": "outdid",
+    "start": 48.504,
+    "end": 48.844
+  },
+  {
+    "word": "themselves.",
+    "start": 48.902,
+    "end": 49.564
+  },
+  {
+    "word": "[tired",
+    "start": 49.624,
+    "end": 49.868
+  },
+  {
+    "word": "but",
+    "start": 49.896,
+    "end": 49.98
+  },
+  {
+    "word": "clearly",
+    "start": 49.994,
+    "end": 50.092
+  },
+  {
+    "word": "entertained,",
+    "start": 50.101,
+    "end": 50.244
+  },
+  {
+    "word": "a",
+    "start": 50.264,
+    "end": 50.284
+  },
+  {
+    "word": "smile",
+    "start": 50.291,
+    "end": 50.324
+  },
+  {
+    "word": "you",
+    "start": 50.334,
+    "end": 50.364
+  },
+  {
+    "word": "can",
+    "start": 50.384,
+    "end": 50.444
+  },
+  {
+    "word": "hear]",
+    "start": 50.452,
+    "end": 50.524
+  },
+  {
+    "word": "One",
+    "start": 50.564,
+    "end": 50.684
+  },
+  {
+    "word": "customer",
+    "start": 50.746,
+    "end": 51.244
+  },
+  {
+    "word": "kept",
+    "start": 51.292,
+    "end": 51.484
+  },
+  {
+    "word": "buying,",
+    "start": 51.541,
+    "end": 52.044
+  },
+  {
+    "word": "though.",
+    "start": 52.067,
+    "end": 52.524
+  },
+  {
+    "word": "SpaceX,",
+    "start": 52.924,
+    "end": 53.484
+  },
+  {
+    "word": "Elon",
+    "start": 53.58,
+    "end": 53.964
+  },
+  {
+    "word": "Musk's",
+    "start": 54.012,
+    "end": 54.284
+  },
+  {
+    "word": "rocket",
+    "start": 54.341,
+    "end": 54.684
+  },
+  {
+    "word": "company.",
+    "start": 54.744,
+    "end": 55.564
+  },
+  {
+    "word": "Its",
+    "start": 55.664,
+    "end": 55.964
+  },
+  {
+    "word": "own",
+    "start": 56.024,
+    "end": 56.204
+  },
+  {
+    "word": "filing",
+    "start": 56.284,
+    "end": 56.764
+  },
+  {
+    "word": "says",
+    "start": 56.812,
+    "end": 57.004
+  },
+  {
+    "word": "it",
+    "start": 57.031,
+    "end": 57.084
+  },
+  {
+    "word": "bought",
+    "start": 57.13,
+    "end": 57.404
+  },
+  {
+    "word": "a",
+    "start": 57.484,
+    "end": 57.564
+  },
+  {
+    "word": "hundred",
+    "start": 57.604,
+    "end": 57.884
+  },
+  {
+    "word": "and",
+    "start": 57.944,
+    "end": 58.124
+  },
+  {
+    "word": "thirty-one",
+    "start": 58.147,
+    "end": 58.524
+  },
+  {
+    "word": "million",
+    "start": 58.594,
+    "end": 59.084
+  },
+  {
+    "word": "dollars",
+    "start": 59.154,
+    "end": 59.644
+  },
+  {
+    "word": "of",
+    "start": 59.671,
+    "end": 59.724
+  },
+  {
+    "word": "Cybertrucks",
+    "start": 59.804,
+    "end": 60.444
+  },
+  {
+    "word": "last",
+    "start": 60.508,
+    "end": 60.764
+  },
+  {
+    "word": "year.",
+    "start": 60.828,
+    "end": 61.244
+  },
+  {
+    "word": "At",
+    "start": 61.537,
+    "end": 61.804
+  },
+  {
+    "word": "list",
+    "start": 61.868,
+    "end": 62.124
+  },
+  {
+    "word": "price.",
+    "start": 62.204,
+    "end": 62.684
+  },
+  {
+    "word": "That's",
+    "start": 62.828,
+    "end": 63.524
+  },
+  {
+    "word": "via",
+    "start": 63.554,
+    "end": 63.644
+  },
+  {
+    "word": "Reuters.",
+    "start": 63.714,
+    "end": 64.283
+  },
+  {
+    "word": "[flat]",
+    "start": 64.728,
+    "end": 65.381
+  },
+  {
+    "word": "Yes.",
+    "start": 65.408,
+    "end": 65.568
+  },
+  {
+    "word": "His",
+    "start": 65.648,
+    "end": 65.888
+  },
+  {
+    "word": "own",
+    "start": 65.948,
+    "end": 66.128
+  },
+  {
+    "word": "company.",
+    "start": 66.188,
+    "end": 66.688
+  },
+  {
+    "word": "[conversational,",
+    "start": 67.488,
+    "end": 67.504
+  },
+  {
+    "word": "loose,",
+    "start": 67.505,
+    "end": 67.511
+  },
+  {
+    "word": "off",
+    "start": 67.512,
+    "end": 67.515
+  },
+  {
+    "word": "the",
+    "start": 67.519,
+    "end": 67.534
+  },
+  {
+    "word": "cuff]",
+    "start": 67.538,
+    "end": 67.574
+  },
+  {
+    "word": "So",
+    "start": 67.581,
+    "end": 67.594
+  },
+  {
+    "word": "if",
+    "start": 67.647,
+    "end": 67.754
+  },
+  {
+    "word": "buyers",
+    "start": 67.811,
+    "end": 68.154
+  },
+  {
+    "word": "stopped",
+    "start": 68.194,
+    "end": 68.474
+  },
+  {
+    "word": "showing",
+    "start": 68.524,
+    "end": 68.874
+  },
+  {
+    "word": "up,",
+    "start": 68.954,
+    "end": 69.354
+  },
+  {
+    "word": "why",
+    "start": 69.394,
+    "end": 69.514
+  },
+  {
+    "word": "not",
+    "start": 69.554,
+    "end": 69.674
+  },
+  {
+    "word": "just",
+    "start": 69.706,
+    "end": 69.834
+  },
+  {
+    "word": "build",
+    "start": 69.874,
+    "end": 70.074
+  },
+  {
+    "word": "a",
+    "start": 70.114,
+    "end": 70.154
+  },
+  {
+    "word": "better",
+    "start": 70.188,
+    "end": 70.394
+  },
+  {
+    "word": "truck?",
+    "start": 70.461,
+    "end": 70.874
+  }
+]

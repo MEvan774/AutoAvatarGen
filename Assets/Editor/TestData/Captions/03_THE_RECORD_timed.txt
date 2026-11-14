@@ -1,0 +1,44 @@
+{Timestamp:"Twenty Thousand",T=0.040}
+{Transition:Shutter,T=0.040} {Position:Center,T=0.040} {Mood:Minimal,T=0.040} {Neutral,T=0.040}
+[conversational, loose, off the cuff,T=0.040] Last year, Americans bought about twenty thousand Cybertrucks.
+{Position:Right,Smooth,T=3.780}
+{Headline:"Tesla to pull plug on Cybertruck after years of poor sales","Reuters",T=3.794,D=0,Left}
+{EyebrowRaised,T=3.807}
+[matter-of-fact, level and even,T=4.007] Reuters put it like this. Tesla to pull plug on Cybertruck after years of poor sales.
+{Smirk,T=10.536}
+{Pause:0.6,T=10.756}
+[deadpan,T=10.976] Years. Plural.
+{Headline:End,T=12.689}
+{Compare:"20,237","Sold in the US, 2025 (est.)","250,000","Musk's forecast, per year","Kelley Blue Book via Reuters · TechCrunch",T=12.703,D=0,Left}
+{PointCard,T=12.715}
+[leaning in, quieter but quicker, conspiratorial,T=12.716] Here's the gap. Musk predicted Tesla would sell around two hundred and fifty thousand a year.
+{OpenPalmSideLower,T=19.086}
+In twenty twenty-five, by Kelley Blue Book's estimate, it sold twenty thousand two hundred and thirty-seven. Down from almost thirty-nine thousand the year before.
+{Compare:End,T=29.419}
+{Frowned,T=29.858}
+[slowing down, serious,T=29.859] Once the hype faded, so did the buyers.
+{Document:"The cant rail stainless steel panel may delaminate at the adhesive joint","may delaminate","NHTSA recall 25V-170, March 2025",T=33.012,D=0,Report,Left}
+{NarrowedEyes,T=33.232}
+[matter-of-fact, level and even,T=33.272] It didn't help that the truck has had eleven recalls. One of them covered forty-six thousand trucks, over a steel panel.
+{PointCard,T=40.524}
+The recall report says the panel may delaminate at the adhesive joint. As in, come unglued.
+{Document:End,T=47.377}
+{Smirk,T=47.671}
+{Pause:0.6,T=47.964}
+[dry,T=47.984] They really outdid themselves.
+{Neutral,T=49.604}
+[tired but clearly entertained, a smile you can hear,T=49.624] One customer kept buying, though.
+{Image:spacex,T=52.684,Start,Left}
+{OpenPalmSide,T=52.844}
+SpaceX, Elon Musk's rocket company. Its own filing says it bought a hundred and thirty-one million dollars of Cybertrucks last year.
+{BothEyebrowRaised,T=61.404}
+At list price. That's via Reuters.
+{Image:End,T=64.284,D=0}
+{Position:Center,Cut,T=64.285}
+{SmugLookingAtViewer,Cut,T=64.286}
+{Zoom:ExtremeIn,T=64.287}
+{Pause:0.7,T=64.288}
+[flat,T=64.728] Yes. His own company.
+{Shrug,Cut,T=67.088}
+{Zoom:ExtremeOut,T=67.487}
+[conversational, loose, off the cuff,T=67.488] So if buyers stopped showing up, why not just build a better truck?

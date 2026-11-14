@@ -51,8 +51,11 @@ using UnityEngine.Networking;
 //      the script has), markers are linearly rescaled onto the measured span
 //      when the two disagree, and any marker that lands inside a measured
 //      pause snaps forward to the pause's end — the onset of the word it was
-//      authored against. Generations whose alignment is accurate (e.g. from
-//      the forced-alignment pass in TtsGenerationJob) pass through unchanged.
+//      authored against. Tags written on that same beat (no spoken word
+//      between them) that the alignment spread past the onset are pulled back
+//      onto it, so a swap and a camera cut written together share a frame
+//      (MugsTech.Tts.TagBeats). Generations whose alignment is accurate (e.g.
+//      from the forced-alignment pass in TtsGenerationJob) pass through unchanged.
 //   6. {Pause:N} — "the gap in the voice here is at least N seconds". Inside a
 //      section, PauseInserter finds the gap in the decoded samples (the audio
 //      decides; T= only says where to look), widens it to N if v3 left less,
@@ -274,6 +277,10 @@ public class SegmentSequencer : MonoBehaviour
                 ? AnalyzeSegmentAudio(clip, seg)
                 : null;
             timings[i] = timing;
+            if (timing != null)
+                Debug.Log($"[SegmentSequencer] {seg.slug}: measured speech {timing.realStart:F2}..{timing.realEnd:F2}s, " +
+                          $"{timing.pauses.Count} pause(s): " +
+                          string.Join(" ", timing.pauses.ConvertAll(p => $"{p.x:F2}-{p.y:F2}")));
             if (timing != null && timing.rescale)
                 Debug.Log($"[SegmentSequencer] {seg.slug}: alignment says speech is " +
                           $"{timing.alignStart:F2}..{timing.alignEnd:F2}s but the audio measures " +
@@ -414,7 +421,7 @@ public class SegmentSequencer : MonoBehaviour
             // into the previous segment after we trim leading silence.
             float delta        = globalOffset - trimStart[i];
             float minAllowedT  = globalOffset;
-            string shifted     = ShiftTimestamps(scripts[i], delta, minAllowedT, timing, paused?.Shift);
+            string shifted     = ShiftTimestamps(scripts[i], delta, minAllowedT, timing, paused?.Shift, seg.slug);
 
             // The opening transition is the one marker that must fire BEFORE its
             // own segment's audio. Position it from the END of the gap — back off
@@ -771,28 +778,87 @@ public class SegmentSequencer : MonoBehaviour
     static readonly Regex _TPattern = new Regex(@"T=(\d+(?:\.\d+)?)");
 
     static string ShiftTimestamps(string script, float deltaSeconds, float minAllowedT,
-                                  SegmentAudioTiming timing = null, PauseInserter.Shift pauses = null)
+                                  SegmentAudioTiming timing = null, PauseInserter.Shift pauses = null,
+                                  string slug = null)
     {
+        // Alignment timeline -> measured-audio timeline first, for every T= of
+        // the section at once: tags written on one beat (no spoken word between
+        // them) are joined onto the onset one of them snapped to, so a swap and
+        // a camera cut written together fire on one frame (TagBeats).
+        Dictionary<int, float> measured = null;
+        if (timing != null)
+        {
+            List<TagBeats.Stamp> stamps = TagBeats.Find(script);
+            var joins = new List<TagBeats.Join>();
+            float[] at = TagBeats.Resolve(stamps,
+                t => new TagBeats.Mapped(timing.MapToReal(t, true, out bool snapped), snapped),
+                timing.PauseSpans(), joins);
+            measured = new Dictionary<int, float>(stamps.Count);
+            for (int i = 0; i < stamps.Count; i++) measured[stamps[i].Index] = at[i];
+            foreach (TagBeats.Join j in joins)
+                Debug.Log($"[SegmentSequencer] {slug}: {j.Stamp.Name} fires with {j.SnappedBy?.Name} on the " +
+                          $"word onset at {j.To:F2}s (video " +
+                          $"{Clock(Mathf.Max(minAllowedT, j.To + deltaSeconds + (pauses != null ? pauses.InsertedBefore(j.Stamp.Index) : 0f)))}) — " +
+                          $"the alignment had it {j.From - j.To:F2}s into the next line.");
+        }
+
         return _TPattern.Replace(script, match =>
         {
             if (!float.TryParse(match.Groups[1].Value,
                                 NumberStyles.Float, CultureInfo.InvariantCulture, out float t))
                 return match.Value;
 
-            // Alignment timeline -> measured-audio timeline first, then onto the
-            // combined clip. deltaSeconds is (globalOffset - trimStart), and both
-            // sides of that subtraction live on the measured timeline.
-            // A {Pause} in the section pins the tags in its gap to the gap's edges
-            // and moves everything after it by the silence it added; it resolves
-            // by script position, so tags sharing one T= still split either side.
+            float real = measured != null && measured.TryGetValue(match.Index, out float r) ? r
+                       : timing != null ? timing.MapToReal(t) : t;
+
+            // Then onto the combined clip. deltaSeconds is (globalOffset -
+            // trimStart), and both sides of that subtraction live on the
+            // measured timeline. A {Pause} in the section pins the tags in its
+            // gap to the gap's edges and moves everything after it by the
+            // silence it added; it resolves by script position, so tags sharing
+            // one T= still split either side.
             if (pauses != null)
-                t = pauses.Resolve(match.Index, t, x => timing != null ? timing.MapToReal(x) : x);
-            else if (timing != null)
-                t = timing.MapToReal(t);
+                t = pauses.Resolve(match.Index, t, _ => real);
+            else
+                t = real;
 
             float shifted = Mathf.Max(minAllowedT, t + deltaSeconds);
             return "T=" + shifted.ToString("F3", CultureInfo.InvariantCulture);
         });
+    }
+
+    /// <summary>
+    /// For the self-tests: a section's timed script with every T= moved onto the
+    /// take's clock exactly as BuildCombined does it, for a section the
+    /// alignment says is spoken alignStart..alignEnd and the audio measures at
+    /// realStart..realEnd with <paramref name="pauses"/> (x = start, y = end;
+    /// rescaled when the spans disagree, as AnalyzeSegmentAudio decides).
+    /// <paramref name="map"/> is the caption mapping BuildCombined hands that
+    /// section (section seconds → take seconds, the bool snaps a start).
+    /// </summary>
+    public static string ShiftSectionForTest(string script, float delta, float minAllowedT,
+        float alignStart, float alignEnd, float realStart, float realEnd, List<Vector2> pauses,
+        PauseInserter.Shift pauseShift, out Func<float, bool, float> map)
+    {
+        var timing = new SegmentAudioTiming
+        {
+            alignStart = alignStart, alignEnd = alignEnd, realStart = realStart, realEnd = realEnd,
+            pauses = pauses ?? new List<Vector2>(),
+        };
+        timing.rescale = Mathf.Abs(realStart - alignStart) > SpanAgreementSeconds
+                      || Mathf.Abs(realEnd - alignEnd) > SpanAgreementSeconds;
+        map = (x, snap) =>
+        {
+            float u = timing.MapToReal(x, snap);
+            return Mathf.Max(minAllowedT, u + (pauseShift != null ? InsertedBeforeTime(pauseShift, u) : 0f) + delta);
+        };
+        return ShiftTimestamps(script, delta, minAllowedT, timing, pauseShift, "test");
+    }
+
+    static string Clock(float seconds)
+    {
+        int m = Mathf.FloorToInt(Mathf.Max(0f, seconds) / 60f);
+        return $"{m}:{Mathf.Max(0f, seconds) - m * 60f:00.0}";
     }
 
     // -----------------------------------------------------------------------
@@ -838,8 +904,13 @@ public class SegmentSequencer : MonoBehaviour
 
         // snap = false is the plain alignment -> audio mapping, for a {Pause}: it
         // wants the gap itself, not the onset of the word after it.
-        public float MapToReal(float t, bool snap)
+        public float MapToReal(float t, bool snap) => MapToReal(t, snap, out _);
+
+        // snapped = the pause snap moved t forward onto a pause's end (TagBeats
+        // joins the rest of that tag's run onto the same onset).
+        public float MapToReal(float t, bool snap, out bool snapped)
         {
+            snapped = false;
             float u = t;
             if (rescale)
                 u = realStart + (t - alignStart)
@@ -861,11 +932,18 @@ public class SegmentSequencer : MonoBehaviour
                     Vector2 p = pauses[i];
                     if (u >= p.x && u < p.y)
                     {
-                        if (p.y - u <= PauseSnapMaxSeconds) u = p.y;
+                        if (p.y - u <= PauseSnapMaxSeconds) { u = p.y; snapped = true; }
                         break;
                     }
                 }
             return u;
+        }
+
+        public List<(float From, float To)> PauseSpans()
+        {
+            var spans = new List<(float From, float To)>(pauses != null ? pauses.Count : 0);
+            if (pauses != null) foreach (Vector2 p in pauses) spans.Add((p.x, p.y));
+            return spans;
         }
     }
 

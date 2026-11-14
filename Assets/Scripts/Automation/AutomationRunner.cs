@@ -527,7 +527,11 @@ public class AutomationRunner : MonoBehaviour
         }
         // Captions in the gaps (MugsTech.Captions.CaptionOverlay): phrases built,
         // phrases that were on screen, how many highlighted the spoken word and
-        // how many were timed from the bracketing T= stamps instead.
+        // how many were timed from the bracketing T= stamps instead; phrases
+        // skipped because the frame came free after they had started
+        // (skippedLate) or something was due before their last word
+        // (skippedAhead); phrases something unannounced cut short
+        // (interrupted, should be 0); the shortest time one was up.
         var cap = MugsTech.Captions.CaptionOverlay.Last;
         if (cap == null)
             sb.Append("  \"captions\": null,\n");
@@ -539,6 +543,10 @@ public class AutomationRunner : MonoBehaviour
               .Append(", \"phrases\": ").Append(cap.Phrases)
               .Append(", \"highlightedPhrases\": ").Append(cap.HighlightedPhrases)
               .Append(", \"fallbackPhrases\": ").Append(cap.FallbackPhrases)
+              .Append(", \"skippedLate\": ").Append(cap.SkippedLate)
+              .Append(", \"skippedAhead\": ").Append(cap.SkippedAhead)
+              .Append(", \"interrupted\": ").Append(cap.Interrupted)
+              .Append(", \"shortestShownSeconds\": ").Append(FN(cap.ShortestShownSeconds))
               .Append(", \"note\": ").Append(JsonStr(cap.Note))
               .Append("},\n");
         sb.Append("  \"sfxPlayed\": ").Append(MugsTech.Sound.SoundLayer.Enabled ? MugsTech.Sound.SoundLayer.Played : 0).Append(",\n");

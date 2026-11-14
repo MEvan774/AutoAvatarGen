@@ -678,6 +678,32 @@ public class ChapterTitleController : MonoBehaviour
 
     /// <summary>True while a chapter title is on screen (captions keep out of its way).</summary>
     public bool IsShowing => title != null && title.gameObject.activeInHierarchy;
+
+    /// <summary>
+    /// Voice time the next chapter title is due (+∞ when none is left): 0.2 s
+    /// after its opening transition reveals (estimated from the transition's
+    /// own length until the reveal is reported, never past the fallback),
+    /// else its Timestamp's time. A title that is already due reads as
+    /// <paramref name="now"/>. The captions don't start a phrase across it.
+    /// </summary>
+    public float NextDue(float now)
+    {
+        foreach (Chapter ch in chapters)
+        {
+            if (ch.Done) continue;
+            float due = ch.Time;
+            if (ch.Opening != null)
+            {
+                due = !float.IsNaN(ch.RevealedAt)
+                    ? ch.RevealedAt + ChapterTitles.AfterRevealDelay
+                    : Mathf.Min(ch.Time + ChapterTitles.RevealFallbackSeconds,
+                                ch.Opening.triggerTime + ChapterTitles.AfterRevealDelay +
+                                ScreenTransitionController.TotalSecondsFor(ch.Opening.transition, ch.Opening.durationScale));
+            }
+            return Mathf.Max(now, due);
+        }
+        return float.PositiveInfinity;
+    }
     public IReadOnlyList<Image> PipImages => pips;
     public void PlaceForTest(ChapterTitles.Side side, Vector2 blockPx)
     {

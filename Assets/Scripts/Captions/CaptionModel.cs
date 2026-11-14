@@ -44,6 +44,7 @@ namespace MugsTech.Captions
         public string Why;             // why it isn't word-timed
         public bool Excluded;          // the cold open's first line
         public float Start, End;       // on screen from … to (take seconds)
+        public float SpokenEnd;        // its last word over: End before the linger and the bridge (≤ End)
 
         public string Text
         {
@@ -124,7 +125,8 @@ namespace MugsTech.Captions
     /// measured pause, and the snap moves it onto the audible onset — the same
     /// correction the markers get, so those words are timed, not discarded.
     /// ON SCREEN — first word's start to last word's end + 150 ms, bridged to
-    /// the next phrase when the gap is 600 ms or less; the cold open's first
+    /// the next phrase when the gap is 600 ms or less (SpokenEnd keeps the last
+    /// word's end, which CaptionGate's look-ahead reads); the cold open's first
     /// spoken line never. A fallback phrase is only a guess, so it is kept
     /// between its neighbours in the script — after the phrase before it ends
     /// and before the next timed one starts — and never cuts a timed phrase short.
@@ -536,7 +538,9 @@ namespace MugsTech.Captions
                 CaptionPhrase p = phrases[i];
                 float next = i + 1 < phrases.Count ? phrases[i + 1].Start : float.PositiveInfinity;
                 float end = next - p.End <= BridgeGap ? next : p.End + Linger;
+                float said = p.End;
                 p.End = Math.Max(p.Start, Math.Min(end, next));
+                p.SpokenEnd = Math.Max(p.Start, Math.Min(said, p.End));
             }
         }
     }

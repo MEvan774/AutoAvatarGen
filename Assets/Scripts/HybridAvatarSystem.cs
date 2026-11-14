@@ -452,6 +452,17 @@ public class HybridAvatarSystem : MonoBehaviour
     {
         (cleanScript, timeMarkers) = ParseScriptWithTimeMarkers(scriptWithMarkers, audio.length);
 
+        // An emotion written on the same beat as an extreme-zoom cut fires on
+        // the cut's own frame. SegmentSequencer already joins tags written
+        // together (TagBeats); this catches anything it couldn't, e.g. a run
+        // with no measured pause to snap to.
+        if (mediaPresentation == null)
+            mediaPresentation = FindObjectOfType<MediaPresentationSystem>();
+        if (extremeZoomCutWindow > 0f && mediaPresentation != null)
+            foreach (string moved in ShareExtremeZoomCutFrames(timeMarkers, mediaPresentation.ExtremeZoomCutTimes(),
+                                                               extremeZoomCutWindow))
+                Debug.Log("[Zoom] " + moved);
+
         voiceAudio.clip = audio;
         voiceAudio.Play();  // Always play audio, recording or not
 
@@ -485,6 +496,40 @@ public class HybridAvatarSystem : MonoBehaviour
         return extremeZoomCutWindow > 0f
             && mediaPresentation != null
             && mediaPresentation.HasExtremeZoomCutNear(markerTime, extremeZoomCutWindow);
+    }
+
+    /// <summary>
+    /// Moves every emotion marker within <paramref name="window"/> seconds of an
+    /// extreme-zoom cut onto that cut's time (the nearest one), so the swap and
+    /// the camera snap land on the same frame, then re-sorts by time (stable,
+    /// so markers sharing a time keep script order and the last one written
+    /// wins, as before). Returns one line per marker moved. Pure.
+    /// </summary>
+    public static List<string> ShareExtremeZoomCutFrames(List<TimeMarkerData> markers, IList<float> cuts, float window)
+    {
+        var moved = new List<string>();
+        if (markers == null || cuts == null || cuts.Count == 0 || window <= 0f) return moved;
+        foreach (TimeMarkerData m in markers)
+        {
+            float best = float.NaN;
+            foreach (float c in cuts)
+                if (Mathf.Abs(c - m.triggerTime) <= window &&
+                    (float.IsNaN(best) || Mathf.Abs(c - m.triggerTime) < Mathf.Abs(best - m.triggerTime)))
+                    best = c;
+            if (float.IsNaN(best) || Mathf.Abs(best - m.triggerTime) < 0.0005f) continue;
+            moved.Add($"{m.emotion} moved {m.triggerTime:F3}s -> {best:F3}s onto the extreme-zoom cut " +
+                      $"({(best - m.triggerTime) * 1000f:+0;-0} ms).");
+            m.triggerTime = best;
+        }
+        if (moved.Count > 0)
+        {
+            var order = new Dictionary<TimeMarkerData, int>();
+            for (int i = 0; i < markers.Count; i++) order[markers[i]] = i;
+            markers.Sort((a, b) => a.triggerTime != b.triggerTime
+                ? a.triggerTime.CompareTo(b.triggerTime)
+                : order[a].CompareTo(order[b]));
+        }
+        return moved;
     }
 
     IEnumerator TrackEmotionsByTime()

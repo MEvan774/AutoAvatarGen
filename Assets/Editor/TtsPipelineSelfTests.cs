@@ -84,6 +84,7 @@ public static partial class TtsPipelineSelfTests
         RunDriftGroup(log);
         RunEchoGroup(log);
         RunCaptionGroup(log);
+        RunSameBeatGroup(log);
 
         log.Report();
     }

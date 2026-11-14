@@ -12,7 +12,7 @@ using MugsTech.Captions;
 /// phrase splitter with and without punctuation; the plausibility verdict on
 /// the real Binance THE FREEZE / THE CHOICE timings (which phrases pass, which
 /// fall back, and why); the on-screen windows (+150 ms, bridged ≤ 600 ms);
-/// the 1.2 s hold-off and the immediate hide; the bottom band; the T=
+/// the per-phrase gate (TtsPipelineSelfTests.CaptionGate.cs); the bottom band; the T=
 /// fallback (closed by the section's end of speech, never over a timed
 /// neighbour); starts read after the pause snap; the cold open's first line
 /// excluded; the drawn caption; and the 2026-11-09 test render's ENDING,
@@ -38,7 +38,7 @@ public static partial class TtsPipelineSelfTests
         Caption_SnappedStart(log);
         Caption_BinancePlausibility(log);
         Caption_Tier3Ending(log);
-        Caption_Gate(log);
+        RunCaptionGateGroup(log);
         Caption_Zones(log);
         Caption_Drawn(log);
         Caption_Switches(log);
@@ -333,22 +333,6 @@ public static partial class TtsPipelineSelfTests
             for (int i = 1; i < t.Phrases.Count; i++) ordered &= t.Phrases[i].Start >= t.Phrases[i - 1].End - 1e-4f;
             log.IsTrue(ordered, $"binance {slug}: one phrase at a time, in order");
         }
-    }
-
-    static void Caption_Gate(Log log)
-    {
-        var g = new CaptionGate();
-        bool shown = false;
-        for (int i = 0; i < 35; i++) shown = g.Step(1f / 30f, true);           // 1.17 s
-        log.IsTrue(!shown, "gate: not yet after 1.17 s of bare frame");
-        for (int i = 0; i < 2; i++) shown = g.Step(1f / 30f, true);            // 1.23 s
-        log.IsTrue(shown, "gate: open after the 1.2 s hold-off");
-        log.IsTrue(!g.Step(1f / 30f, false), "gate: a visual arriving closes it on that very frame");
-        log.IsTrue(!g.Step(1f / 30f, true), "gate: …and the hold-off starts over");
-        for (int i = 0; i < 20; i++) g.Step(1f / 30f, true);
-        g.Step(1f / 30f, false);
-        for (int i = 0; i < 20; i++) shown = g.Step(1f / 30f, true);
-        log.IsTrue(!shown, "gate: two short gaps between cards never add up to a caption");
     }
 
     static void Caption_Zones(Log log)

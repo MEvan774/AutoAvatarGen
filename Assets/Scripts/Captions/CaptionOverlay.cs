@@ -8,7 +8,8 @@ namespace MugsTech.Captions
 {
     /// <summary>
     /// Captions in the gaps: the script's own words on screen while the frame is
-    /// otherwise bare (<see cref="CaptionGate"/>), one phrase at a time
+    /// otherwise bare, a whole phrase or nothing: one only starts on its first
+    /// word, with nothing due before its last (<see cref="CaptionGate"/>), one phrase at a time
     /// (<see cref="CaptionTrack"/>, built by SegmentSequencer), in a band along
     /// the bottom under Mugs's feet (<see cref="CaptionZones"/>), the word being
     /// spoken in the accent colour when that phrase's timing is believable.
@@ -48,6 +49,10 @@ namespace MugsTech.Captions
             public int Shown;                // phrases that were on screen
             public int HighlightedPhrases;   // …with the spoken word highlighted
             public int FallbackPhrases;      // …timed from the bracketing T= stamps
+            public int SkippedLate;          // the frame came free only after the phrase had started
+            public int SkippedAhead;         // something was due before its last word
+            public int Interrupted;          // hidden before its last word by something unannounced
+            public float ShortestShownSeconds = float.NaN;   // shortest time a phrase was up (NaN: none shown)
             public string Note;
         }
 
@@ -56,6 +61,8 @@ namespace MugsTech.Captions
         MediaPresentationSystem mps;
         CaptionTrack track;
         readonly CaptionGate gate = new CaptionGate();
+        Report report;   // this take's (Last can already belong to the next one when this is destroyed)
+        System.Func<float, float> nextStop;
         readonly HashSet<CaptionPhrase> counted = new HashSet<CaptionPhrase>();
         bool highlight;
 
@@ -90,6 +97,8 @@ namespace MugsTech.Captions
             }
             var c = CreateOn(presentation.mediaCanvas.transform, t);
             c.mps = presentation;
+            c.report = Last;
+            c.nextStop = presentation.NextCaptionStop;
             c.transform.SetParent(presentation.transform, false);
             return c;
         }
@@ -144,6 +153,8 @@ namespace MugsTech.Captions
 
         void OnDestroy()
         {
+            gate.Finish(TakeLoudness.VoiceTime);
+            CopyCounts();
             if (text != null && text.fontSharedMaterial != null && text.fontSharedMaterial.name == "Caption Shadow")
                 Destroy(text.fontSharedMaterial);
             if (overlay != null) Destroy(overlay.gameObject);
@@ -156,25 +167,38 @@ namespace MugsTech.Captions
         void LateUpdate()
         {
             if (mps == null || track == null) return;
-            bool open = gate.Step(Time.deltaTime, FrameBare());
             float t = TakeLoudness.VoiceTime;
-            CaptionPhrase p = open && !float.IsNaN(t) ? track.At(t) : null;
-            if (p != null && p.Excluded) p = null;
+            CaptionPhrase p = gate.Step(Time.deltaTime, FrameBare(), t, track, nextStop);
+            if (gate.LastVerdict != null)
+                Debug.Log($"[Captions] {gate.LastVerdictPhrase.Start:F2}-{gate.LastVerdictPhrase.End:F2} " +
+                          $"\"{gate.LastVerdictPhrase.Text}\": {gate.LastVerdict}");
             ShowPhrase(p, t);
+            CopyCounts();
+        }
+
+        void CopyCounts()
+        {
+            if (report == null) return;
+            report.SkippedLate = gate.SkippedLate;
+            report.SkippedAhead = gate.SkippedAhead;
+            report.Interrupted = gate.Interrupted;
+            report.ShortestShownSeconds = gate.ShortestShownSeconds;
         }
 
         // Nothing else on the frame: the voice running, no card (on screen or
         // queued), image, video, full-screen card, Echo, chapter title,
-        // black or transition — and the camera at rest: no zoom run (any
-        // step, or the glide in or out), no held close-up. A push-in is a
-        // deliberately clean frame, so it stays text-free (creator, 2026-11-09;
-        // IsCameraBusy is the same test the idle drift uses).
+        // black or transition, the presenter standing still — and the camera
+        // at rest: no zoom run (any step, or the glide in or out), no held
+        // close-up. A push-in is a deliberately clean frame, so it stays
+        // text-free (creator, 2026-11-09; IsCameraBusy is the same test the
+        // idle drift uses).
         bool FrameBare()
         {
             if (!TakeLoudness.VoiceStarted) return false;
             ContentZoneController cards = mps.contentZoneController;
             if (cards != null && cards.HasActiveOrQueuedCard) return false;
             if (mps.IsShowingMedia || mps.IsBlackShowing || mps.IsCameraBusy) return false;
+            if (mps.IsPresenterGliding) return false;
             if (mps.IsEchoShowing || mps.IsChapterTitleShowing) return false;
             if (mps.screenTransitionController != null && mps.screenTransitionController.IsBusy) return false;
             return true;

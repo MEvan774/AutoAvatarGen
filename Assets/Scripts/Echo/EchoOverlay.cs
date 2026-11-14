@@ -196,6 +196,17 @@ namespace MugsTech.Echo
         /// <summary>True while the headline is on screen: sliding in, holding or sliding out.</summary>
         public bool IsShowing => phase == Phase.In || phase == Phase.Hold || phase == Phase.Out;
 
+        /// <summary>
+        /// Voice time the Echo is due (<paramref name="now"/> when it is about
+        /// to slide in, +∞ once it has been, or never will). The captions don't
+        /// start a phrase across it.
+        /// </summary>
+        public float NextDue(float now)
+        {
+            if (phase != Phase.Waiting) return float.PositiveInfinity;
+            return atTop || float.IsNaN(spec.Time) ? now : Mathf.Max(now, spec.Time);
+        }
+
         public EchoTypography.Layout CurrentLayout => layout;
         public TextMeshProUGUI Text => text;
 

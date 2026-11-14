@@ -299,6 +299,21 @@ public class MediaPresentationSystem : MonoBehaviour
         return false;
     }
 
+    /// <summary>
+    /// The trigger time of every {Zoom:ExtremeIn} and {Zoom:ExtremeOut}, in
+    /// script order (empty before the script is parsed). HybridAvatarSystem
+    /// moves an emotion change written on the same beat onto one of these, so
+    /// the swap and the camera snap share a frame.
+    /// </summary>
+    public List<float> ExtremeZoomCutTimes()
+    {
+        var times = new List<float>();
+        if (zoomMarkers != null)
+            foreach (ZoomMarkerData z in zoomMarkers)
+                if (z.zoomType == ZoomType.ExtremeIn || z.zoomType == ZoomType.ExtremeOut) times.Add(z.triggerTime);
+        return times;
+    }
+
     /// <summary>True while a {Zoom:ExtremeIn} close-up is held (until its ExtremeOut).</summary>
     public bool IsCloseUpHeld => !float.IsNaN(extremeRestoreSize);
 
@@ -342,6 +357,37 @@ public class MediaPresentationSystem : MonoBehaviour
         if (contentZoneController != null)
             next = Mathf.Min(next, contentZoneController.NextCardTime(now));
         return next;
+    }
+
+    /// <summary>
+    /// The voice time of the next thing due after <paramref name="now"/> that
+    /// takes the captions off: everything <see cref="NextCameraStop"/> lists,
+    /// plus a chapter title, the Echo and a smooth {Position} glide (each of
+    /// which clears captions but leaves the camera alone, so the drift doesn't
+    /// wait for them). +∞ when none is left. CaptionGate starts a phrase only
+    /// when this is past the phrase's last word.
+    /// </summary>
+    public float NextCaptionStop(float now)
+    {
+        float next = NextCameraStop(now);
+        if (chapterTitles != null) next = Mathf.Min(next, chapterTitles.NextDue(now));
+        if (echo != null) next = Mathf.Min(next, echo.NextDue(now));
+        return Mathf.Min(next, NextGlideTime(now));
+    }
+
+    // The next {Position:} that will glide (changes side, not a cut) after now.
+    float NextGlideTime(float now)
+    {
+        if (positionMarkers == null) return float.PositiveInfinity;
+        CharacterPosition at = currentPosition;
+        for (int i = lastTriggeredPositionMarker + 1; i < positionMarkers.Count; i++)
+        {
+            PositionMarkerData m = positionMarkers[i];
+            bool glides = m.position != at && !(m.hardCutOverride ?? useHardCuts);
+            if (glides && m.triggerTime > now) return m.triggerTime;
+            at = m.position;
+        }
+        return float.PositiveInfinity;
     }
 
     /// <summary>

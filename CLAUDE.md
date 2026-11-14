@@ -142,7 +142,9 @@ offline. The `--auto-script` result JSON reports each one in `pauses[]`.
   `word_timestamps/<slug>_words.json` only lends times to the script's own
   words (`Captions/CaptionBuilder`); each section's times go through the exact
   mapping its `T=` stamps get in `BuildCombined` (measured-span rescale, pause
-  snap, `{Pause}` silence, section offset). Change one, change both — and keep
+  snap, `{Pause}` silence, section offset). Change one, change both (the
+  same-beat join below moves tags only, never words — it only makes the T=
+  fallback spans start on the real onset) — and keep
   the plausibility verdict: v3's alignment collapses words to a few ms
   ("money under my mattress." in 25 ms), so a phrase only highlights word by
   word when every word passes, else it shows whole or on the `T=` span. The
@@ -150,6 +152,31 @@ offline. The `--auto-script` result JSON reports each one in `pauses[]`.
   after a breath inside the measured pause; judging the raw start sent 23 of
   48 phrases of the 2026-11-09 test to the guess), and a `T=`-span guess is
   kept between its script neighbours — it never cuts a timed phrase short.
+- **Tags written on one beat fire on one frame.** A run = tags with no spoken
+  word between them (adjacent lines or one line; `[stage directions]` don't
+  break it). Own-line tags are each stamped at their own whitespace character,
+  and v3 spreads those across the silence: on the 2026-11-10 Cybertruck take
+  `{Shrug,Cut}` got 67.088 and the `{Zoom:ExtremeOut}` below it 67.487, the snap
+  put Shrug on the onset (67.36) and the swap fired 4 frames before the cut.
+  `SegmentSequencer.ShiftTimestamps` resolves a section's T= together through
+  `Tts/TagBeats`: once a tag of a run snaps to a pause's end, later tags of the
+  run past that onset are pulled back onto it — never pushed later, at most
+  `PauseSnapMaxSeconds`, not past another measured pause, never in a run holding
+  a `{Pause}` (PauseInserter's pins win), and nothing joins where the rescale
+  end-zone rule stopped the snap. Words aren't tags, so captions don't move.
+  `HybridAvatarSystem.ShareExtremeZoomCutFrames` backs it up: an emotion within
+  `extremeZoomCutWindow` of an ExtremeIn/Out takes the cut's time.
+- **Captions are decided per phrase, never per frame** (`Captions/CaptionRules`,
+  pure). A phrase starts only within 0.2 s of its first word, only when
+  `MediaPresentationSystem.NextCaptionStop` (NextCameraStop + chapter titles,
+  Echo, smooth `{Position}` glides) is past its last word (`SpokenEnd`), after
+  0.4 s of bare frame (a card's 0.3 s fade-out + 3 frames); once up it stays to
+  its End, and anything unannounced hides it for good. Late = skipped whole,
+  never shown halfway — the old 1.2 s per-frame gate popped phrases in mid-line
+  and let cards cut them off after 0.1 s. A new thing that clears captions must
+  be in `FrameBare` AND `NextCaptionStop`. The result JSON's captions block
+  reports `skippedLate`, `skippedAhead`, `interrupted` (should be 0) and
+  `shortestShownSeconds`.
 - Section files are **mp3** because `ScriptFileReader`/`SegmentSequencer` load
   them; both now pick `AudioType` from the extension, so the no-ffmpeg WAV
   fallback also plays. `MugsTech ▸ TTS ▸ Run Pipeline Self-Tests` covers the
