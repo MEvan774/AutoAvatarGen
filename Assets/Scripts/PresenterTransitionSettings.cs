@@ -18,6 +18,10 @@ using UnityEngine;
 ///                     back to the original size (0.9s total).
 ///   • Shrink        — swap instantly, then the presenter dips ~7% smaller and
 ///                     springs back to the original size (0.2s total, snappy).
+///   • Hop           — he ducks, the expression changes at the bottom, and he
+///                     springs back up a little past rest and settles (0.36s;
+///                     the pop-up's motion at the size of a change of mood).
+///                     Main menu only: it has NO {Emotion,Hop} tag keyword.
 ///
 /// A single emotion change can also override the global choice for that one swap
 /// via the {Emotion,Style} tag (e.g. {Serious,Cut}); see HybridAvatarSystem's
@@ -38,6 +42,7 @@ public static class PresenterTransitionSettings
         Cut           = 5,
         Grow          = 6,
         Shrink        = 7,
+        Hop           = 8,
     }
 
     public const string StylePrefKey = "AutoAvatarGen.PresenterTransitionStyle";
@@ -72,6 +77,7 @@ public static class PresenterTransitionSettings
             case Style.Cut:           return "Cut (instant)";
             case Style.Grow:          return "Grow";
             case Style.Shrink:        return "Shrink";
+            case Style.Hop:           return "Hop";
             default:                  return s.ToString();
         }
     }

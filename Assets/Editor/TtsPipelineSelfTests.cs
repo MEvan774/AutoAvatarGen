@@ -88,6 +88,7 @@ public static partial class TtsPipelineSelfTests
         RunStageGroup(log);
         RunTier4TagGroup(log);
         RunDeviceGroup(log);
+        RunHopGroup(log);
         RunTimelineWideGroup(log);
         RunClippingGroup(log);
         RunGraphGroup(log);

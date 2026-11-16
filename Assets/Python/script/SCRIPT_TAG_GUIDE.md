@@ -173,7 +173,7 @@ Sets the avatar's facial expression. These five are the default set. Place on it
 
 **Emotion names are open-ended — there is no list to update anywhere.** Every tool in the chain recognises an emotion by its *shape*: a single bare word in curly braces, no colon. `{Smirk}`, `{Sip}`, `{SmugSip}`, `{BothEyebrowRaised}` all work the moment a sprite of that name exists in the avatar's emotion array. Nothing else has to change — the TTS pre-processor strips the tag automatically (so ElevenLabs never reads it aloud) and stamps it with a `T=` timestamp so the expression lands on the exact word.
 
-Optionally add a per-tag transition style — `Cut`, `Blink`, `BlinkHeavy`, `SquashStretch`, `Crossfade`, `Shake`, `Grow`, `Shrink` — to override the global one for that swap (`Grow` swells the presenter up and back to its original size over 0.9s, swapping at the peak; `Shrink` swaps instantly, then dips the presenter ~7% smaller and springs back over 0.2s):
+Optionally add a per-tag transition style — `Cut`, `Blink`, `BlinkHeavy`, `SquashStretch`, `Crossfade`, `Shake`, `Grow`, `Shrink` — to override the global one for that swap (`Grow` swells the presenter up and back to its original size over 0.9s, swapping at the peak; `Shrink` swaps instantly, then dips the presenter ~7% smaller and springs back over 0.2s). (The main menu also offers a `Hop` style for every swap; it is a menu choice only — there is no `,Hop` keyword, so don't write one.)
 ```
 {Sip}
 Let me be precise, because the lazy version of this story is wrong.

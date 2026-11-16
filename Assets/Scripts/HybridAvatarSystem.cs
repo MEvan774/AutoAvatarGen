@@ -66,6 +66,19 @@ public class HybridAvatarSystem : MonoBehaviour
     [Tooltip("Share of Shrink Duration spent dipping down; the rest is the spring " +
              "back up. Below 0.5 = a quick dip and a softer recovery (snappier).")]
     public float shrinkDipFraction = 0.375f;
+    [Range(0.15f, 1f)]
+    [Tooltip("Total duration of the 'Hop' transition: he ducks, the expression " +
+             "changes at the bottom of the duck, and he springs back up a little " +
+             "past his rest pose and settles. 0.36s matches his pop-up onto the stage.")]
+    public float hopDuration = 0.36f;
+    [Range(0.01f, 0.2f)]
+    [Tooltip("How far he ducks during the 'Hop' transition, as a share of his own " +
+             "height (0.05 = 5%). He springs about a third of this above rest.")]
+    public float hopDuckAmount = 0.05f;
+    [Range(0f, 0.3f)]
+    [Tooltip("How much shorter (and half as much wider) he is at the bottom of the " +
+             "'Hop' duck (0.08 = 8%). 0 = he moves without squashing.")]
+    public float hopSquash = 0.08f;
     [Tooltip("Optional MugsShake driven by the 'Shake' transition style. If left " +
              "empty, one is added to the pivot at runtime with default settings. " +
              "Assign your own (on the pivot, or a child that holds only the visual) " +
@@ -253,7 +266,7 @@ public class HybridAvatarSystem : MonoBehaviour
         // snapped it to wherever the sway had drifted to meanwhile. Letting the
         // sway run underneath keeps the motion continuous through and after the
         // transition.
-        if (enableIdleSway && pivot != null && (currentAnimation == null || growRunning || crossfadeRunning))
+        if (enableIdleSway && pivot != null && (currentAnimation == null || growRunning || crossfadeRunning || hopRunning))
         {
             ApplyIdleSway();
         }
@@ -429,7 +442,8 @@ public class HybridAvatarSystem : MonoBehaviour
             0f
         );
 
-        pivot.transform.localPosition = swayPosition;
+        // A Hop rides on top of the sway (zero unless one is running).
+        pivot.transform.localPosition = swayPosition + hopOffset;
 
         Quaternion swayRotation = originalRotation * Quaternion.Euler(0f, 0f, noiseRotation * rotationAmount);
         pivot.transform.localRotation = swayRotation;
@@ -666,6 +680,7 @@ public class HybridAvatarSystem : MonoBehaviour
                     pivot.transform.localScale = growRestScale;
                     growRunning = false;
                 }
+                if (hopRunning) EndHop();
 
                 Sprite sprite = emotionMap[emotion];
                 switch (style)
@@ -678,6 +693,9 @@ public class HybridAvatarSystem : MonoBehaviour
                         break;
                     case PresenterTransitionSettings.Style.Shrink:
                         currentAnimation = StartCoroutine(ShrinkAnimation(sprite));
+                        break;
+                    case PresenterTransitionSettings.Style.Hop:
+                        currentAnimation = StartCoroutine(HopAnimation(sprite));
                         break;
                     case PresenterTransitionSettings.Style.Shake:
                         currentAnimation = StartCoroutine(ShakeTransition(sprite));
@@ -734,6 +752,70 @@ public class HybridAvatarSystem : MonoBehaviour
         }
 
         currentAnimation = null;
+    }
+
+    // 'Hop' style — chosen in the main menu only; there is deliberately no
+    // {Emotion,Hop} tag keyword (the creator's call, 2026-11-16).
+    // (MugsTech.Stage.HopMath): he ducks, the expression changes at
+    // the bottom of the duck, and he springs back up a little past rest and
+    // settles. Position and scale are both offsets on the pivot — the idle
+    // sway keeps running underneath (it adds hopOffset), and the stage's own
+    // moves live on the parent, so a hop composes with a pop-up or a peek.
+    private bool hopRunning;
+    private Vector3 hopOffset;
+    private Vector3 hopRestScale;
+
+    IEnumerator HopAnimation(Sprite newSprite)
+    {
+        Transform rig = pivot.transform;
+        hopRestScale = rig.localScale;
+        hopRunning = true;
+
+        // His height in the pivot's own space, so the duck is the same share
+        // of him at any size (he is smaller while he peeks).
+        float height = avatarRenderer.bounds.size.y;
+        Transform parent = rig.parent;
+        float toLocal = parent != null && Mathf.Abs(parent.lossyScale.y) > 1e-5f ? 1f / parent.lossyScale.y : 1f;
+
+        bool swapped = false;
+        float t = 0f;
+        float total = Mathf.Max(0.05f, hopDuration);
+        while (t < total)
+        {
+            t += Time.deltaTime;
+            MugsTech.Stage.HopMath.Pose pose = MugsTech.Stage.HopMath.At(t, total, hopDuckAmount, hopSquash);
+            if (pose.Swapped && !swapped)
+            {
+                avatarRenderer.sprite = newSprite;
+                NormalizeSpriteSize(avatarRenderer);
+                swapped = true;
+            }
+            hopOffset = new Vector3(0f, pose.Lift * height * toLocal, 0f);
+            rig.localScale = new Vector3(hopRestScale.x * pose.ScaleX, hopRestScale.y * pose.ScaleY, hopRestScale.z);
+            if (!enableIdleSway) rig.localPosition = originalPosition + hopOffset;
+            yield return null;
+        }
+
+        if (!swapped)
+        {
+            avatarRenderer.sprite = newSprite;
+            NormalizeSpriteSize(avatarRenderer);
+        }
+        EndHop();
+        currentAnimation = null;
+    }
+
+    // Back to the rest pose exactly — at the end of a hop, or when another
+    // emotion change interrupts one.
+    void EndHop()
+    {
+        hopOffset = Vector3.zero;
+        if (pivot != null)
+        {
+            pivot.transform.localScale = hopRestScale;
+            if (!enableIdleSway) pivot.transform.localPosition = originalPosition;
+        }
+        hopRunning = false;
     }
 
     IEnumerator SquashStretchAnimation(Sprite newSprite)

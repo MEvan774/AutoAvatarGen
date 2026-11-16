@@ -293,7 +293,9 @@ public partial class MainMenuController : MonoBehaviour
     }
 
     // -----------------------------------------------------------------------
-    // Presenter transition style (Squash & Stretch / Crossfade / Shake)
+    // Presenter transition style (every PresenterTransitionSettings.Style, in
+    // enum order: Squash & Stretch … Shrink, Hop — the row cycles the enum, so
+    // a style added there shows up here by itself)
     //
     // Same cycle-row pattern as the background mode row, persisted via
     // PresenterTransitionSettings. HybridAvatarSystem reads the same pref at
