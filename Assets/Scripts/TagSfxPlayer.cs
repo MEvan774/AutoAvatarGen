@@ -247,6 +247,11 @@ public class TagSfxPlayer : MonoBehaviour
             case ContentCardType.Versus:    Play(TagSfxEvent.BigText, MugsTech.Sound.SfxKind.BigCardIn); break;
             // No Inspector row (rows are serialized by number) — the layer's default only.
             case ContentCardType.BigImage:  MugsTech.Sound.SoundLayer.Fire(MugsTech.Sound.SfxKind.BigCardIn); break;
+            // The evidence-first stage's full-screen cards. A wide timeline's first node sounds like
+            // every later one (ContentZoneController plays Timeline for those); a Graph is a big card
+            // arriving. (A Clipping fires its own paper sound per sheet — no case here, or it doubles.)
+            case ContentCardType.TimelineWide: Play(TagSfxEvent.Stat); break;
+            case ContentCardType.Graph:     MugsTech.Sound.SoundLayer.Fire(MugsTech.Sound.SfxKind.BigCardIn); break;
         }
     }
 }

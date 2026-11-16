@@ -22,6 +22,17 @@ using DG.Tweening;
 /// Animation: each visible slot scales 0 → 1 with the CSS-derived overshoot
 /// curve (peaks ~10% past full size before settling), staggered by
 /// <see cref="STAGGER_DELAY"/> so the entrance reads as a count.
+///
+/// THE LOGO RUN — {BigMedia:name} with NO duration … {BigMedia:End} (the
+/// line-by-line mode BigText already has): the first tag opens the grid with
+/// one logo, each next one lands on its word, up to eight — one row up to
+/// four, a second row beyond that — and the grid re-centres (eased) as it
+/// grows. {BigMedia:Strike,name} crosses out a logo already in the grid (two
+/// strokes in the Document stamp's red; the logo dims to half) and it stays
+/// struck until the run ends. Geometry and timing: <see cref="BigMediaGrid"/>;
+/// which tag opens, joins or strikes is ContentZoneController's. A
+/// duration-less logo that lands while a TIMED BigMedia is up joins it (the row
+/// becomes a grid) and keeps the timed lifetime — the BigText rule.
 /// </summary>
 public class BigMediaCard : ContentCard
 {
@@ -71,11 +82,53 @@ public class BigMediaCard : ContentCard
 
     private int activeSlotCount;
 
+    // ---- The logo run (see the class summary) --------------------------------------
+    private const int RUN_SLOTS = BigMediaGrid.MaxLogos;
+    private bool runMode;                       // laid out by BigMediaGrid, driven from the card clock
+    private ContentCardAssets cardAssets;
+    private MediaPresentationSystem logoSource; // the media folder's Logos/ (third lookup)
+    private readonly List<Sprite> ownedSprites = new List<Sprite>();
+    private readonly string[] slotNames = new string[RUN_SLOTS];
+    private readonly float[] landedAt = new float[RUN_SLOTS];
+    private readonly bool[] struck = new bool[RUN_SLOTS];
+    private readonly float[] struckAt = new float[RUN_SLOTS];
+    private readonly RectTransform[][] strokes = new RectTransform[RUN_SLOTS][];
+    private readonly Vector2[] restFrom = new Vector2[RUN_SLOTS];
+    private readonly Vector2[] restTo = new Vector2[RUN_SLOTS];
+    private float clock;
+    private float recentredAt = float.NegativeInfinity;
+    private Vector2 laidOutFrame = new Vector2(-1f, -1f);
+
+    /// <summary>True for a line-by-line run (or a timed card a duration-less logo joined).</summary>
+    public bool IsRun => runMode;
+    /// <summary>Logos in the grid now.</summary>
+    public int LogoCount => activeSlotCount;
+    /// <summary>
+    /// How many logos this run will hold — its later tags read ahead from the
+    /// timeline by ContentZoneController before Initialize — so the slots are
+    /// sized once and only their places change as the run grows.
+    /// </summary>
+    public int AnticipatedCount { get; set; }
+    /// <summary>True once the card is on its way out: a logo arriving now belongs to the next run.</summary>
+    public bool IsClosing { get; private set; }
+
+    // ---- Read by the self-tests ---------------------------------------------------------
+    public RectTransform Slot(int i) => slotContainers[i];
+    public string LogoName(int i) => slotNames[i];
+    public bool IsStruck(int i) => struck[i];
+    public float LogoAlpha(int i) => slotImages[i].gameObject.activeSelf ? slotImages[i].color.a : slotFallbacks[i].color.a;
+    public bool IsText(int i) => slotFallbacks[i].gameObject.activeSelf;
+    public float StrokeDrawn(int i, int stroke) =>
+        strokes[i] == null ? 0f : strokes[i][stroke].sizeDelta.x / Mathf.Max(1f, StrokeLength(i));
+    /// <summary>Slot i's resting centre for the logos now shown, in frame space (origin at the centre, y up).</summary>
+    public Vector2 SlotRest(int i) => restTo[i];
+
     protected override void BuildUI()
     {
-        // Pre-build MAX_LOGOS slots; Initialize() decides how many to activate
-        // based on the number of '+'-separated names in the tag.
-        for (int i = 0; i < MAX_LOGOS; i++)
+        // Pre-build the slots; Initialize() decides how many to activate
+        // based on the number of '+'-separated names in the tag. The timed form
+        // only ever uses the first MAX_LOGOS; a logo run may fill all eight.
+        for (int i = 0; i < RUN_SLOTS; i++)
         {
             GameObject slotGO = new GameObject($"BigMediaSlot_{i}", typeof(RectTransform));
             slotGO.transform.SetParent(rectTransform, false);
@@ -116,6 +169,26 @@ public class BigMediaCard : ContentCard
 
     public override void Initialize(ContentCardEvent data, ContentCardAssets assets)
     {
+        cardAssets = assets;
+
+        // {BigMedia:name} with NO duration opens a line-by-line logo run: the
+        // grid, starting with this logo (a '+' list lands together).
+        if (data.duration <= 0f)
+        {
+            runMode = true;
+            activeSlotCount = 0;
+            foreach (string part in (data.primaryText ?? string.Empty).Split('+'))
+            {
+                if (activeSlotCount >= RUN_SLOTS) break;
+                AddRunSlot(part.Trim(), float.NegativeInfinity);
+            }
+            for (int i = activeSlotCount; i < RUN_SLOTS; i++)
+                slotContainers[i].gameObject.SetActive(false);
+            LayoutRun(snap: true);
+            StepRun();
+            return;
+        }
+
         // Multi-logo syntax: names joined by '+' — e.g. "Google+Apple+Meta".
         // A single name (no '+') collapses to a single-slot layout.
         string raw = data.primaryText ?? string.Empty;
@@ -127,7 +200,7 @@ public class BigMediaCard : ContentCard
             ApplySlotContent(i, names[i].Trim(), assets);
             slotContainers[i].gameObject.SetActive(true);
         }
-        for (int i = activeSlotCount; i < MAX_LOGOS; i++)
+        for (int i = activeSlotCount; i < RUN_SLOTS; i++)
             slotContainers[i].gameObject.SetActive(false);
 
         LayoutSlots(activeSlotCount);
@@ -135,6 +208,7 @@ public class BigMediaCard : ContentCard
 
     private void ApplySlotContent(int index, string name, ContentCardAssets assets)
     {
+        slotNames[index] = name;
         Sprite sprite = ResolveSprite(name, assets, out string usedPath);
         Image img = slotImages[index];
         TextMeshProUGUI fallback = slotFallbacks[index];
@@ -149,7 +223,9 @@ public class BigMediaCard : ContentCard
         else
         {
             Debug.LogWarning($"[BigMedia] slot {index} could not resolve \"{name}\". " +
-                             $"Looked in ContentCardAssets.logos and Resources/<folder>/{name}. " +
+                             (runMode
+                                 ? $"Looked in ContentCardAssets.logos, Resources/<folder>/{name} and the media folder's Logos/. "
+                                 : $"Looked in ContentCardAssets.logos and Resources/<folder>/{name}. ") +
                              $"Showing fallback text.");
             img.gameObject.SetActive(false);
             fallback.gameObject.SetActive(true);
@@ -204,6 +280,24 @@ public class BigMediaCard : ContentCard
             return all[0];
         }
 
+        // The timed row ({BigMedia:a+b,4}) stops here, as it always did: a name
+        // the two tiers above don't know shows as text. Old scripts must not
+        // suddenly grow logos.
+        if (!runMode) return null;
+
+        // Tier 3, a logo RUN only — the media folder's Logos/ on disk (the
+        // 280-odd logo files {Image:} already reads), matched without regard
+        // to case.
+        if (logoSource == null) logoSource = FindObjectOfType<MediaPresentationSystem>();
+        Texture2D logo = logoSource != null ? logoSource.LoadLogoTexture(name) : null;
+        if (logo != null)
+        {
+            usedPath = "the media folder's Logos/";
+            Sprite made = Sprite.Create(logo, new Rect(0, 0, logo.width, logo.height), new Vector2(0.5f, 0.5f));
+            ownedSprites.Add(made);
+            return made;
+        }
+
         return null;
     }
 
@@ -239,6 +333,18 @@ public class BigMediaCard : ContentCard
         // logo collapses to a single pop (no stagger to wait through).
         rectTransform.localEulerAngles = Vector3.zero;
         canvasGroup.alpha = 1f;
+
+        if (runMode)
+        {
+            // A run: the opening logo(s) pop on the card clock, like every later one.
+            for (int i = 0; i < activeSlotCount; i++)
+            {
+                slotGroups[i].alpha = 1f;
+                landedAt[i] = clock;
+            }
+            StepRun();
+            return;
+        }
 
         Sequence seq = DOTween.Sequence();
         var join = new StaggeredJoin(seq); // each slot at stagger × i from the start — not stacked
@@ -276,5 +382,212 @@ public class BigMediaCard : ContentCard
 
         seq.OnComplete(() => StartIdleFloat());
         currentSequence = seq;
+    }
+
+    // =====================================================================
+    // The logo run
+    // =====================================================================
+
+    /// <summary>
+    /// Adds the next logo on its word: it pops in and the grid re-centres.
+    /// <paramref name="instant"/> lands it at once (its beat passed while the
+    /// card waited in the queue). False when the grid already holds eight.
+    /// </summary>
+    public bool AppendLogo(string name, bool instant = false)
+    {
+        if (activeSlotCount >= RUN_SLOTS) return false;
+        if (!runMode) ConvertTimedRowToRun();
+
+        AddRunSlot((name ?? string.Empty).Trim(), instant ? float.NegativeInfinity : clock);
+        LayoutRun(snap: instant);
+        StepRun();
+        return true;
+    }
+
+    /// <summary>
+    /// Crosses out the logo called <paramref name="name"/> (matched as it was
+    /// added, ignoring case): two strokes, and it dims to half. NotFound when
+    /// no logo of the grid has that name; Repeated when it is struck already.
+    /// </summary>
+    public MarkResult Strike(string name)
+    {
+        for (int i = 0; i < activeSlotCount; i++)
+        {
+            if (!BigMediaGrid.SameName(slotNames[i], name)) continue;
+            if (struck[i]) return MarkResult.Repeated;
+            if (!runMode) ConvertTimedRowToRun();
+            struck[i] = true;
+            struckAt[i] = clock;
+            BuildStrokes(i);
+            StepRun();
+            return MarkResult.Ok;
+        }
+        return MarkResult.NotFound;
+    }
+
+    public override void Hide(bool fast = false)
+    {
+        IsClosing = true;
+        base.Hide(fast);
+    }
+
+    void Update() => Advance(Time.deltaTime);
+
+    /// <summary>One frame of the card clock; public so the self-tests can step the run in edit mode.</summary>
+    public void Advance(float dt)
+    {
+        clock += dt;
+        if (runMode) StepRun();
+    }
+
+    void LateUpdate()
+    {
+        if (runMode && FrameSize() != laidOutFrame) { LayoutRun(snap: true); StepRun(); }
+    }
+
+    private Vector2 FrameSize()
+    {
+        Rect r = rectTransform.rect;
+        return (r.width > 1f && r.height > 1f) ? r.size : new Vector2(1920f, 1080f);
+    }
+
+    private void AddRunSlot(string name, float landed)
+    {
+        int i = activeSlotCount;
+        ApplySlotContent(i, name, cardAssets);
+        RectTransform rt = slotContainers[i];
+        rt.gameObject.SetActive(true);
+        slotGroups[i].alpha = 1f;
+        rt.localEulerAngles = Vector3.zero;
+        landedAt[i] = landed;
+        struck[i] = false;
+        restFrom[i] = new Vector2(float.NaN, float.NaN); // no place yet: it lands at its rest
+        activeSlotCount++;
+    }
+
+    // A timed row a duration-less logo joined: the same slots, now placed by
+    // the grid. Each keeps the place it has on screen and eases to its new one.
+    private void ConvertTimedRowToRun()
+    {
+        if (currentSequence != null && currentSequence.IsActive()) currentSequence.Complete(true);
+        currentSequence = null;
+        StopIdleFloat();
+
+        Vector2 frame = FrameSize();
+        for (int i = 0; i < activeSlotCount; i++)
+        {
+            RectTransform rt = slotContainers[i];
+            Rect r = rt.rect;
+            Vector3 c = rt.localPosition + new Vector3(r.center.x, r.center.y, 0f);
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = r.size;
+            rt.anchoredPosition = new Vector2(c.x, c.y);
+            rt.localScale = Vector3.one;
+            slotGroups[i].alpha = 1f;
+            landedAt[i] = float.NegativeInfinity;
+            restTo[i] = rt.anchoredPosition;
+        }
+        runMode = true;
+        laidOutFrame = frame;
+    }
+
+    // Sizes every slot for the run's final count and sets where each one rests
+    // for the logos shown now; they ease there from wherever they are (or snap).
+    private void LayoutRun(bool snap)
+    {
+        Vector2 frame = FrameSize();
+        laidOutFrame = frame;
+        int sizedFor = BigMediaGrid.SizedFor(activeSlotCount, AnticipatedCount);
+        Vector2 size = BigMediaGrid.SlotSize(sizedFor, frame);
+
+        for (int i = 0; i < activeSlotCount; i++)
+        {
+            RectTransform rt = slotContainers[i];
+            bool isNew = float.IsNaN(restFrom[i].x);
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = size;
+            Vector2 to = BigMediaGrid.SlotCentre(i, activeSlotCount, sizedFor, frame);
+            restFrom[i] = isNew || snap ? to : rt.anchoredPosition;
+            restTo[i] = to;
+            if (isNew || snap) rt.anchoredPosition = to;
+            if (strokes[i] != null) PlaceStrokes(i);
+        }
+        recentredAt = snap ? float.NegativeInfinity : clock;
+    }
+
+    private void StepRun()
+    {
+        float g = float.IsNegativeInfinity(recentredAt) ? 1f : BigMediaGrid.RecentreAt(clock - recentredAt);
+        for (int i = 0; i < activeSlotCount; i++)
+        {
+            RectTransform rt = slotContainers[i];
+            rt.anchoredPosition = Vector2.LerpUnclamped(restFrom[i], restTo[i], g);
+            float age = float.IsNegativeInfinity(landedAt[i]) ? float.PositiveInfinity : clock - landedAt[i];
+            float scale = BigMediaGrid.PopScaleAt(age);
+            rt.localScale = new Vector3(scale, scale, 1f);
+
+            if (!struck[i]) continue;
+            float sAge = clock - struckAt[i];
+            float a = BigMediaGrid.StruckAlphaAt(sAge);
+            Color ic = slotImages[i].color; ic.a = a; slotImages[i].color = ic;
+            Color fc = slotFallbacks[i].color; fc.a = a; slotFallbacks[i].color = fc;
+            float len = StrokeLength(i);
+            for (int k = 0; k < 2; k++)
+            {
+                float p = BigMediaGrid.StrikeStrokeAt(sAge, k);
+                RectTransform st = strokes[i][k];
+                st.gameObject.SetActive(p > 0f);
+                st.sizeDelta = new Vector2(len * p, st.sizeDelta.y);
+            }
+        }
+    }
+
+    // The cross is drawn over a square in the slot's middle.
+    private float CrossSide(int i)
+    {
+        Vector2 size = slotContainers[i].sizeDelta;
+        return Mathf.Min(size.x, size.y) * 0.78f;
+    }
+
+    private float StrokeLength(int i) => CrossSide(i) * 1.41421356f;
+
+    private void BuildStrokes(int i)
+    {
+        if (strokes[i] != null) return;
+        Color red = DocumentTypography.StampColor(DocumentStamp.Allegation);
+        strokes[i] = new RectTransform[2];
+        for (int k = 0; k < 2; k++)
+        {
+            Image bar = ContentCardUIBuilder.CreateImage(slotContainers[i], k == 0 ? "StrikeA" : "StrikeB", red);
+            bar.sprite = MugsTech.Style.StyleSpriteFactory.GetRoundedRect(6);
+            bar.type = Image.Type.Sliced;
+            RectTransform st = bar.rectTransform;
+            st.anchorMin = st.anchorMax = new Vector2(0.5f, 0.5f);
+            st.pivot = new Vector2(0f, 0.5f);          // drawn from its start, like a pen stroke
+            strokes[i][k] = st;
+            st.gameObject.SetActive(false);
+        }
+        PlaceStrokes(i);
+    }
+
+    private void PlaceStrokes(int i)
+    {
+        float half = CrossSide(i) * 0.5f;
+        float thick = Mathf.Max(8f, FrameSize().y * 0.016f);
+        // Stroke A: top-left → bottom-right. Stroke B: top-right → bottom-left.
+        strokes[i][0].anchoredPosition = new Vector2(-half, half);
+        strokes[i][0].localEulerAngles = new Vector3(0f, 0f, -45f);
+        strokes[i][1].anchoredPosition = new Vector2(half, half);
+        strokes[i][1].localEulerAngles = new Vector3(0f, 0f, -135f);
+        for (int k = 0; k < 2; k++)
+            strokes[i][k].sizeDelta = new Vector2(strokes[i][k].sizeDelta.x, thick);
+    }
+
+    protected override void OnDestroy()
+    {
+        base.OnDestroy();
+        foreach (Sprite sp in ownedSprites)
+            if (sp != null) { if (Application.isPlaying) Destroy(sp); else DestroyImmediate(sp); }
+        ownedSprites.Clear();
     }
 }

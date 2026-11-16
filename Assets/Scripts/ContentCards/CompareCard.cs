@@ -129,7 +129,16 @@ public class CompareCard : ContentCard
     // Layout
     // =====================================================================
 
+    // The side card lays out exactly as it always has. In the wide slot the
+    // scale is stepped down until the card's own report says it fits (FitWide).
     private void LayoutCard(bool log)
+    {
+        if (!IsWideLayout) { LayoutCardOnce(log); return; }
+        FitWide(() => LayoutCardOnce(false), () => Layout);
+        if (log) LayoutCardOnce(true);
+    }
+
+    private void LayoutCardOnce(bool log)
     {
         Vector2 size = CardTypography.CardSize(rectTransform);
         laidOutSize = size;
@@ -140,7 +149,7 @@ public class CompareCard : ContentCard
 
     private CardTypography.Report LayoutBars(Vector2 size)
     {
-        float k = CardTypography.ScaleFor(size);
+        float k = LayoutScale(size);
         float pad = CardTypography.PaddingFor(size);
         float innerW = size.x - 2f * pad, innerH = size.y - 2f * pad;
         var report = new CardTypography.Report { Card = CardTypography.CardLabel("Compare", fields[0] + " vs " + fields[2]) };
@@ -217,7 +226,7 @@ public class CompareCard : ContentCard
 
     private CardTypography.Report LayoutFallback(Vector2 size)
     {
-        float k = CardTypography.ScaleFor(size);
+        float k = LayoutScale(size);
         float pad = CardTypography.PaddingFor(size);
         float innerW = size.x - 2f * pad, innerH = size.y - 2f * pad;
         var report = new CardTypography.Report { Card = CardTypography.CardLabel("Compare", fields[0] + " vs " + fields[2]) };

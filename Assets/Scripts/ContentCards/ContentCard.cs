@@ -51,6 +51,145 @@ public abstract class ContentCard : MonoBehaviour
     /// </summary>
     protected abstract ContentCardType CardType { get; }
 
+    // ---- The wide stage (Mugs off or peeking) ---------------------------------
+    // A side card is then drawn in the centred, wider slot. Its rect is all a
+    // card needs to re-fit itself (every size scales with the card's width);
+    // these two are for the few sizes tied to the FRAME instead — the wide
+    // Stat's capitals, the wide Quote's type-on.
+
+    /// <summary>True while this card sits in the wide slot.</summary>
+    public bool IsWideLayout { get; private set; }
+    /// <summary>The frame's height in card px (0 when unknown).</summary>
+    public float StageFrameHeight { get; private set; }
+
+    /// <summary>Set by ContentZoneController before Initialize, and again when the stage changes under an open card.</summary>
+    public void SetStageLayout(bool wide, float frameHeight)
+    {
+        bool changed = wide != IsWideLayout;
+        IsWideLayout = wide;
+        StageFrameHeight = frameHeight;
+        if (changed) OnStageLayoutChanged();
+    }
+
+    /// <summary>The card moved between the side slot and the wide slot while open.</summary>
+    protected virtual void OnStageLayoutChanged() { }
+
+    // The wide slot is 44 % wider than the side card but hardly taller, so a
+    // card laid out at the full width's scale can run out of height (on the
+    // first real take a wide Compare's source line fell off the card). In the
+    // wide layout the scale is therefore stepped down until the card's own
+    // layout report says the content fits — never below the scale at which the
+    // side card itself fits. The side layout never multiplies by this.
+    private float wideFit = 1f;
+
+    /// <summary>Reference px → this card's px: <c>CardTypography.ScaleFor</c>, fitted to the slot's height in the wide layout.</summary>
+    protected float LayoutScale(Vector2 size) =>
+        IsWideLayout ? CardTypography.ScaleFor(size) * wideFit : CardTypography.ScaleFor(size);
+
+    /// <summary>The wide layout's scale relative to the full-width scale (1 = nothing had to shrink).</summary>
+    public float WideFit => IsWideLayout ? wideFit : 1f;
+
+    /// <summary>Lays the card out for the wide slot: at full scale first, then smaller until <paramref name="report"/> fits.</summary>
+    protected void FitWide(System.Action layoutOnce, System.Func<CardTypography.Report> report)
+    {
+        Vector2 size = CardTypography.CardSize(rectTransform);
+        float full = CardTypography.ScaleFor(size);
+        float floor = full > 0f ? Mathf.Min(1f, size.y / CardTypography.ReferenceCardHeight / full) : 1f;
+        wideFit = 1f;
+        layoutOnce();
+        for (int i = 0; i < 10; i++)
+        {
+            CardTypography.Report r = report();
+            // Strictly inside (and a hair under): the cards warn when their group
+            // exceeds the inner height at all, so "641 of 641 px" must not happen.
+            if (r == null || r.InnerHeight <= 0f || r.GroupHeight <= r.InnerHeight - 1f || wideFit <= floor + 1e-3f) break;
+            wideFit = Mathf.Max(floor, wideFit * Mathf.Clamp((r.InnerHeight - 2f) / r.GroupHeight, 0.8f, 0.985f));
+            layoutOnce();
+        }
+    }
+
+    private Tween zoneTween;
+    /// <summary>True once Hide has started (the card is on its way out).</summary>
+    public bool IsHiding { get; private set; }
+
+    /// <summary>
+    /// Moves an open card to another slot (side ↔ wide): it keeps the place
+    /// and size it has on screen, then glides and grows / shrinks into the new
+    /// slot over <paramref name="seconds"/> (0 = at once). The card re-fits
+    /// itself as its rect changes, exactly as it does when first laid out.
+    /// Both slots must share one parent.
+    /// </summary>
+    public void MoveToZone(RectTransform zone, float seconds)
+    {
+        if (zone == null || rectTransform == null) return;
+        RectTransform from = rectTransform.parent as RectTransform;
+        if (from == null || from == zone) return;
+
+        // Land the entry first — its slide tweens the same rect the glide is
+        // about to own.
+        if (!IsHiding && currentSequence != null && currentSequence.IsActive())
+        {
+            currentSequence.Complete(true);
+            currentSequence = null;
+        }
+        KillZoneTween();
+        StopIdleFloat();
+
+        Rect a = RectInParent(from), b = RectInParent(zone);
+        Vector2 heldMin = a.min + rectTransform.offsetMin, heldMax = a.max + rectTransform.offsetMax;
+        rectTransform.SetParent(zone, false);
+
+        Vector2 startMin = heldMin - b.min, startMax = heldMax - b.max;
+        Vector3 zs = zone.localScale;
+        if (Mathf.Abs(zs.x) > 1e-5f && Mathf.Abs(zs.y) > 1e-5f)
+        {
+            startMin = new Vector2(startMin.x / zs.x, startMin.y / zs.y);
+            startMax = new Vector2(startMax.x / zs.x, startMax.y / zs.y);
+        }
+
+        if (seconds <= 0f || !Application.isPlaying)
+        {
+            rectTransform.offsetMin = Vector2.zero;
+            rectTransform.offsetMax = Vector2.zero;
+            if (!IsHiding) StartIdleFloat();
+            return;
+        }
+
+        rectTransform.offsetMin = startMin;
+        rectTransform.offsetMax = startMax;
+        float x = 0f;
+        zoneTween = DOTween.To(() => x, v =>
+            {
+                x = v;
+                if (rectTransform == null) return;
+                rectTransform.offsetMin = Vector2.LerpUnclamped(startMin, Vector2.zero, v);
+                rectTransform.offsetMax = Vector2.LerpUnclamped(startMax, Vector2.zero, v);
+            }, 1f, seconds)
+            .SetEase(Ease.InOutCubic)
+            .SetTarget(this)
+            .OnComplete(() =>
+            {
+                zoneTween = null;
+                if (!IsHiding) StartIdleFloat();
+            });
+    }
+
+    // A child rect in its parent's space (the slots are never rotated).
+    private static Rect RectInParent(RectTransform rt)
+    {
+        Rect r = rt.rect;
+        Vector3 p = rt.localPosition, s = rt.localScale;
+        float x0 = p.x + r.xMin * s.x, x1 = p.x + r.xMax * s.x;
+        float y0 = p.y + r.yMin * s.y, y1 = p.y + r.yMax * s.y;
+        return Rect.MinMaxRect(Mathf.Min(x0, x1), Mathf.Min(y0, y1), Mathf.Max(x0, x1), Mathf.Max(y0, y1));
+    }
+
+    private void KillZoneTween()
+    {
+        if (zoneTween != null && zoneTween.IsActive()) zoneTween.Kill();
+        zoneTween = null;
+    }
+
     // ---- Convenience accessors that route through the central animator ----
     protected AnimationCurve OvershootCurve => CardEntryAnimator.Instance.Curve;
     protected float FadeInDuration  => CardEntryAnimator.Instance.GetFadeInDuration(CardType);
@@ -237,6 +376,7 @@ public abstract class ContentCard : MonoBehaviour
     /// </summary>
     public virtual void Hide(bool fast = false)
     {
+        IsHiding = true;
         KillCurrentSequence();
         StopIdleFloat();
 
@@ -299,5 +439,6 @@ public abstract class ContentCard : MonoBehaviour
     protected virtual void OnDestroy()
     {
         KillCurrentSequence();
+        KillZoneTween();
     }
 }

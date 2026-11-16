@@ -775,7 +775,8 @@ public class SegmentSequencer : MonoBehaviour
         });
     }
 
-    static readonly Regex _TPattern = new Regex(@"T=(\d+(?:\.\d+)?)");
+    // TagBeats.StampPattern: a real stamp only — never a "…T=4…" inside a card's quoted text.
+    static readonly Regex _TPattern = new Regex(TagBeats.StampPattern);
 
     static string ShiftTimestamps(string script, float deltaSeconds, float minAllowedT,
                                   SegmentAudioTiming timing = null, PauseInserter.Shift pauses = null,

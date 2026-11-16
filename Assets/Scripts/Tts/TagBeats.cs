@@ -44,8 +44,17 @@ namespace MugsTech.Tts
         // braces, so they are skipped as a unit (PauseInserter.Unspoken).
         static readonly Regex Unspoken = new Regex(@"\{(?:[^{}""\n]|""[^""]*"")*\}|\[[^\]]*\]");
 
-        // SegmentSequencer._TPattern: match indices line up with its Replace.
-        static readonly Regex TStamp = new Regex(@"T=(\d+(?:\.\d+)?)");
+        /// <summary>
+        /// A baked <c>T=</c> stamp. It always follows a <c>,</c> or the tag's
+        /// <c>:</c>, and never sits inside a quoted field — so the data of a
+        /// <c>{Graph:"…","ChatGPT=400M;AT&amp;T=22M",…}</c> is not mistaken for
+        /// one (the look-ahead: only whole quoted fields between it and the
+        /// tag's close). SegmentSequencer._TPattern IS this pattern: the match
+        /// indices must line up with its Replace.
+        /// </summary>
+        public const string StampPattern =
+            @"(?<=[,:])T=(\d+(?:\.\d+)?)(?=(?:[^""{}\n]*""[^""\n]*"")*[^""{}\n]*[}\]])";
+        static readonly Regex TStamp = new Regex(StampPattern);
 
         static readonly Regex StampSuffix = new Regex(@",T=\d+(?:\.\d+)?");
 

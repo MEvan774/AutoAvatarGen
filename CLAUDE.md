@@ -71,6 +71,59 @@ parser and stripped again in `ScriptFileReader.Dispatch` as a safety net;
 the guide covers it in §3/§4/§5/§7; the `Pause_*` self-tests cover it
 offline. The `--auto-script` result JSON reports each one in `pauses[]`.
 
+## The evidence-first stage (Mugs off, peek, wide cards)
+
+`{Position:Off}` / `PeekLeft` / `PeekRight` and the devices built on them
+(`,Scroll`, logo runs + `Strike`, `{Name}`, Quote `,Photo=` + type-on,
+`{Clipping}`, `{Mark}`, `{Timeline:…,Wide}` + `Span`, `{Pop}`, `{Graph}`) are
+documented for authors in the tag guide (§4 *"Mugs off stage"* onward). Where
+it lives: `Stage/StageMath` (pure: travel plans, wide slot, `StageMeter`,
+`EmptyStageWatch`), `MediaPresentationSystem.Stage.cs` (the moves, full-frame
+media, the meter), `ContentZoneController` (wide zone, runs, marks, strikes),
+`Stage/NameOverlay` + `Stage/PopOverlay` (parsed by the pure `Stage/StageTags`,
+before any card or media parser sees the script).
+
+- **Old scripts must not notice.** Everything is reached only through a new
+  `{Position:…}` value, a new tag or a new optional keyword; the side layout,
+  the timed `{BigMedia:a+b,4}` row, the plain Quote and the vertical Timeline
+  are the old code paths (the disk `Logos/` lookup is for logo RUNS only — on
+  the timed row it would turn an old script's text fallback into a logo).
+  Keep it that way when adding to a card.
+- **"Wide" = Off or peeking** (`StageMath.IsWide`). Side cards then open in
+  `ContentZone_Cards_Wide` and lay out through `ContentCard.LayoutScale` —
+  the full width's scale, stepped down by `FitWide` until the card's own
+  report fits the slot's height (the slot is 44 % wider than the side card but
+  hardly taller: on the first real take a wide Compare's source fell off the
+  card). The side layout never goes through that fit. `{Image}`/`{Video}` fill the frame by `uvRect` (cover, push-in,
+  scroll — the slot never moves, so an image can't show its edge). A wide ↔
+  side change ends the media like a change of side; Off ↔ peek keeps it.
+- **Cards wait for an arrival, never for him leaving** (`StageMath.CardsWaitFor`),
+  and `ShowMedia` waits ≤3 frames while `StageChangeIsDue()` — the media
+  tracker runs before the position tracker, so media written under a
+  `{Position:Off}` would otherwise land in the side slot and be dismissed.
+- **A peek is drawn at sorting 30500**: in front of the card zones (30000),
+  behind the feature zone (31000). His pop-up uses the same order while he
+  rises, so a wide card closing on that beat fades behind him, not over him. `NameOverlay` 30600, `PopOverlay` 31300
+  (under captions 31400, Echo 31500, black 32000).
+- **His screen time is measured, not inferred**: `StageMeter` steps on voice
+  time; `Covered` (black, `,bigCenter` headline, Clipping) is not on screen.
+  The take logs `[Stage] Mugs on screen 41.2 % of 312.4 s (off 6 times)` and
+  the result JSON carries `mugsOnScreenShare`, `mugsPeekShare` and `stage{}`.
+  Off with nothing on screen for >3 s is the one fault it warns about.
+- **Runs are sized once, read ahead** (`ContentZoneController.AnticipateRun`):
+  a logo grid, a wide timeline and a clipping pile know their whole run when
+  they open, so nothing re-flows on a beat (an item lands once — the opener's
+  catch-up and the tracker can both reach it). `{Mark}`, `{BigMedia:Strike}`
+  and `{…:End}` act on the card that is up and pass a `{Pop}`; a NEW card waits
+  behind it, and then so does everything written after that card (order kept).
+- **A baked stamp is `TagBeats.StampPattern`, not any `T=digit`.** A `{Graph}`
+  label like `ChatGPT=400M` would otherwise be shifted onto the take's clock.
+  `SegmentSequencer._TPattern` is that same pattern (the join's indices rely
+  on it); it matches the identical 5,746 stamps in the 272 real timed files.
+- **A new tag still needs all of**: runtime parser, `KnownMarkers`,
+  `_ALL_MARKERS`, both `StampMarker`s, `TagOnlyRetimer.UnstampDuration` when
+  it has a `D=` slot, the guide — `Tier4_*` in the self-tests is the template.
+
 ## Hard-won constraints (do not undo)
 
 - **MainMenu scene is hand-tweaked** — never re-bake/regenerate the menu

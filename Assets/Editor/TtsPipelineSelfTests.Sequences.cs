@@ -98,7 +98,7 @@ public static partial class TtsPipelineSelfTests
         try
         {
             ((RectTransform)card.transform.parent).sizeDelta = new Vector2(1920f, 1080f);
-            card.Initialize(new ContentCardEvent { cardType = ContentCardType.BigMedia, primaryText = "SelfTestA+SelfTestB+SelfTestC+SelfTestD" }, null);
+            card.Initialize(new ContentCardEvent { cardType = ContentCardType.BigMedia, primaryText = "SelfTestA+SelfTestB+SelfTestC+SelfTestD", duration = 4f }, null);   // timed row: the parser always gives it a duration (none = a logo run)
             card.Show();
             var seq = (Sequence)typeof(ContentCard).GetField("currentSequence", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(card);
             seq.Pause();

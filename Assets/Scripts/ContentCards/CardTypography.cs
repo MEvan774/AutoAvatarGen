@@ -496,6 +496,14 @@ public static class CardTypography
     /// must also fit the inner width. All lengths in this card's px (k = card scale).
     /// </summary>
     public static float StatValueSize(float widthPer100, float capRatio, float innerWidth, bool arrow, float k)
+        => StatValueSize(widthPer100, capRatio, innerWidth, arrow, k, -1f);
+
+    /// <summary>
+    /// As above, with the cap-height ceiling lowered to <paramref name="capCeilingPx"/>
+    /// (card px; ≤ 0 = the usual ceiling). The wide Stat — a number alone on
+    /// the stage — ties its capitals to the frame's height that way.
+    /// </summary>
+    public static float StatValueSize(float widthPer100, float capRatio, float innerWidth, bool arrow, float k, float capCeilingPx)
     {
         if (widthPer100 <= 0f || capRatio <= 0f) return StatCapMinPx * k / Mathf.Max(0.1f, capRatio);
 
@@ -508,6 +516,11 @@ public static class CardTypography
 
         float capMin = StatCapMinPx * k / capRatio;
         float capMax = StatCapMaxPx * k / capRatio;
+        if (capCeilingPx > 0f)
+        {
+            capMax = Mathf.Min(capMax, capCeilingPx / capRatio);
+            capMin = Mathf.Min(capMin, capMax);
+        }
 
         float s = Mathf.Max(aim, capMin);   // reach the floor if width allows…
         s = Mathf.Min(s, capMax);           // …never past the ceiling…

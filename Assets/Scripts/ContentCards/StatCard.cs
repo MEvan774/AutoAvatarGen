@@ -130,11 +130,27 @@ public class StatCard : ContentCard
         }
     }
 
+    /// <summary>The value's cap height in card px after the last layout (read by the self-tests).</summary>
+    public float ValueCapPx => CardTypography.CapHeight(numberText.font, numberText.fontSize);
+
+    // The stage changed under the open card: the ceiling on the capitals
+    // changes even on the frame the rect hasn't resized yet.
+    protected override void OnStageLayoutChanged() => laidOutSize = new Vector2(-1f, -1f);
+
+    // The side card lays out exactly as it always has. In the wide slot the
+    // scale is stepped down until the card's own report says it fits (FitWide).
     private void LayoutCard(bool log)
+    {
+        if (!IsWideLayout) { LayoutCardOnce(log); return; }
+        FitWide(() => LayoutCardOnce(false), () => Layout);
+        if (log) LayoutCardOnce(true);
+    }
+
+    private void LayoutCardOnce(bool log)
     {
         Vector2 size = CardTypography.CardSize(rectTransform);
         laidOutSize = size;
-        float k = CardTypography.ScaleFor(size);
+        float k = LayoutScale(size);
         float pad = CardTypography.PaddingFor(size);
         float innerW = size.x - 2f * pad;
         float innerH = size.y - 2f * pad;
@@ -146,7 +162,11 @@ public class StatCard : ContentCard
         numberText.text = BuildFinalNumberText();
         float capRatio = CardTypography.CapHeight(numberText.font, 100f) / 100f;
         float widthPer100 = CardTypography.MeasureLineWidth(numberText, 100f);
-        float valueSize = CardTypography.StatValueSize(widthPer100, capRatio, innerW, hasArrow, k);
+        // In the wide slot the Stat is the big-number beat: its capitals about
+        // a quarter of the FRAME's height (not more), whatever the card's width.
+        float capCeiling = IsWideLayout && StageFrameHeight > 1f
+            ? MugsTech.Stage.StageMath.WideStatCapCeiling(StageFrameHeight) : -1f;
+        float valueSize = CardTypography.StatValueSize(widthPer100, capRatio, innerW, hasArrow, k, capCeiling);
 
         // ---- Label + context: fixed sizes, wrapped to the inner width ----
         float labelSize = CardTypography.StatLabelPx * k;

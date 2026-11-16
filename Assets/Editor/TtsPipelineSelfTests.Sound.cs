@@ -71,8 +71,8 @@ public static partial class TtsPipelineSelfTests
         log.Near(150f, SfxSynth.Make(SfxKind.BigTextLine, r).Length * 1000f / r, 1f, "sfx: the BigText thud is 150 ms");
         // Only four: a card leaving, {Black} and the close-up were taken out
         // after the 2026-11-09 render (by request) — they stay silent.
-        log.AreEqual(4, System.Enum.GetValues(typeof(SfxKind)).Length,
-            "sfx: four effects — card in, count click, BigText line, big card in");
+        log.AreEqual(7, System.Enum.GetValues(typeof(SfxKind)).Length,
+            "sfx: seven effects — card in, count click, BigText line, big card in, and the stage's three (Mugs out, Mugs in, a clipping landing)");
         // The first table (−16…−28 dBFS) was inaudible in the 2026-11-09 render.
         // At the default 60 % the ticks and the thud must peak at −14 dBFS or
         // louder (the clicks −22), and nothing at full level louder than −8.

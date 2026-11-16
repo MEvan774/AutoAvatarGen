@@ -117,6 +117,8 @@ public class PresenterShadow : MonoBehaviour
         if (!visible) return;
 
         shadow.sprite = GetFullRectTwin(sprite);
+        // The presenter's order changes for a peek (in front of the cards) — stay with it.
+        if (shadow.sortingOrder != source.sortingOrder) shadow.sortingOrder = source.sortingOrder;
         shadow.flipX = source.flipX;
         shadow.flipY = source.flipY;
 

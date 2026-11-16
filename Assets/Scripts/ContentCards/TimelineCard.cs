@@ -191,11 +191,20 @@ public class TimelineCard : ContentCard
         return y;
     }
 
+    // The side card lays out exactly as it always has. In the wide slot the
+    // scale is stepped down until the card's own report says it fits (FitWide).
     private void LayoutCard(bool log)
+    {
+        if (!IsWideLayout) { LayoutCardOnce(log); return; }
+        FitWide(() => LayoutCardOnce(false), () => Layout);
+        if (log) LayoutCardOnce(true);
+    }
+
+    private void LayoutCardOnce(bool log)
     {
         Vector2 size = CardTypography.CardSize(rectTransform);
         laidOutSize = size;
-        float k = CardTypography.ScaleFor(size);
+        float k = LayoutScale(size);
         float pad = CardTypography.PaddingFor(size);
         float innerW = size.x - 2f * pad, innerH = size.y - 2f * pad;
         float dot = TimelineTypography.DotPx * k;
@@ -364,7 +373,7 @@ public class TimelineCard : ContentCard
 
     private void StepNodes()
     {
-        float k = CardTypography.ScaleFor(laidOutSize);
+        float k = LayoutScale(laidOutSize);
         Color accent = ContentCardUIBuilder.AccentColor;
         Color text = ContentCardUIBuilder.TextPrimary;
 

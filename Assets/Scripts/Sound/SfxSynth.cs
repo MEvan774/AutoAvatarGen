@@ -9,6 +9,10 @@ namespace MugsTech.Sound
         CountClick,   // one step of a Stat's count-up
         BigTextLine,  // a BigText line lands
         BigCardIn,    // big headline / BigImage / BigMedia / Versus in
+        // Appended (the evidence-first stage, 2026-11):
+        StageOut,     // Mugs slides out of frame — a soft whoosh
+        StageIn,      // Mugs pops up (or his head comes up for a peek) — a soft pop
+        Paper,        // a press clipping lands on the pile
     }
 
     /// <summary>
@@ -39,6 +43,9 @@ namespace MugsTech.Sound
                 case SfxKind.CountClick:  return -17f;
                 case SfxKind.BigTextLine: return -8f;
                 case SfxKind.BigCardIn:   return -9f;
+                case SfxKind.StageOut:    return -9.5f;
+                case SfxKind.StageIn:     return -9f;
+                case SfxKind.Paper:       return -9f;
                 default:                  return -9f;
             }
         }
@@ -52,6 +59,9 @@ namespace MugsTech.Sound
                 case SfxKind.CountClick:  return "count_click";
                 case SfxKind.BigTextLine: return "bigtext_line";
                 case SfxKind.BigCardIn:   return "big_card_in";
+                case SfxKind.StageOut:    return "stage_out";
+                case SfxKind.StageIn:     return "stage_in";
+                case SfxKind.Paper:       return "paper";
                 default:                  return k.ToString();
             }
         }
@@ -66,6 +76,9 @@ namespace MugsTech.Sound
                 case SfxKind.BigCardIn:   s = Tick(rate, 1414f, 70f, 12); break;    // the same tick an octave lower
                 case SfxKind.CountClick:  s = Click(rate); break;
                 case SfxKind.BigTextLine: s = Thud(rate); break;
+                case SfxKind.StageOut:    s = Whoosh(rate); break;
+                case SfxKind.StageIn:     s = Pop(rate); break;
+                case SfxKind.Paper:       s = PaperSlap(rate); break;
                 default:                  s = new float[1]; break;
             }
             return Normalise(s, PeakDbfs(k));
@@ -135,6 +148,65 @@ namespace MugsTech.Sound
                 float k = knock.Process((float)(rng.NextDouble() * 2 - 1)) * (float)Math.Exp(-t / 0.006f) * 0.6f;
                 float tk = i < tick.Length && tickPeak > 0f ? tick[i] / tickPeak * 0.5f : 0f;
                 s[i] = body + k + tk;
+            }
+            return s;
+        }
+
+        // A soft 240 ms whoosh: band-passed noise whose band falls from 1.8 kHz
+        // to 500 Hz as he leaves, swelling in and dying away.
+        static float[] Whoosh(int rate)
+        {
+            int n = (int)(0.240f * rate);
+            var s = new float[n];
+            var bp = new Biquad(rate, 1800f, 0.9f);
+            var rng = new Random(51);
+            for (int i = 0; i < n; i++)
+            {
+                float x = (float)i / n;
+                if ((i & 31) == 0) bp.Set(rate, 1800f * (float)Math.Pow(500.0 / 1800.0, x), 0.9f);
+                float env = (float)Math.Sin(Math.PI * Math.Pow(x, 0.7));   // up by ~35 %, then a long tail
+                s[i] = bp.Process((float)(rng.NextDouble() * 2 - 1)) * env * env;
+            }
+            return s;
+        }
+
+        // A soft 110 ms pop: a rounded blip rising 220 → 420 Hz with a breath of noise on its front.
+        static float[] Pop(int rate)
+        {
+            int n = (int)(0.110f * rate);
+            var s = new float[n];
+            var bp = new Biquad(rate, 1200f, 1.0f);
+            var rng = new Random(52);
+            double phase = 0;
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / rate;
+                float x = (float)i / n;
+                double f = 220.0 + 200.0 * (1.0 - Math.Exp(-t / 0.020));
+                phase += 2 * Math.PI * f / rate;
+                float env = Math.Min(1f, t / 0.004f) * (float)Math.Exp(-t / 0.028f) * (1f - x * x);
+                float breath = bp.Process((float)(rng.NextDouble() * 2 - 1)) * (float)Math.Exp(-t / 0.006f) * 0.25f;
+                s[i] = (float)Math.Sin(phase) * env + breath;
+            }
+            return s;
+        }
+
+        // A sheet of paper landing, 150 ms: a short bright slap and a softer rustle after it.
+        static float[] PaperSlap(int rate)
+        {
+            int n = (int)(0.150f * rate);
+            var s = new float[n];
+            var high = new Biquad(rate, 3200f, 0.8f);
+            var low = new Biquad(rate, 900f, 0.9f);
+            var rng = new Random(53);
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)i / rate;
+                float noise = (float)(rng.NextDouble() * 2 - 1);
+                float slap = high.Process(noise) * Math.Min(1f, t / 0.002f) * (float)Math.Exp(-t / 0.010f);
+                float rustleEnv = (float)Math.Exp(-Math.Pow((t - 0.055f) / 0.030f, 2.0));
+                float rustle = low.Process(noise) * rustleEnv * 0.45f;
+                s[i] = slap + rustle;
             }
             return s;
         }

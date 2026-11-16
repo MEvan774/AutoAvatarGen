@@ -154,7 +154,7 @@ namespace MugsTech.Motion
             float next = float.IsNaN(now) ? float.PositiveInfinity : mps.NextCameraStop(now);
             return new Inputs
             {
-                Bare = started && !card && !mps.IsShowingMedia && !busy && !black,
+                Bare = started && !card && !mps.IsShowingMedia && !busy && !black && !mps.IsPopShowing,
                 Hard = black || busy,
                 TimeToStop = next - now,
             };

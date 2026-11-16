@@ -173,6 +173,8 @@ public partial class MainMenuController : MonoBehaviour
         WireCaptionRows();
         EnsureSoundControls();
         WireSoundRows();
+        EnsureStageControls();
+        WireStageRows();
         EnsureBackgroundStyleControls();
         WireBackgroundStyleRow();
         EnsureOutputLibrary();

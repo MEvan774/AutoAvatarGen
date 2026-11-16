@@ -85,6 +85,12 @@ public static partial class TtsPipelineSelfTests
         RunEchoGroup(log);
         RunCaptionGroup(log);
         RunSameBeatGroup(log);
+        RunStageGroup(log);
+        RunTier4TagGroup(log);
+        RunDeviceGroup(log);
+        RunTimelineWideGroup(log);
+        RunClippingGroup(log);
+        RunGraphGroup(log);
 
         log.Report();
     }

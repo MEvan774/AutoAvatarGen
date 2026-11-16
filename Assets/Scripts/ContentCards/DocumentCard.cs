@@ -25,7 +25,7 @@ using TMPro;
 ///     no stamp (warned).
 /// Every word shown is one of the three fields as written, or a stamp's fixed words.
 /// </summary>
-public class DocumentCard : ContentCard
+public class DocumentCard : ContentCard, IMarkable
 {
     protected override ContentCardType CardType => ContentCardType.Document;
 
@@ -54,6 +54,22 @@ public class DocumentCard : ContentCard
     private readonly List<Rect> highlightRects = new List<Rect>();
     private readonly List<Rect> lineInkRects = new List<Rect>();
     private Vector2[] stampPolygon;
+
+    // {Mark:"phrase"} — the highlighter moves on. Each rect of highlightRects
+    // belongs to the tag's own phrase (owner 0) or to mark n (owner n ≥ 1), and
+    // is line `rectLine` of that phrase.
+    private sealed class ExtraMark { public string Phrase; public float StartedAt; }
+    private readonly List<ExtraMark> extraMarks = new List<ExtraMark>();
+    private readonly List<int> rectOwner = new List<int>();
+    private readonly List<int> rectLine = new List<int>();
+    private int ownRectCount;
+    private Rect lastArea;
+    private float lastScale = 1f;
+
+    /// <summary>Marks made on this card beyond the tag's own highlight (0–3).</summary>
+    public int MarkCount => extraMarks.Count;
+    /// <summary>Which highlight rect i belongs to: 0 = the tag's phrase, n = mark n.</summary>
+    public int RectOwner(int i) => rectOwner[i];
 
     // ---- Read by the self-tests -------------------------------------------------------
     public CardTypography.Report Layout { get; private set; }
@@ -205,11 +221,20 @@ public class DocumentCard : ContentCard
     // Layout
     // =====================================================================
 
+    // The side card lays out exactly as it always has. In the wide slot the
+    // scale is stepped down until the card's own report says it fits (FitWide).
     private void LayoutCard(bool log)
+    {
+        if (!IsWideLayout) { LayoutCardOnce(log); return; }
+        FitWide(() => LayoutCardOnce(false), () => Layout);
+        if (log) LayoutCardOnce(true);
+    }
+
+    private void LayoutCardOnce(bool log)
     {
         Vector2 size = CardTypography.CardSize(rectTransform);
         laidOutSize = size;
-        float k = CardTypography.ScaleFor(size);
+        float k = LayoutScale(size);
         float pad = CardTypography.PaddingFor(size);
         float innerW = size.x - 2f * pad;
         var report = new CardTypography.Report { Card = CardTypography.CardLabel("Document", passageText) };
@@ -230,6 +255,8 @@ public class DocumentCard : ContentCard
         StripBottom = stripH + DocumentTypography.HeaderRulePx * k;
 
         Rect area = Rect.MinMaxRect(pad, StripBottom + DocumentTypography.BodyTopGapPx * k, size.x - pad, size.y - pad);
+        lastArea = area;
+        lastScale = k;
 
         // ---- Stamp band: under the passage, if the passage still fits at ≥ 44 px ----
         bool wantStamp = stampKind != DocumentStamp.None;
@@ -375,7 +402,11 @@ public class DocumentCard : ContentCard
     // Tries spots around the passage area at a few stamp sizes: never one that
     // touches the marker; of the rest, the one covering the least passage ink
     // (a tie goes to the larger stamp).
-    private bool PlaceStampOverPassage(Rect area, float k)
+    private bool PlaceStampOverPassage(Rect area, float k) => PlaceStampOverPassage(area, k, null);
+
+    // With `nearest` (a mark landed under the stamp): of the spots clear of
+    // every highlight, the one closest to where the stamp was.
+    private bool PlaceStampOverPassage(Rect area, float k, Vector2? nearest)
     {
         float min = MinStampScale();
         var scales = new[] { 1f, Mathf.Lerp(min, 1f, 0.5f), min };
@@ -397,7 +428,7 @@ public class DocumentCard : ContentCard
                 foreach (Rect h in highlightRects)
                     if (DocumentTypography.Overlaps(poly, h)) { hitsHighlight = true; break; }
                 if (hitsHighlight) continue;
-                float score = InkCovered(poly);
+                float score = nearest.HasValue ? Vector2.Distance(spot, nearest.Value) + (1f - s) * 1000f : InkCovered(poly);
                 if (score < bestScore - 0.5f)
                 {
                     bestScore = score; bestScale = s; bestSpot = spot; bestBox = box; any = true;
@@ -458,25 +489,98 @@ public class DocumentCard : ContentCard
             lineInkRects.Add(ToCardRect(new Vector2(x0, li.ascender), new Vector2(x1, li.descender)));
         }
 
-        int start = phrase.Length > 0 ? passageText.IndexOf(phrase, System.StringComparison.Ordinal) : -1;
+        rectOwner.Clear();
+        rectLine.Clear();
+        AddPhraseRects(info, size, phrase, 0);
+        ownRectCount = highlightRects.Count;
+        for (int m = 0; m < extraMarks.Count; m++)
+            AddPhraseRects(info, size, extraMarks[m].Phrase, m + 1);
+    }
+
+    // The marker's rect on each line of one phrase (the tag's own, or a mark's).
+    private void AddPhraseRects(TMP_TextInfo info, float size, string text, int owner)
+    {
+        int start = !string.IsNullOrEmpty(text) ? passageText.IndexOf(text, System.StringComparison.Ordinal) : -1;
         if (start < 0) return;
-        int end = Mathf.Min(start + phrase.Length, info.characterCount);
-        int line = -1;
+        int end = Mathf.Min(start + text.Length, info.characterCount);
+        int line = -1, lineOfPhrase = 0;
         float lx0 = 0f, lx1 = 0f, baseline = 0f;
+        void Close()
+        {
+            highlightRects.Add(MarkerRect(lx0, lx1, baseline, size));
+            rectOwner.Add(owner);
+            rectLine.Add(lineOfPhrase++);
+        }
         for (int c = start; c < end; c++)
         {
             TMP_CharacterInfo ci = info.characterInfo[c];
             if (!ci.isVisible) continue;
             if (ci.lineNumber != line)
             {
-                if (line >= 0) highlightRects.Add(MarkerRect(lx0, lx1, baseline, size));
+                if (line >= 0) Close();
                 line = ci.lineNumber;
                 lx0 = ci.bottomLeft.x;
                 baseline = ci.baseLine;
             }
             lx1 = ci.topRight.x;
         }
-        if (line >= 0) highlightRects.Add(MarkerRect(lx0, lx1, baseline, size));
+        if (line >= 0) Close();
+    }
+
+    /// <summary>
+    /// {Mark:"phrase"}: the marker sweeps another phrase of the passage; the
+    /// earlier highlight fades to a pale tint and stays. The phrase must be in
+    /// the passage exactly. Up to three marks. A stamp the new mark would sit
+    /// under moves to the nearest corner that is clear of every marked phrase.
+    /// </summary>
+    public MarkResult AddMark(string markPhrase)
+    {
+        markPhrase = markPhrase ?? "";
+        if (markPhrase.Length == 0 || passageText.IndexOf(markPhrase, System.StringComparison.Ordinal) < 0)
+            return MarkResult.NotFound;
+        if (markPhrase == phrase) return MarkResult.Repeated;
+        foreach (ExtraMark m in extraMarks)
+            if (m.Phrase == markPhrase) return MarkResult.Repeated;
+        if (extraMarks.Count >= DocumentTypography.MaxMarks) return MarkResult.TooMany;
+
+        // The tag's own highlight may not have swept yet (a mark right after
+        // the card lands — on the first real take one arrived 0.4 s in and was
+        // drawn BEFORE the phrase it follows): the mark waits for that sweep.
+        float ownDone = float.IsNaN(landAt) ? clock : landAt + DocumentTypography.LineSweepStart(ownRectCount);
+        extraMarks.Add(new ExtraMark { Phrase = markPhrase, StartedAt = Mathf.Max(clock, ownDone) });
+        MeasureTextRects();
+        BuildMarkers();
+        KeepStampOffTheMarks();
+        StepTimeline();
+        return MarkResult.Ok;
+    }
+
+    // The stamp sits over the passage (no band under it) and a mark now runs
+    // under it: move it to the nearest spot that touches no marked phrase, or
+    // take it off the card if there is none.
+    private void KeepStampOffTheMarks()
+    {
+        if (!StampPlaced || StampInBand || stampPolygon == null) return;
+        bool covered = false;
+        foreach (Rect h in highlightRects)
+            if (DocumentTypography.Overlaps(stampPolygon, h)) { covered = true; break; }
+        if (!covered) return;
+
+        Vector2 was = DocumentTypography.Bounds(stampPolygon).center;
+        if (PlaceStampOverPassage(lastArea, lastScale, nearest: was))
+        {
+            StampBehindText = StampCoversText();
+            stamp.SetAsLastSibling();
+            if (StampBehindText) stamp.SetSiblingIndex(passage.transform.GetSiblingIndex());
+            Debug.Log($"[Card] {CardTypography.CardLabel("Document", passageText)}: the {stampKind} stamp moved off the newly marked phrase.");
+        }
+        else
+        {
+            StampPlaced = false;
+            stamp.gameObject.SetActive(false);
+            Debug.LogWarning($"[Card] {CardTypography.CardLabel("Document", passageText)}: no place left for the {stampKind} stamp " +
+                             "that keeps it off the marked phrases — the stamp is taken off.");
+        }
     }
 
     // A marker stroke on one line: from just below the baseline to just above
@@ -546,19 +650,28 @@ public class DocumentCard : ContentCard
         float since = float.IsNaN(landAt) ? -1f : clock - landAt;
         for (int i = 0; i < highlightRects.Count; i++)
         {
-            float p = since < 0f ? 0f : DocumentTypography.LineSweepAt(since, i);
+            // The tag's own phrase sweeps after the card lands; a mark sweeps
+            // from the moment it is made. Every highlight but the newest has
+            // faded to the pale tint.
+            int owner = rectOwner[i];
+            float p = owner == 0
+                ? (since < 0f ? 0f : DocumentTypography.LineSweepAt(since, rectLine[i]))
+                : DocumentTypography.MarkSweepAt(clock - extraMarks[owner - 1].StartedAt, rectLine[i]);
+            float strength = owner < extraMarks.Count
+                ? DocumentTypography.EarlierAlphaAt(clock - extraMarks[owner].StartedAt)
+                : 1f;
             Image m = markers[i];
             m.enabled = p > 0f;
             Rect r = highlightRects[i];
             float minW = Mathf.Min(r.width, r.height * 0.6f);
             m.rectTransform.sizeDelta = new Vector2(Mathf.Lerp(minW, r.width, p), r.height);
             Color c = DocumentTypography.Marker;
-            c.a *= Mathf.Clamp01(p * 8f);
+            c.a *= Mathf.Clamp01(p * 8f) * strength;
             m.color = c;
         }
 
         if (!StampPlaced) return;
-        float at = DocumentTypography.StampStart(highlightRects.Count);
+        float at = DocumentTypography.StampStart(ownRectCount);
         if (since < at)
         {
             stampGroup.alpha = 0f;
@@ -609,6 +722,12 @@ public class DocumentCard : ContentCard
     private static Texture2D NewTexture(int w, int h, TextureWrapMode wrap)
         => new Texture2D(w, h, TextureFormat.RGBA32, false)
            { filterMode = FilterMode.Bilinear, wrapMode = wrap, hideFlags = HideFlags.DontSave };
+
+    /// <summary>The Document paper's grain (256 px, tiling) — shared with the Clipping sheets.</summary>
+    public static Texture2D PaperGrain() => GrainTexture();
+    public const int PaperGrainSize = GrainSize;
+    /// <summary>The highlighter stroke (9-sliced, chisel tips) — shared with the Clipping sheets.</summary>
+    public static Sprite MarkerStrokeSprite() => MarkerSprite();
 
     // Fine paper grain: soft mottling, faint fibres and the odd fleck, tiling.
     private static Texture2D GrainTexture()

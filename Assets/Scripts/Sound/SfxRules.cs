@@ -38,7 +38,10 @@ namespace MugsTech.Sound
             {
                 case SfxKind.BigTextLine: return 3;
                 case SfxKind.BigCardIn:   return 2;
+                case SfxKind.StageIn:     return 2;   // his entrance is the beat
+                case SfxKind.Paper:       return 2;
                 case SfxKind.CardIn:      return 1;
+                case SfxKind.StageOut:    return 1;
                 default:                  return 0;
             }
         }

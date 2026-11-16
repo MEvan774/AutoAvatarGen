@@ -98,6 +98,30 @@ public static class DocumentTypography
     public const float StampSeconds = 0.2f;
     public const float StampOvershoot = 1.2f;
 
+    // ---- {Mark:"phrase"}: the highlighter moves on -----------------------------------
+    /// <summary>A card takes this many marks beyond the tag's own highlight.</summary>
+    public const int MaxMarks = 3;
+    /// <summary>A mark sweeps each line of its phrase in this long, starting at once.</summary>
+    public const float MarkLineSeconds = 0.3f;
+    /// <summary>An earlier highlight fades to this share of the marker's alpha (a pale tint) and stays…</summary>
+    public const float EarlierMarkAlpha = 0.42f;
+    /// <summary>…over this long, once a newer mark starts.</summary>
+    public const float MarkFadeSeconds = 0.2f;
+
+    /// <summary>Line <paramref name="line"/> of a mark, swept 0→1, <paramref name="age"/> s after the mark was made.</summary>
+    public static float MarkSweepAt(float age, int line)
+    {
+        float x = Mathf.Clamp01((age - line * MarkLineSeconds) / MarkLineSeconds);
+        return x * x * (3f - 2f * x);
+    }
+
+    /// <summary>How strong an earlier highlight still is, <paramref name="sinceNewer"/> s after a newer mark started: 1 → the pale tint.</summary>
+    public static float EarlierAlphaAt(float sinceNewer)
+    {
+        float x = Mathf.Clamp01(sinceNewer / MarkFadeSeconds);
+        return Mathf.Lerp(1f, EarlierMarkAlpha, x);
+    }
+
     /// <summary>When the marker starts on line <paramref name="line"/> of the phrase.</summary>
     public static float LineSweepStart(int line) => HighlightDelaySeconds + line * HighlightLineSeconds;
 

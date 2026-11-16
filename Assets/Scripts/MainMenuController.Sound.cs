@@ -98,5 +98,7 @@ public partial class MainMenuController
         LookRow(card, "Music volume",       musicVolumePrevButton,       musicVolumeLabel,       musicVolumeNextButton);
         LookRow(card, "Normalise loudness", normaliseLoudnessPrevButton, normaliseLoudnessLabel, normaliseLoudnessNextButton);
         LookRow(card, "Sound effects",      sfxVolumePrevButton,         sfxVolumeLabel,         sfxVolumeNextButton);
+        // Not a sound setting — the Look column is full (see MainMenuController.Stage.cs).
+        LookRow(card, "Type quotes on",     typeQuotesPrevButton,        typeQuotesLabel,        typeQuotesNextButton);
     }
 }

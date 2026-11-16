@@ -43,7 +43,7 @@ using MugsTech.Style; // EntryDirection — shared with the content-card side mo
 //   That's all for today, thanks for watching!
 // ============================================================================
 
-public class MediaPresentationSystem : MonoBehaviour
+public partial class MediaPresentationSystem : MonoBehaviour
 {
     [Header("Components")]
     public HybridAvatarSystem avatarSystem;
@@ -275,6 +275,7 @@ public class MediaPresentationSystem : MonoBehaviour
         PositionMarkerData marker = positionMarkers[next];
         return voiceAudio.time >= marker.triggerTime
             && marker.position != currentPosition
+            && MugsTech.Stage.StageMath.IsFull(marker.position)   // nothing waits for him to LEAVE (or to peek)
             && !(marker.hardCutOverride ?? useHardCuts);
     }
 
@@ -356,6 +357,7 @@ public class MediaPresentationSystem : MonoBehaviour
                 if (t.triggerTime > now && t.triggerTime < next) next = t.triggerTime;
         if (contentZoneController != null)
             next = Mathf.Min(next, contentZoneController.NextCardTime(now));
+        if (pop != null) next = Mathf.Min(next, pop.NextDue(now));   // a {Pop:} stops the picture
         return next;
     }
 
@@ -372,6 +374,7 @@ public class MediaPresentationSystem : MonoBehaviour
         float next = NextCameraStop(now);
         if (chapterTitles != null) next = Mathf.Min(next, chapterTitles.NextDue(now));
         if (echo != null) next = Mathf.Min(next, echo.NextDue(now));
+        if (nameLabel != null) next = Mathf.Min(next, nameLabel.NextDue(now));
         return Mathf.Min(next, NextGlideTime(now));
     }
 
@@ -404,6 +407,7 @@ public class MediaPresentationSystem : MonoBehaviour
         {
             if (closeUpCutWindow <= 0f || zoomMarkers == null ||
                 voiceAudio == null || !voiceAudio.isPlaying) return false;
+            if (IsStageWide) return false;   // an ExtremeIn is ignored while he is off — nothing is cut for it
 
             float now = voiceAudio.time;
             for (int i = lastTriggeredZoomMarker + 1; i < zoomMarkers.Count; i++)
@@ -434,6 +438,7 @@ public class MediaPresentationSystem : MonoBehaviour
     public bool HasActiveTrailingVisual =>
         MugsTech.Background.TakeLoudness.InEndTail
         || isShowingMedia
+        || IsPopShowing
         || (blackPanelController != null && blackPanelController.IsShowing)
         || (contentZoneController != null && contentZoneController.HasActiveOrQueuedCard);
 
@@ -485,6 +490,10 @@ public class MediaPresentationSystem : MonoBehaviour
 
     // --- Captions in the gaps; null when off or the take has no word timings ---
     private MugsTech.Captions.CaptionOverlay captions;
+
+    // --- The stage's overlays: {Name:…} labels and {Pop:…} phrases; null when the script has none ---
+    private MugsTech.Stage.NameOverlay nameLabel;
+    private MugsTech.Stage.PopOverlay pop;
 
     // --- Timestamp (YouTube chapter) tracking ---
     private List<TimestampMarkerData> timestampMarkers;
@@ -614,6 +623,7 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         if (contentZoneController != null)
             contentZoneController.CutForCloseUp();
+        CloseStageOverlays("a {Zoom:ExtremeIn} close-up");
 
         bool mediaOnScreen = isShowingMedia;
         closeUpCutCount++;
@@ -627,6 +637,7 @@ public class MediaPresentationSystem : MonoBehaviour
         mediaEntrySequence = null;
         if (mediaDisplay != null && mediaDisplay.gameObject.activeSelf)
             mediaDisplay.gameObject.SetActive(false);
+        ReleaseMediaHandover(hide: false);
 
         if (mediaOnScreen)
             Debug.Log("[Zoom] ExtremeIn cut the on-screen media away.");
@@ -654,10 +665,10 @@ public class MediaPresentationSystem : MonoBehaviour
     {
         if (mediaDisplay == null || mediaDisplay.texture == null) return;
 
-        bool onRight = marker.side == EntryDirection.FromRight;
-        ApplyMediaSide(onRight);
-        mediaDisplay.gameObject.SetActive(true);
-        PlayMediaEntry(onRight ? EntryDirection.FromRight : EntryDirection.FromLeft);
+        // The side slot as before — or, while Mugs is off or peeking, the
+        // whole frame (and a cut instead of an entry when it continues a run).
+        // See MediaPresentationSystem.Stage.cs.
+        ShowDisplayOnStage(marker, marker.side == EntryDirection.FromRight);
     }
 
     // Rests the media slot on the requested side. Right reflects the authored
@@ -864,8 +875,8 @@ public class MediaPresentationSystem : MonoBehaviour
         if (mainCamera != null)
             defaultCameraSize = mainCamera.orthographicSize;
 
-        // Start at center
-        if (avatarParent != null && centerLocation != null)
+        // Start at center (unless the script's opening {Position:Off} already took him off)
+        if (avatarParent != null && centerLocation != null && !openedWithoutPresenter)
         {
             avatarParent.position = centerLocation.position;
             avatarParent.rotation = centerLocation.rotation;
@@ -923,6 +934,19 @@ public class MediaPresentationSystem : MonoBehaviour
         if (echo != null) Destroy(echo.gameObject);
         echo = MugsTech.Echo.EchoOverlay.Create(this, voiceAudio, echoResult);
 
+        // {Name:"name","role",N|Start} … {Name:End} and {Pop:"phrase"} …
+        // {Pop:End} — the stage's two overlays. Parsed and stripped here too, so
+        // no card or media parser ever sees one; malformed ones are warned about.
+        var nameResult = MugsTech.Stage.StageTags.ParseNames(scriptAfterTimestamps, audio.length);
+        scriptAfterTimestamps = nameResult.Script;
+        if (nameLabel != null) Destroy(nameLabel.gameObject);
+        nameLabel = MugsTech.Stage.NameOverlay.Create(this, voiceAudio, nameResult);
+
+        var popResult = MugsTech.Stage.StageTags.ParsePops(scriptAfterTimestamps, audio.length);
+        scriptAfterTimestamps = popResult.Script;
+        if (pop != null) Destroy(pop.gameObject);
+        pop = MugsTech.Stage.PopOverlay.Create(this, voiceAudio, popResult);
+
         // Captions in the gaps (main-menu switch): the stitched take's words,
         // timed by SegmentSequencer the way its T= stamps are.
         if (captions != null) Destroy(captions.gameObject);
@@ -957,6 +981,10 @@ public class MediaPresentationSystem : MonoBehaviour
         var posResult = ParsePositionMarkers(scriptAfterMood, audio.length);
         string scriptAfterPositions = posResult.Item1;
         positionMarkers = posResult.Item2;
+
+        // New take: the stage starts narrow with Mugs at Center — or, when the
+        // script's first {Position:…} is Off, already without him (frame 0).
+        BeginStageRun();
 
         // Parse zoom markers (strips {Zoom:X} from script)
         var zoomResult = ParseZoomMarkers(scriptAfterPositions, audio.length);
@@ -1111,6 +1139,20 @@ public class MediaPresentationSystem : MonoBehaviour
     /// </summary>
     void MoveToPosition(CharacterPosition targetPosition, bool? cutOverride = null)
     {
+        // Off and the peeks — and coming back from them — are the stage's moves
+        // (MediaPresentationSystem.Stage.cs). Left / Right / Center between
+        // themselves run exactly as they always have, below.
+        if (!MugsTech.Stage.StageMath.IsFull(targetPosition) || !MugsTech.Stage.StageMath.IsFull(currentPosition))
+        {
+            MoveOnStage(targetPosition, cutOverride);
+            return;
+        }
+
+        // Still popping up from Off or a peek (currentPosition is already full)?
+        // Finish that return on the spot, so nothing below starts from a peek's
+        // scale or leaves the stage "moving". Never true for an old script.
+        FinishStageTravelNow();
+
         Transform target = GetTransformForPosition(targetPosition);
         if (target == null) return;
 
@@ -1251,6 +1293,11 @@ public class MediaPresentationSystem : MonoBehaviour
     void ApplyZoom(ZoomType type, bool cut = false, float holdDuration = 0f)
     {
         if (mainCamera == null) return;
+
+        // Off or peeking there is no face to frame: In, Pullback and ExtremeIn
+        // are ignored (one warning each); the ExtremeOut that pairs with an
+        // ignored ExtremeIn is then a quiet no-op.
+        if (StageIgnoresZoom(type)) return;
 
         // A run already at its last step has nowhere left to lean. Drop the tag
         // before it touches anything — no sound, and the glide in progress and
@@ -1760,6 +1807,7 @@ public class MediaPresentationSystem : MonoBehaviour
                         else
                             blackPanelController.Show(marker.duration);
 
+                        StageOnBlack();
                         EndZoomRunBehindBlack();
                     }
 
@@ -1803,6 +1851,7 @@ public class MediaPresentationSystem : MonoBehaviour
             TagSfxPlayer.Instance.Play(TagSfxEvent.Black);
             if (blackPanelController != null)
                 blackPanelController.Show(hold);
+            StageOnBlack();
             EndZoomRunBehindBlack();
             lastTriggeredBlackPanelMarker = i;
         }
@@ -2027,6 +2076,13 @@ public class MediaPresentationSystem : MonoBehaviour
 
         string mediaTag = $"{{{(marker.mediaType == MediaType.IMAGE ? "Image" : "Video")}:{marker.mediaName}}}";
 
+        // TrackMediaByTime runs ahead of TrackPositionsByTime within a frame. A
+        // {Position:Off} (or a return from it) written on the same word changes
+        // the layout — and would dismiss media that started a moment before it.
+        // Let it land first; it is due now, so this is a frame.
+        for (int guard = 0; guard < 3 && StageChangeIsDue(); guard++)
+            yield return null;
+
         // Let the presenter finish a smooth move first, or they walk across the
         // media that just slid in. Under a transition's cover the position has
         // already snapped, so there is nothing to wait for.
@@ -2161,6 +2217,12 @@ public class MediaPresentationSystem : MonoBehaviour
         Texture2D loadedDiskTexture = null;
         int cutCount = closeUpCutCount;
 
+        // A media run on the wide stage: when the next full-frame image or
+        // clip is due as this one ends, this one stays up until that one has
+        // a texture, so the change is a cut (see HoldMediaForCut).
+        bool handOver = false;
+        Object handOverOwned = null;
+
         if (marker.mediaType == MediaType.IMAGE)
         {
             Texture2D image = null;
@@ -2239,6 +2301,7 @@ public class MediaPresentationSystem : MonoBehaviour
                         if ((voiceAudio == null || !voiceAudio.isPlaying) && heldElapsed >= hold)
                             break;
 
+                        StepMediaMotion(Time.deltaTime);   // push-in / ,Scroll (nothing in the plain side slot)
                         heldElapsed += Time.deltaTime;
                         yield return null;
                     }
@@ -2255,10 +2318,17 @@ public class MediaPresentationSystem : MonoBehaviour
                     float shown = 0f;
                     while ((shown < hold || IsCloseUpCutImminent) && closeUpCutCount == cutCount)
                     {
+                        // Full frame only: a held image or a clip arriving cuts
+                        // to it (a media run). In the side slot nothing changes.
+                        if (TimedImageIsCutByARun()) break;
+
+                        StepMediaMotion(Time.deltaTime);
                         shown += Time.deltaTime;
                         yield return null;
                     }
                 }
+
+                handOver = closeUpCutCount == cutCount && NextMediaCutsIn();
             }
             else
             {
@@ -2266,7 +2336,10 @@ public class MediaPresentationSystem : MonoBehaviour
             }
 
             if (loadedDiskTexture != null)
-                Destroy(loadedDiskTexture);
+            {
+                if (handOver) handOverOwned = loadedDiskTexture;   // still on screen until the cut
+                else Destroy(loadedDiskTexture);
+            }
         }
         else if (marker.mediaType == MediaType.VIDEO)
         {
@@ -2399,11 +2472,13 @@ public class MediaPresentationSystem : MonoBehaviour
                         if ((voiceAudio == null || !voiceAudio.isPlaying) && videoElapsed >= minHold)
                             break;
 
+                        StepMediaMotion(Time.deltaTime);
                         videoElapsed += Time.deltaTime;
                         yield return null;
                     }
 
                     Debug.Log($"Video finished: {marker.mediaName} after {videoElapsed:F2}s");
+                    handOver = closeUpCutCount == cutCount && NextMediaCutsIn();
                 }
                 else
                 {
@@ -2416,7 +2491,10 @@ public class MediaPresentationSystem : MonoBehaviour
                 videoPlayer.gameObject.SetActive(false);
 
                 if (rt != null)
-                    Destroy(rt);
+                {
+                    if (handOver) handOverOwned = rt;   // its last frame stays up until the cut
+                    else Destroy(rt);
+                }
             }
             else
             {
@@ -2434,19 +2512,17 @@ public class MediaPresentationSystem : MonoBehaviour
         // the next entry re-bases the float from wherever it lands.
         if (mediaDisplay != null) CardIdleFloat.StopOn(mediaDisplay.rectTransform);
 
-        // Undo any letterboxing, side mirroring (",Right") and entry fade so the
-        // next {Image:} gets the authored slot at full opacity.
-        if (mediaDisplay != null && mediaDisplayBaseSize.x > 0f && mediaDisplayBaseSize.y > 0f)
-            mediaDisplay.rectTransform.sizeDelta = mediaDisplayBaseSize;
-        ApplyMediaSide(false);
-        if (mediaDisplayGroup != null) mediaDisplayGroup.alpha = 1f;
+        // A run: leave this one on the slot for the cut to the next.
+        if (handOver)
+        {
+            HoldMediaForCut(handOverOwned, marker);
+            yield break;
+        }
 
-        // Drop the texture before hiding: whatever it points at is about to be
-        // destroyed, and a RawImage holding a dead texture is the white quad
-        // again the next time something activates it.
-        if (mediaDisplay != null) mediaDisplay.texture = null;
-
-        mediaDisplay.gameObject.SetActive(false);
+        // Undo any letterboxing, side mirroring (",Right"), full-frame layout,
+        // push-in / scroll window and entry fade, drop the texture and hide —
+        // so the next {Image:} gets the authored slot at full opacity.
+        ResetMediaSlot();
     }
 
     // -----------------------------------------------------------------------
@@ -2485,9 +2561,63 @@ public class MediaPresentationSystem : MonoBehaviour
         if (events == null) return;
         foreach (ContentCardEvent e in events)
         {
-            if (e != null && e.cardType == ContentCardType.BigImage && !e.dismissesCard)
+            if (e == null || e.dismissesCard) continue;
+            if (e.cardType == ContentCardType.BigImage)
                 PreloadImage(e.primaryText);
+            // A Quote's ,Photo= portrait.
+            if (e.cardType == ContentCardType.Quote && !string.IsNullOrWhiteSpace(e.photoName))
+                PreloadImage(e.photoName);
+            // A logo RUN's logos may live in the media folder's Logos/ (its third
+            // lookup; the timed {BigMedia:a+b,4} row never looks there).
+            if (e.cardType == ContentCardType.BigMedia && e.duration <= 0f && !e.strikesLogo && !string.IsNullOrEmpty(e.primaryText))
+                foreach (string name in e.primaryText.Split('+'))
+                    LoadLogoTexture(name.Trim());
         }
+    }
+
+    // Logos/ file names without their extension, lower-cased → full path. Built
+    // on first use; the folder holds a few hundred files.
+    private Dictionary<string, string> logoFiles;
+    private readonly Dictionary<string, Texture2D> loadedLogos =
+        new Dictionary<string, Texture2D>(System.StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// A company logo from the media folder's Logos/ subfolder, by file name
+    /// without extension, ignoring case ({BigMedia:Alphabet} finds
+    /// alphabet.png). The texture is cached and owned here — callers must not
+    /// destroy it. Null when there is no such file (or no media folder).
+    /// </summary>
+    public Texture2D LoadLogoTexture(string logoName)
+    {
+        if (string.IsNullOrWhiteSpace(logoName)) return null;
+        logoName = logoName.Trim();
+        if (loadedLogos.TryGetValue(logoName, out Texture2D cached)) return cached;
+
+        if (logoFiles == null)
+        {
+            logoFiles = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                string folder = string.IsNullOrWhiteSpace(externalMediaRoot) || string.IsNullOrWhiteSpace(logosSubfolder)
+                    ? null : Path.Combine(externalMediaRoot, logosSubfolder.Trim());
+                if (folder != null && Directory.Exists(folder))
+                    foreach (string file in Directory.GetFiles(folder))
+                    {
+                        string ext = Path.GetExtension(file).ToLowerInvariant();
+                        if (System.Array.IndexOf(ImageExtensions, ext) < 0) continue;
+                        string key = Path.GetFileNameWithoutExtension(file);
+                        if (!logoFiles.ContainsKey(key)) logoFiles[key] = file;
+                    }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogWarning($"[MediaPresentation] Could not list the Logos folder: {e.Message}");
+            }
+        }
+
+        Texture2D tex = logoFiles.TryGetValue(logoName, out string path) ? LoadTextureFromDisk(path) : null;
+        loadedLogos[logoName] = tex;   // a miss is remembered too
+        return tex;
     }
 
     // Walks everything the parsers produced — the main media timeline, the
@@ -2527,11 +2657,17 @@ public class MediaPresentationSystem : MonoBehaviour
 
     void OnDestroy()
     {
+        if (stageRunning) FinishStageRun();   // a take torn down before the voice's end still reports
+        ReleaseMediaHandover(hide: false);
+
         // The preload cache owns its textures — release them with the scene so
         // repeated takes can't leak decoded images.
         foreach (var kv in preloadedImages)
             if (kv.Value != null) Destroy(kv.Value);
         preloadedImages.Clear();
+        foreach (var kv in loadedLogos)
+            if (kv.Value != null) Destroy(kv.Value);
+        loadedLogos.Clear();
     }
 
     // -----------------------------------------------------------------------
@@ -2772,15 +2908,8 @@ public class MediaPresentationSystem : MonoBehaviour
             string posStr = match.Groups[1].Value;
             CharacterPosition pos = CharacterPosition.Center;
 
-            switch (posStr.ToLower())
-            {
-                case "left": pos = CharacterPosition.Left; break;
-                case "right": pos = CharacterPosition.Right; break;
-                case "center": pos = CharacterPosition.Center; break;
-                default:
-                    Debug.LogWarning($"Unknown position: {posStr}, defaulting to Center");
-                    break;
-            }
+            if (!MugsTech.Stage.StageMath.TryParsePosition(posStr, out pos))
+                Debug.LogWarning($"Unknown position: {posStr}, defaulting to Center");
 
             // Parse optional cut/smooth override
             bool? cutOverride = null;
@@ -2826,9 +2955,10 @@ public class MediaPresentationSystem : MonoBehaviour
         // Groups: 1=Image|Video, 2=name, 3=T (optional), 4=D= duration (optional),
         //         5=bare duration (optional, legacy pre-T= format),
         //         6=optional "Start" hold keyword (held pair opening edge),
-        //         7=optional ",Left"/",Right" side modifier (same as the side cards)
+        //         7=optional ",Scroll" (a tall page panned through its slot),
+        //         8=optional ",Left"/",Right" side modifier (same as the side cards)
         Regex regex = new Regex(
-            @"\{(Image|Video):([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,D=(\d+(?:\.\d+)?))?(?:,(\d+(?:\.\d+)?))?(?:,\s*(Start))?(?:,\s*(Left|Right))?\}");
+            @"\{(Image|Video):([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,D=(\d+(?:\.\d+)?))?(?:,(\d+(?:\.\d+)?))?(?:,\s*(Start))?(?:,\s*(Scroll))?(?:,\s*(Left|Right))?\}");
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
@@ -2871,9 +3001,14 @@ public class MediaPresentationSystem : MonoBehaviour
             // Optional ",Left"/",Right" side — same modifier the side cards
             // take. null = authored default (the left slot).
             EntryDirection? side = null;
-            if (match.Groups[7].Success)
-                side = match.Groups[7].Value == "Right"
+            if (match.Groups[8].Success)
+                side = match.Groups[8].Value == "Right"
                     ? EntryDirection.FromRight : EntryDirection.FromLeft;
+
+            // ",Scroll" — images only; on a {Video:} (or an End tag) it means nothing.
+            bool scroll = match.Groups[7].Success && type == MediaType.IMAGE && !endsMedia;
+            if (match.Groups[7].Success && !scroll && !endsMedia)
+                Debug.LogWarning($"[Media] {match.Value}: ,Scroll only applies to an {{Image:}} — ignored.");
 
             markerList.Add(new MediaMarkerData
             {
@@ -2883,7 +3018,8 @@ public class MediaPresentationSystem : MonoBehaviour
                 displayDuration = duration,
                 endsMedia = endsMedia,
                 holdsOpen = holdsOpen,
-                side = side
+                side = side,
+                scroll = scroll
             });
 
             if (endsMedia)
@@ -3205,6 +3341,10 @@ public class MediaPresentationSystem : MonoBehaviour
         // the new section at step 1.
         EndZoomRun("{Transition}", hiddenBehindCover: true);
 
+        // A {Name:} label or a {Pop:} run that was up goes with the old scene
+        // (one written on the transition's own line belongs to the new one).
+        CloseStageOverlays("a transition", m.triggerTime);
+
         if (m.hasPosition)
             MoveToPosition(m.position, cutOverride: true); // SNAP — never smooth, inside cover
 
@@ -3326,15 +3466,9 @@ public class MediaPresentationSystem : MonoBehaviour
 
     static CharacterPosition ParsePositionValue(string s)
     {
-        switch (s.Trim().ToLowerInvariant())
-        {
-            case "left": return CharacterPosition.Left;
-            case "right": return CharacterPosition.Right;
-            case "center": return CharacterPosition.Center;
-            default:
-                Debug.LogWarning($"[Transition] Unknown position '{s}', defaulting to Center.");
-                return CharacterPosition.Center;
-        }
+        if (MugsTech.Stage.StageMath.TryParsePosition(s, out CharacterPosition p)) return p;
+        Debug.LogWarning($"[Transition] Unknown position '{s}', defaulting to Center.");
+        return CharacterPosition.Center;
     }
 
     // Maps the script's mood variant (Calm/Energetic/Tense/Playful/Minimal — the
@@ -3499,7 +3633,14 @@ public enum CharacterPosition
 {
     Left,    // Left 25-30% of screen, faces right toward content
     Right,   // Right 25-30% of screen, faces left toward content
-    Center   // Center of screen, faces camera
+    Center,  // Center of screen, faces camera
+
+    // The evidence-first stage (appended, so the three above keep their numbers):
+    // while he is at any of these the stage is WIDE — side cards are drawn
+    // centred and larger, {Image:}/{Video:} fill the frame. See MugsTech.Stage.
+    Off,       // {Position:Off} — out of frame
+    PeekLeft,  // {Position:PeekLeft} — only his head over the bottom edge, lower left
+    PeekRight  // {Position:PeekRight} — the same, lower right
 }
 
 /// <summary>
@@ -3547,6 +3688,10 @@ public class MediaMarkerData
     // slot rests on (and slides in from), mirroring the side cards' modifier.
     // null = no per-tag choice; the media stays in the authored (left) slot.
     public MugsTech.Style.EntryDirection? side;
+
+    // {Image:name,…,Scroll} — a tall page fitted to the slot's width and panned
+    // from its top to its bottom (see MugsTech.Stage.MediaMotionMath).
+    public bool scroll;
 }
 
 /// <summary>

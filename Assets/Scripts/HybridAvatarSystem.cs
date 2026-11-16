@@ -373,6 +373,29 @@ public class HybridAvatarSystem : MonoBehaviour
         return names;
     }
 
+    private int restSortingOrder;
+    private bool restSortingKnown;
+
+    /// <summary>
+    /// A peek ({Position:PeekLeft/PeekRight}) draws him IN FRONT of the cards
+    /// and full-frame media: his sprites take a sorting order above the card
+    /// zone (and below the full-screen cards) while it lasts, and their
+    /// authored order again afterwards. The drop shadow follows on its own.
+    /// </summary>
+    public void SetPeekSorting(bool peeking)
+    {
+        if (avatarRenderer == null) return;
+        if (!restSortingKnown)
+        {
+            restSortingOrder = avatarRenderer.sortingOrder;
+            restSortingKnown = true;
+        }
+        int order = peeking ? MugsTech.Stage.StageMath.PeekSortingOrder : restSortingOrder;
+        if (avatarRenderer.sortingOrder == order) return;
+        avatarRenderer.sortingOrder = order;
+        if (crossfadeRenderer != null) crossfadeRenderer.sortingOrder = order + 1;
+    }
+
     public void SetSwayBase(Vector3 basePosition, Quaternion baseRotation)
     {
         swayBasePosition = basePosition;

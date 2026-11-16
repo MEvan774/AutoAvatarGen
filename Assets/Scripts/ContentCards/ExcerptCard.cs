@@ -19,7 +19,7 @@ using System.Collections.Generic;
 /// auto-fits 56–80 px (warning under 44) with the source beneath it, as one
 /// vertically centred group. No line cap — the passage renders in full.
 /// </summary>
-public class ExcerptCard : ContentCard
+public class ExcerptCard : ContentCard, IMarkable
 {
     protected override ContentCardType CardType => ContentCardType.Excerpt;
 
@@ -42,6 +42,20 @@ public class ExcerptCard : ContentCard
     private Coroutine autoHighlightCoroutine;
 
     private Vector2 laidOutSize = new Vector2(-1f, -1f);
+
+    // {Mark:"phrase"} — the highlighter moves on: each mark is another <mark>
+    // span on the highlight layer, wiped in from the moment it is made; every
+    // highlight but the newest fades to a pale tint and stays.
+    private sealed class Span { public int Start, Length; public float StartedAt; }
+    private readonly List<Span> marks = new List<Span>();
+    private int ownStart = -1, ownRevealed;
+    private float clock;
+    private bool marksAnimating;
+
+    /// <summary>Marks made on this card beyond the tag's own highlight (0–3).</summary>
+    public int MarkCount => marks.Count;
+    /// <summary>The highlight layer's rich text (read by the self-tests).</summary>
+    public string HighlightMarkup => highlightLayer != null ? highlightLayer.text : "";
 
     /// <summary>The last layout (sizes, warnings) — read by the self-tests.</summary>
     public CardTypography.Report Layout { get; private set; }
@@ -159,14 +173,7 @@ public class ExcerptCard : ContentCard
         }
 
         int phraseLen = highlightPhrase.Length;
-        int endIdx = startIdx + phraseLen;
-        string alphaHex = highlightFinalAlpha.ToString("X2");
-        string markOpen = $"<mark=#{highlightColorRGB}{alphaHex}>";
-        const string markClose = "</mark>";
-
-        string before = fullText.Substring(0, startIdx);
-        string phrase = fullText.Substring(startIdx, phraseLen);
-        string after = fullText.Substring(endIdx);
+        ownStart = startIdx;
 
         float elapsed = 0f;
         while (elapsed < highlightWipeDuration)
@@ -176,17 +183,101 @@ public class ExcerptCard : ContentCard
             // Ease-out
             t = 1f - (1f - t) * (1f - t);
 
-            int revealedChars = Mathf.Clamp(Mathf.RoundToInt(t * phraseLen), 0, phraseLen);
-            string markedPart = phrase.Substring(0, revealedChars);
-            string plainPart = phrase.Substring(revealedChars);
-
-            highlightLayer.text = HiddenGlyphs + before + ShownGlyphs + markOpen + markedPart + markClose +
-                                  HiddenGlyphs + plainPart + after;
+            ownRevealed = Mathf.Clamp(Mathf.RoundToInt(t * phraseLen), 0, phraseLen);
+            ComposeHighlight();
             yield return null;
         }
 
-        highlightLayer.text = HiddenGlyphs + before + ShownGlyphs + markOpen + phrase + markClose +
-                              HiddenGlyphs + after;
+        ownRevealed = phraseLen;
+        ComposeHighlight();
+    }
+
+    /// <summary>
+    /// {Mark:"phrase"}: the highlight wipes over another phrase of the passage;
+    /// the earlier one fades to a pale tint and stays. The phrase must be in
+    /// the passage exactly. Up to three marks.
+    /// </summary>
+    public MarkResult AddMark(string phrase)
+    {
+        phrase = phrase ?? "";
+        int at = phrase.Length > 0 ? fullText.IndexOf(phrase, System.StringComparison.Ordinal) : -1;
+        if (at < 0) return MarkResult.NotFound;
+        if (phrase == highlightPhrase) return MarkResult.Repeated;
+        foreach (Span m in marks)
+            if (m.Start == at && m.Length == phrase.Length) return MarkResult.Repeated;
+        if (marks.Count >= DocumentTypography.MaxMarks) return MarkResult.TooMany;
+
+        // The tag's own highlight comes first: start it now if its 1.5 s wait
+        // hasn't run out yet, so there is an "earlier" highlight to fade.
+        if (!highlightTriggered && isActiveAndEnabled && Application.isPlaying) TriggerHighlight();
+
+        marks.Add(new Span { Start = at, Length = phrase.Length, StartedAt = clock });
+        marksAnimating = true;
+        ComposeHighlight();
+        return MarkResult.Ok;
+    }
+
+    void Update()
+    {
+        if (marksAnimating) Advance(Time.deltaTime);
+    }
+
+    /// <summary>One frame of the marks' clock; public so the self-tests can step the card in edit mode.</summary>
+    public void Advance(float dt)
+    {
+        clock += dt;
+        if (marks.Count == 0) return;
+        ComposeHighlight();
+        Span last = marks[marks.Count - 1];
+        if (clock - last.StartedAt > highlightWipeDuration + DocumentTypography.MarkFadeSeconds + 0.05f)
+            marksAnimating = false;   // everything has settled
+    }
+
+    // The highlight layer's text: the passage with invisible glyphs, and one
+    // <mark> per highlight — the tag's own (as far as its wipe has got) and each
+    // mark (wiped from when it was made). Only the newest keeps the full
+    // colour; the others carry the pale tint. Spans are written in passage
+    // order; one that runs into the span before it starts where that one ends.
+    private void ComposeHighlight()
+    {
+        if (highlightLayer == null || fullText == null) return;
+
+        var spans = new List<(int start, int shown, float strength)>();
+        int newest = marks.Count;   // 0 = the tag's own highlight is the newest
+        if (ownStart >= 0 && ownRevealed > 0)
+        {
+            float strength = marks.Count > 0 ? DocumentTypography.EarlierAlphaAt(clock - marks[0].StartedAt) : 1f;
+            spans.Add((ownStart, ownRevealed, strength));
+        }
+        for (int i = 0; i < marks.Count; i++)
+        {
+            Span m = marks[i];
+            float t = highlightWipeDuration > 0f ? Mathf.Clamp01((clock - m.StartedAt) / highlightWipeDuration) : 1f;
+            t = 1f - (1f - t) * (1f - t);
+            int shown = Mathf.Clamp(Mathf.RoundToInt(t * m.Length), 0, m.Length);
+            if (shown <= 0) continue;
+            float strength = i + 1 < newest ? DocumentTypography.EarlierAlphaAt(clock - marks[i + 1].StartedAt) : 1f;
+            spans.Add((m.Start, shown, strength));
+        }
+        spans.Sort((x, y) => x.start.CompareTo(y.start));
+
+        var sb = new System.Text.StringBuilder(fullText.Length + 96);
+        sb.Append(HiddenGlyphs);
+        int cursor = 0;
+        foreach (var (start, shown, strength) in spans)
+        {
+            int from = Mathf.Max(start, cursor);
+            int to = Mathf.Min(start + shown, fullText.Length);
+            if (to <= from) continue;
+            sb.Append(fullText, cursor, from - cursor);
+            int alpha = Mathf.Clamp(Mathf.RoundToInt(highlightFinalAlpha * strength), 0, 255);
+            sb.Append(ShownGlyphs).Append("<mark=#").Append(highlightColorRGB).Append(alpha.ToString("X2")).Append('>');
+            sb.Append(fullText, from, to - from);
+            sb.Append("</mark>").Append(HiddenGlyphs);
+            cursor = to;
+        }
+        sb.Append(fullText, cursor, fullText.Length - cursor);
+        highlightLayer.text = sb.ToString();
     }
 
     // TMP caps a mark's alpha at the current <alpha>, so the layer can't hide

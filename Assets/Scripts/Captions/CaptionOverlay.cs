@@ -199,7 +199,11 @@ namespace MugsTech.Captions
             if (cards != null && cards.HasActiveOrQueuedCard) return false;
             if (mps.IsShowingMedia || mps.IsBlackShowing || mps.IsCameraBusy) return false;
             if (mps.IsPresenterGliding) return false;
+            // The stage's own moves (a slide-out, a pop-up) pass through the band,
+            // and a peek sits in it: neither is a bare frame.
+            if (mps.IsPresenterMoving || mps.IsPresenterPeeking) return false;
             if (mps.IsEchoShowing || mps.IsChapterTitleShowing) return false;
+            if (mps.IsPopShowing || mps.IsNameShowing) return false;   // a Pop holds the frame; a label marks a picture that does
             if (mps.screenTransitionController != null && mps.screenTransitionController.IsBusy) return false;
             return true;
         }

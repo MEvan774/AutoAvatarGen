@@ -24,16 +24,16 @@ Paste this whole file to the model before asking it to write a script, or keep i
 ## 2. HARD RULES (break these and the video breaks)
 
 1. **Start the file with a `## SECTION` heading.** Any text before the first heading is silently discarded.
-2. **One tag per line, on its own line.** Don't put two tags on one line and don't bury a tag mid-sentence (emotion tags are one exception; the **transition line** is another — a `{Transition:…}` deliberately gathers all of a section's tags onto one line; and **duration-less `{BigText:LINE}`/`{BigText:End}` tags** sit mid-sentence on purpose, on the exact word their line belongs to — see §4).
+2. **One tag per line, on its own line.** Don't put two tags on one line and don't bury a tag mid-sentence (emotion tags are one exception; the **transition line** is another — a `{Transition:…}` deliberately gathers all of a section's tags onto one line; and **duration-less `{BigText:LINE}`/`{BigText:End}` tags** sit mid-sentence on purpose, on the exact word their line belongs to — see §4; the same goes for the other tags that land **on a word**: `{Pop:"…"}`/`{Pop:End}`, `{Mark:"…"}`, a duration-less `{BigMedia:name}` or `{BigMedia:Strike,name}`, and a wide `{Timeline:…}` node or `{Timeline:Span,…}` when several fall inside one spoken line).
 3. **Use straight ASCII double quotes `"` only.** Never curly/smart quotes (`“ ”`). Smart quotes break card tags.
 4. **Never put a `"` *inside* a quoted card field.** The field ends at the first `"`. If you need a quote inside quoted text, rephrase or use single quotes `'`. (Commas, periods, em‑dashes `—`, `%`, `$`, `€` inside quotes are fine.)
-5. **Every content card (`Headline`, `Excerpt`, `Quote`, `Stat`, `Compare`, `Document`, `Map`), `Logo`, `BRoll`, `BigMedia`, `BigText`, `BigImage` and `Versus` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline), `,Win`/`,Loss`/`,NoArrow` (Stat's arrow — see §4 *"Stat"*), `,Allegation`/`,Filing`/`,Ruling`/`,Report` (Document's stamp), `,Vs` (Versus) or `,Left`/`,Right` (side cards and the `{Image:}`/`{Video:}` media tags) modifiers. **Three exceptions:** `BigText` may drop the duration to enter its line-by-line mode (`{BigText:LINE}` … `{BigText:End}`, see §4) — then the closing `{BigText:End}` is mandatory instead. `Timeline` **never** takes a duration — its nodes are always line-by-line, closed by a mandatory `{Timeline:End}`. And every **side card** (`Headline`/`Excerpt`/`Quote`/`Stat`/`Compare`/`Document`/`Map`/`Logo`/`BRoll`), the **`,bigCenter` headline**, `Versus`, and `{Image:}` may write the keyword **`Start`** in the duration slot to open a **held** card/image, closed with a matching `{Tag:End}` later (`{Headline:End}` for a big headline) — see §4 *"Holding a card"*; then that End tag is mandatory instead.
+5. **Every content card (`Headline`, `Excerpt`, `Quote`, `Stat`, `Compare`, `Document`, `Map`), `Logo`, `BRoll`, `BigMedia`, `BigText`, `BigImage` and `Versus` MUST carry a duration number** (`,5` = 5 seconds; decimals allowed, `,4.5`) right after its text/name fields. It's normally the **last** value — the only things that may follow it are the optional `,bigCenter` (Headline), `,Win`/`,Loss`/`,NoArrow` (Stat's arrow — see §4 *"Stat"*), `,Allegation`/`,Filing`/`,Ruling`/`,Report` (Document's stamp), `,Vs` (Versus) or `,Left`/`,Right` (side cards and the `{Image:}`/`{Video:}` media tags) modifiers. `Name` and `Graph` take a duration (or `Start`) the same way. **These never take one:** `Clipping`, `Mark` and `Pop` are always line-by-line (`{Clipping:End}` / `{Pop:End}` close a run; a `{Mark:…}` needs no End), and `BigMedia` may drop its duration to open a logo run closed by `{BigMedia:End}` (§4). **Three more exceptions:** `BigText` may drop the duration to enter its line-by-line mode (`{BigText:LINE}` … `{BigText:End}`, see §4) — then the closing `{BigText:End}` is mandatory instead. `Timeline` **never** takes a duration — its nodes are always line-by-line, closed by a mandatory `{Timeline:End}`. And every **side card** (`Headline`/`Excerpt`/`Quote`/`Stat`/`Compare`/`Document`/`Map`/`Logo`/`BRoll`), the **`,bigCenter` headline**, `Versus`, and `{Image:}` may write the keyword **`Start`** in the duration slot to open a **held** card/image, closed with a matching `{Tag:End}` later (`{Headline:End}` for a big headline) — see §4 *"Holding a card"*; then that End tag is mandatory instead.
 6. **Unquoted names (`Logo`, `BRoll`, `BigMedia`, `BigText`, `BigImage`) must not contain commas.** The comma is a delimiter. Use `+` to join multiple items (`BigImage` is a single image — no `+`).
-7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center`, `Zoom`, `In/Out/Reset/Pullback/ExtremeIn/ExtremeOut`, `Cut`, `Smooth`, `bigCenter`, `Win/Loss/NoArrow` (Stat arrow), `Allegation/Filing/Ruling/Report` (Document stamp), `Vs` (Versus), `Start/End` (held pairs), `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`, and the Map regions `World/Europe/NorthAmerica/SouthAmerica/Africa/MiddleEast/Asia/Oceania`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
-8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Compare`, `Document`, `Timeline`, `Map`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`, `BigImage`, `Versus`) are exempt** — they render in front of everything and appear in any position, including `Center`. (`BigImage` covers only the left 3/4, so it's meant to *share* the screen — stand the presenter on the **right** with `{Position:Right}`; see §4.)
+7. **Spell fixed keywords exactly, capitalized as shown:** emotions, `Position`, `Left/Right/Center/Off/PeekLeft/PeekRight`, `Zoom`, `In/Out/Reset/Pullback/ExtremeIn/ExtremeOut`, `Cut`, `Smooth`, `bigCenter`, `Win/Loss/NoArrow` (Stat arrow), `Allegation/Filing/Ruling/Report` (Document stamp), `Vs` (Versus), `Start/End` (held pairs), `Scroll` (Image/BigImage), `Photo=` (Quote), `Wide` and `Span` (Timeline), `Strike` (BigMedia), `Bars/Line/Share` and `Cropped` (Graph), `Transition`, `Wipe/Shutter/Iris`, `Mood`, `Calm/Energetic/Tense/Playful/Minimal`, and the Map regions `World/Europe/NorthAmerica/SouthAmerica/Africa/MiddleEast/Asia/Oceania`. A mis-spelled or mis-capitalized tag is still **stripped** from the narration (a catch-all removes anything in `{…}`, so it is never read aloud), but it does **nothing** — the effect is silently skipped. Emotion names must match the avatar's emotion list exactly or the expression won't change.
+8. **Side content cards only appear while the character is at `Left` or `Right`.** Moving to `Center` hides/suppresses side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Compare`, `Document`, `Timeline`, `Map`, `Logo`, `BRoll`) — they'd overlap the centered character. Put the character on a side before showing one (see §5). **With Mugs off screen or peeking (`{Position:Off}`, `PeekLeft`, `PeekRight`) the same cards do show — centred and wide, see §4 *"Mugs off stage"*.** Only `Center` hides them. **Fullscreen feature cards (`BigText`, `BigMedia`, `BigCenter`, `BigImage`, `Versus`, `Clipping`, `Graph`, a `,Wide` Timeline) are exempt** — they render in front of everything and appear in any position, including `Center`. (`BigImage` covers only the left 3/4, so it's meant to *share* the screen — stand the presenter on the **right** with `{Position:Right}`; see §4.)
 9. Keep the narration itself natural — it can contain quotes, commas, anything. The rules above apply to **tags only**.
 10. **Never put a space next to the commas or quotes that separate a tag's fields.** The strip regex is exact: `{Quote:"a","b","c",5}` works, but `{Quote:"a", "b", "c", 5}` (spaces after the commas) does **not** — the tag is left in the narration and read aloud. Spaces are only allowed **inside** a quoted value (`"VP of Comms, MegaCorp"`) or inside an unquoted name/description (`{BRoll:server room,4}`). Never around the `,` between fields, and never between `"` and `"`.
-11. **Every quoted field must be non-empty, and the field count must be exact.** `Headline`/`Timeline` = 2 quoted fields; `Excerpt`/`Quote`/`Stat`/`Document` = 3; `Versus`/`Map` = 4; `Compare` = 5. An empty field (`""`) or the wrong number of fields makes the card **silently not appear** (it's still stripped, so it's not read aloud — it just does nothing). If you don't have a value for a field, don't use that card; pick one that fits what you have.
+11. **Every quoted field must be non-empty, and the field count must be exact.** `Mark`/`Pop`/`Timeline:Span` = 1 quoted field; `Headline`/`Timeline`/`Name` = 2; `Excerpt`/`Quote`/`Stat`/`Document`/`Clipping`/`Graph` = 3; `Versus`/`Map` = 4; `Compare` = 5. An empty field (`""`) or the wrong number of fields makes the card **silently not appear** (it's still stripped, so it's not read aloud — it just does nothing). If you don't have a value for a field, don't use that card; pick one that fits what you have.
 12. **Media names must be real.** `Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll` reference an existing file or asset by name (from `MEDIA_LIBRARY.md`). An unknown name parses fine and is stripped, but the card **shows nothing** (or a bare text fallback). Never invent one. No `MEDIA_LIBRARY.md` in front of you → use a text card instead (§4 *"Media & asset cards"*). (One exception: `{Video:End}` is not a name — it's the keyword that closes a running clip, see §4 *"Video"*.)
 
 ---
@@ -44,27 +44,33 @@ Paste this whole file to the model before asking it to write a script, or keep i
 |---|---|---|
 | Emotion | any single-word name from the project's emotion list — `{Neutral}` `{Smirk}` `{Sip}` … | no |
 | Character position | `{Position:Left}` (+ optional `,Cut` or `,Smooth`) | no |
+| Mugs off / peeking | `{Position:Off}` (+ optional `,Cut`) — he leaves and the stage goes **wide**; `{Position:PeekLeft}` / `{Position:PeekRight}` — only his head, over the bottom edge; any `Left`/`Right`/`Center` brings him back | no |
 | Camera zoom | `{Zoom:In}` (+ optional `,Cut` and/or `,D=seconds`) — stacks up to 3 steps; `{Zoom:Out}` releases the run | no |
 | Extreme close-up (punchline) | `{Zoom:ExtremeIn}` … `{Zoom:ExtremeOut}` — **always a pair** | no (you place the out tag) |
 | Black cut | timed: `{Black:3}` — or held: `{Black:Start}` … `{Black:End}` | timed: yes / held: no (you place the End tag) |
 | Scene transition | `{Transition:Wipe}` `{Transition:Iris,1.2}` (Wipe/Shutter/Iris, optional speed) | no |
 | Background mood | `{Mood:Tense}` (Calm/Energetic/Tense/Playful/Minimal) | no |
-| Image 📁 | `{Image:name}` or `{Image:name,4}` (+ optional `,Left`/`,Right`) — or held: `{Image:name,Start}` … `{Image:End}` | optional (default 3s) — held: you place the End tag |
+| Image 📁 | `{Image:name}` or `{Image:name,4}` (+ optional `,Scroll` for a tall page, then optional `,Left`/`,Right`) — or held: `{Image:name,Start}` … `{Image:End}` | optional (default 3s) — held: you place the End tag |
 | Video clip 📁 | `{Video:name}` … `{Video:End}` — **no duration, close it with the end tag** (+ optional `,Left`/`,Right` on the opening tag) | no (you place the end tag) |
 | Headline card ✅ | `{Headline:"headline text","Source",5}` (+ optional `,bigCenter` **or** `,Left`/`,Right`) | yes — or `Start` … `{Headline:End}` (also with `,bigCenter`) |
 | Excerpt card ✅ | `{Excerpt:"full passage","phrase to highlight","Attribution",6}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Excerpt:End}` |
-| Quote card ✅ | `{Quote:"the quote","Person Name","Role / Title",5}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Quote:End}` |
+| Quote card ✅ | `{Quote:"the quote","Person Name","Role / Title",5}` (+ optional `,Photo=image_name` 📁, then optional `,Left`/`,Right`) | yes — or `Start` … `{Quote:End}` |
 | Stat card ✅ | `{Stat:"2.3 billion","Label","Context line",5}` (+ optional arrow `,Win`/`,Loss`/`,NoArrow`, then optional `,Left`/`,Right`) | yes — or `Start` … `{Stat:End}` |
 | Compare card ✅ | `{Compare:"$6B+","Binance","$1.5B","Bybit","Source",5}` — value A, label A, value B, label B, source (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Compare:End}` |
 | Document card ✅ | `{Document:"passage","phrase to highlight","Source",6}` (+ optional stamp `,Allegation`/`,Filing`/`,Ruling`/`,Report`, then optional `,Left`/`,Right`) | yes — or `Start` … `{Document:End}` |
-| Timeline card ✅ | `{Timeline:"Mar. 3","what happened"}` — one node per tag (side only on the first), ≤5, closed by `{Timeline:End}` | **no** — never a duration; always close with `{Timeline:End}` |
+| Timeline card ✅ | `{Timeline:"Mar. 3","what happened"}` — one node per tag (side only on the first), ≤5, closed by `{Timeline:End}` — or full screen: `,Wide` on the first node (≤6, numbered or dated), optional `{Timeline:Span,"text"}` before the End | **no** — never a duration; always close with `{Timeline:End}` |
 | Map card ✅ | `{Map:"Europe","BE+LU+NL","Caption","Source",5}` — region, ISO country codes joined with `+`, caption, source (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Map:End}` |
 | Logo card 🎬 | `{Logo:Google,4}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{Logo:End}` |
 | B‑roll card 🎬 | `{BRoll:description,4}` (+ optional `,Left`/`,Right`) | yes — or `Start` … `{BRoll:End}` |
-| Big media (fullscreen) 🎬 | `{BigMedia:Google,4}` or `{BigMedia:Google+Brave+X,4}` (≤4) | yes |
+| Big media (fullscreen) 🎬 | `{BigMedia:Google,4}` or `{BigMedia:Google+Brave+X,4}` (≤4) — or one by one: `{BigMedia:Google}` … `{BigMedia:End}` (≤8), with `{BigMedia:Strike,Google}` to cross one out | timed: yes / one by one: no (you place the End tag) |
 | Big text (fullscreen) ✅ | timed: `{BigText:ONE LINE,3}` / `{BigText:LINE 1+LINE 2,4}` (≤4) — or line-by-line: `{BigText:LINE}` … `{BigText:End}` (no durations) | timed: yes / line-by-line: no (you place the End tag) |
-| Big image (article, left 3/4) 📁 | `{BigImage:name,5}` (pair with `{Position:Right}`) | yes |
+| Big image (article, left 3/4) 📁 | `{BigImage:name,5}` (pair with `{Position:Right}`; + optional `,Scroll`; full width while Mugs is off) | yes |
 | Versus (fullscreen) ✅ | `{Versus:"They say","the claim","The record says","the evidence",5}` (+ optional `,Vs`) | yes — or `Start` … `{Versus:End}` |
+| Clipping (fullscreen) ✅ | `{Clipping:"headline","phrase to highlight","source"}` — one per headline, each lands on the pile (≤5), closed by `{Clipping:End}` | **no** — never a duration; always close with `{Clipping:End}` |
+| Graph (fullscreen) ✅ | `{Graph:"title","label=value;label=value","source",6}` (+ optional `,Bars`/`,Line`/`,Share`, then optional `,Cropped`) | yes — or `Start` … `{Graph:End}` |
+| Mark (on an open text card) ✅ | `{Mark:"phrase"}` — highlights another phrase on the `Document`, `Excerpt` or `Clipping` that is up (≤3 per card) | **no** — no duration, no End |
+| Pop (one phrase, centre screen) ✅ | `{Pop:"On their device."}` … `{Pop:End}` — each `{Pop:…}` replaces the last (≤6 words) | **no** — never a duration; always close with `{Pop:End}` |
+| Name label ✅ | `{Name:"Jensen Huang","Nvidia CEO",4}` — who the picture shows | yes — or `Start` … `{Name:End}` |
 | Stage direction ✅ | `[deadpan]` `[slowing down, serious]` | no |
 | Pause ✅ | `{Pause:0.8}` — seconds, 0.1–3.0, on its own line | no (the value IS the length) |
 | Chapter timestamp ✅ | `{Timestamp:"Cold Open"}` | no |
@@ -193,6 +199,34 @@ Moves the character. `Left` / `Right` / `Center`.
 {Position:Center,Cut}
 ```
 
+### Mugs off stage — `{Position:Off}`, and the peek — `{Position:PeekLeft}` / `{Position:PeekRight}`
+Three more values for `{Position:…}`. They are how a video gets **evidence-first**: the card, clip or image has the whole frame while Mugs only narrates, and he comes back for the lines that are his.
+
+- **`{Position:Off}`** — he leaves: a short slide (0.35 s) out through the nearest edge (down, from `Center`). `{Position:Off,Cut}` removes him on the frame. The next `{Position:Left}` / `Right` / `Center` brings him back, **popping up from the bottom** (0.35 s) — or on the frame with `,Cut`.
+- **If the script's first `{Position:…}` is `Off`, the video opens without him** — on whatever the first card or image is.
+- **While he is off (or peeking) the stage is wide:**
+  - Side cards (`Headline`, `Excerpt`, `Quote`, `Stat`, `Compare`, `Document`, `Timeline`, `Map`, `Logo`, `BRoll`) appear **centred, about three quarters of the frame wide**, with their type scaled up as far as the card's height allows — a short quote or a headline gets big, a dense card (a Compare, a long passage) stays nearer its side size. A `,Left`/`,Right` on them is ignored. A `Stat` on its own becomes one very large number.
+  - `{Image:}` and `{Video:}` **fill the whole frame** (cropped to fit, never stretched) and a still gets a slow push-in. `{BigImage:}` takes the full width. A `,Left`/`,Right` on them is ignored.
+  - A card that is already open when he leaves or returns **glides** to its new place (0.35 s); it doesn't close.
+  - Emotion tags still apply — you just don't see them until he is back, so set the face he should return with.
+  - **Camera zooms are ignored** — `{Zoom:In}`, `{Zoom:Pullback}` and `{Zoom:ExtremeIn}` each log a warning and do nothing (there is no face to frame; the `ExtremeOut` of an ignored `ExtremeIn` is skipped quietly). Leaving also releases a `{Zoom:In}` run. Bring him back before a zoom.
+- **Cards don't wait for him to leave**, so write `{Position:Off}` directly above the card it makes room for; both land on the same word. They do wait the 0.35 s of his pop-up when he comes back to a side. He pops up **in front of** a card that is closing on that beat, so `{Stat:End}` and `{Position:Center}` can share a line.
+- **Going off or coming back ends a running `{Image:}`/`{Video:}`** (it is a new beat, like changing sides). Off ↔ peek keeps it.
+- **Never leave the stage empty.** Mugs off with no card, image, clip, black or Pop on screen for more than 3 s logs a warning (and the render report counts it). If a line has nothing to show, bring him back for it.
+- **`{Position:PeekLeft}` / `{Position:PeekRight}`** — only his head comes up over the bottom edge, at that side, in front of the card or picture. The stage **stays wide**. It is for **one short line of his** — an aside, a deadpan reaction — over a card that should stay up. `{Position:Off}` drops him again; a full position makes him drop and pop up there.
+  - A peek sits in front of side cards, images and clips, but **behind the full-screen cards** (`BigText`, `BigMedia`, `BigImage`, `Versus`, `Graph`, `Clipping`, a `,Wide` Timeline, a `,bigCenter` headline) — don't peek over those.
+- The render report (`--auto-script` result JSON) gives `mugsOnScreenShare` and `mugsPeekShare`, and `Player.log` ends with `[Stage] Mugs on screen 41.2 % of 312.4 s (off 6 times)`.
+```
+{Position:Off}
+{Stat:"40%","Sign-up target per employee","some US Apple Stores · MacRumors",Start}
+[matter-of-fact, level and even] Apple tracked something called a services attach rate.
+{Position:PeekRight}
+[dry] Or sixty.
+{Stat:End}
+{Position:Center}
+[dry] So what did missing it cost you?
+```
+
 ### Camera zoom — `{Zoom:Type}` `[,Cut]` `[,D=seconds]`
 `In` (push in for focus/intensity — **stacks**, see below), `Out` (pull all the way back), `Reset` (instant snap to default), `Pullback` (snap wide, drift wider, jump back), `ExtremeIn`/`ExtremeOut` (hard close-up on the punchline — see below).
 - `In` and `Out` are **slow eased glides (~0.7 s, ease-in-out)**, not snaps — the camera settles about a second after the word the tag sits on. Add `,Cut` when you want the snap.
@@ -204,6 +238,7 @@ Moves the character. `Left` / `Right` / `Center`.
   - **Things that cover the whole frame** — the camera **snaps** back to normal hidden behind them, so nothing is seen: `{Black:N}` and `{Black:Start}`; a `{Transition:…}` (at its covered midpoint, *before* any zoom on the transition line is applied — so `{Transition:Wipe} {Zoom:In}` opens the new section at step 1, under cover); a big headline (`,bigCenter`, timed or held — the snap lands once its panel has slid fully up).
   - **Things that leave the scene visible** — the camera **glides** back (~0.7 s) as they appear: `{BigText}` (a timed one, or the **first** line of a line-by-line stack), `{BigMedia}`, `{BigImage}`.
   - `{Zoom:ExtremeIn}` (its `ExtremeOut` comes back to **normal** framing — see below) and `{Zoom:Pullback}`.
+- **No zoom while Mugs is off or peeking.** `{Zoom:In}`, `{Zoom:Pullback}` and `{Zoom:ExtremeIn}` are ignored there, each with a warning (§4 *"Mugs off stage"*).
 - **Release the run before a side card, `{Image:}` or `{Video:}`.** One that comes in while the camera is still leaned in is shown anyway, but it logs a warning.
 ```
 {Zoom:In}
@@ -331,7 +366,7 @@ There are **two separate places** a name can resolve against, and they do **not*
 | `{BigImage:name}` 📁 | the same image folders as `{Image:}` | an image **filename**, no extension |
 | `{Video:name}` 📁 | disk folder `BRoll/` | a video **filename**, no extension |
 | `{Logo:name}` 🎬 | the Unity **`ContentCardAssets`** asset (logo list) | a configured **company name** (case-insensitive) |
-| `{BigMedia:name}` 🎬 | the Unity **`ContentCardAssets`** asset (logo list), then `Resources/Media/` | a configured **company name** |
+| `{BigMedia:name}` 🎬 | the Unity **`ContentCardAssets`** asset (logo list), then `Resources/Media/` — and, **for the one-by-one logo run only**, then the disk `Logos/` folder (case-insensitive) | a configured **company name** — in a logo run also a `Logos/` **filename** (no extension) |
 | `{BRoll:description}` 🎬 | the Unity **`ContentCardAssets`** asset (clip list) | a configured **clip description** (case-insensitive) |
 
 Rules for every 📁 / 🎬 tag:
@@ -355,6 +390,26 @@ Shows an image in the media area. `name` is the file name (**extension omitted**
 ```
 {Image:stock_chart,Start,Right}
 Look at the cliff in March. That is the exact day the policy leaked, and the market never forgave them for it.
+{Image:End}
+```
+
+**Full frame while Mugs is off.** With `{Position:Off}` (or a peek) in force, an `{Image:}` fills the whole frame instead of the side slot, cropped to fit, with a slow push-in (an `article_…` capture pushes toward its headline). A `,Left`/`,Right` is ignored there.
+
+**Images back to back — a run (Mugs off only).** While one full-frame image or clip is up, the next held `{Image:name,Start}` or `{Video:name}` **cuts** straight to it — no slide, no gap — so three images can follow three short sentences. Close the last one with `{Image:End}` / `{Video:End}`. Give each at least 0.6 s; one replaced sooner logs a warning.
+```
+{Position:Off}
+{Image:store_front,Start}Open Settings. {Image:settings_page,Start}Tap your name. {Image:subscriptions_page,Start}Tap Subscriptions.
+{Image:End}
+```
+
+**A tall page — optional `,Scroll`.** For a screenshot much taller than the frame (a long article, a terms page): `,Scroll` fits it to the slot's **width** and pans from its top to its bottom. It goes right after the duration or `Start`, **before** any `,Left`/`,Right`.
+- Timed (`{Image:page,8,Scroll}`): it reaches the bottom exactly as its time is up.
+- Held (`{Image:page,Start,Scroll}`): it moves slowly at a fixed rate and rests at the bottom until `{Image:End}`.
+- An image that isn't taller than its slot at that width is shown as usual, with a warning. On a `{Video:}` the keyword is ignored (with a warning). `{BigImage:name,8,Scroll}` works the same way.
+```
+{Position:Off}
+{Image:terms_of_service_page,Start,Scroll}
+[matter-of-fact, level and even] It's in the guidelines, the rulebook every app has to follow.
 {Image:End}
 ```
 
@@ -444,6 +499,12 @@ Fields: `"full passage","phrase to highlight","attribution",duration[,Left|,Righ
 ```
 Fields: `"quote","person name","role/title",duration[,Left|,Right]` (note the comma inside `"VP of Communications, MegaCorp"` is fine — it's inside quotes)
 
+**A portrait — optional `,Photo=image_name` 📁.** Adds a round photo of the speaker beside the quote. The name is an image **filename** (no extension) from the same folders as `{Image:}` — normally `CEO/`; use one from `MEDIA_LIBRARY.md`. It goes right after the duration or `Start`, **before** any `,Left`/`,Right`. A name that doesn't resolve shows the quote without a portrait (and a warning). Only use it when the photo really is the person quoted.
+```
+{Quote:"I was unfaithful to my wife.","Jensen Huang","Nvidia CEO, email to staff, Nov. 8",Start,Photo=jensen-huang,Right}
+```
+**Typed on when Mugs is off.** In the wide layout (§4 *"Mugs off stage"*) a Quote's words **type on** instead of appearing whole; the name and role are there from the first frame. A held quote spreads its words between `Start` and just before its `{Quote:End}` (never slower than 12 or faster than 30 characters a second), so hold it over the line that reads it out. A timed one types at speaking pace. **Give a typed quote a beat after the line that reads it** — put its `{Quote:End}` a sentence later (or `{Position:Peek…}` a reaction over it): the last words arrive just before the End, so a quote closed on its own last word is complete for only a moment. (The main menu's **Type quotes on** switch turns this off.)
+
 **Stat** — a big number with a label and context, plus an **optional win/loss arrow** next to the number.
 ```
 {Stat:"2.3 billion","Monthly Active Users","as of Q2 2025",5}
@@ -500,6 +561,19 @@ Fields: `"passage","phrase to highlight","source",duration|Start[,Allegation|,Fi
   No keyword → no stamp. **Use `Allegation` for anything a lawsuit, complaint or regulator claims that hasn't been decided** — it puts "not proven in court" on screen for you. `Ruling` only for an actual court decision.
 - If the card also takes a side, the side stays **last**: `…,Start,Allegation,Right` — never `…,Right,Allegation`.
 
+**Mark** ✅ — `{Mark:"phrase"}` moves the highlighter on. While a `Document`, `Excerpt` or `Clipping` is up, each `{Mark:…}` sweeps the marker across **another phrase of its text**, on the word where the tag sits; the earlier highlight fades to a pale tint and stays. Put it mid-sentence, right before the words that read the phrase out.
+```
+{Excerpt:"Apps that attempt to trick users into purchasing a subscription under false pretenses will be removed.","trick users into purchasing a subscription","App Store Review Guidelines 3.1.2(a)",Start}
+[matter-of-fact, level and even] It's in the App Store guidelines.
+Apps that attempt to trick users into purchasing a subscription {Mark:"under false pretenses"}under false pretenses get removed.
+{Excerpt:End}
+```
+Fields: `"phrase"` — exactly **1** quoted field, no duration, no End tag.
+- The phrase must appear in the card's passage (or the top clipping's headline) **exactly**, and must not be the phrase the card already highlights.
+- **Up to 3 marks per card.** A 4th, a repeated phrase, a phrase that isn't there, or a `{Mark:…}` with no Document/Excerpt/Clipping open is ignored with a warning — nothing else changes.
+- A Document's stamp moves out of the way of a marked phrase.
+- **Let the card settle first.** A mark written in the card's first second waits for the card's own highlight to be drawn, so it lands a beat late — put it on a later line than the card.
+
 **Timeline** ✅ — dated events that appear **as they're spoken**, one node per tag, stacked vertically (a line down the left of the card, each node a dot with its date and event). It works line-by-line like `{BigText:LINE}` … `{BigText:End}`: **no duration** — each tag adds one node at its spot in the narration, and **`{Timeline:End}`** closes the card.
 ```
 {Position:Left}
@@ -516,6 +590,25 @@ Fields: `"date","event"[,Left|,Right]` — exactly **2** quoted fields, no durat
 - **Up to 5 nodes.** A 6th is ignored (with a warning). Keep each event short — it gets up to two lines.
 - **Always close it with `{Timeline:End}`.** Like a held side card it is cleared early by a `{Transition:…}`, by moving to `Center`, or by an extreme close-up — after that, any further nodes are ignored and its `{Timeline:End}` is a harmless no-op.
 - Like every side card it needs the presenter at `Left` or `Right` (rule 8).
+
+**Timeline, full screen — `,Wide`.** Write `Wide` where the first node's side would go and the timeline becomes a **full-screen** card: one line across the frame, the nodes evenly spaced along it in script order, labels alternating above and below. It shows at any position and with Mugs off.
+```
+{Position:Off}
+{Timeline:"Oct. 25","Rossmann's first video",Wide}
+October twenty-fifth. Rossmann posts his first video.
+{Timeline:"Early Nov.","Apple removes the target"}
+Early November. Apple removes the target for its staff.
+{Timeline:"Nov. 8","MacRumors confirms both"}
+November eighth. {Timeline:Span,"Two weeks"}MacRumors confirms both.
+{Timeline:End}
+```
+- **Up to 6 nodes** (the side timeline stays at 5); a 7th is ignored with a warning. `,Wide` on a later node is ignored with a warning.
+- **Dated or numbered.** The first field is shown as written and never interpreted. One or two characters (`"1"`, `"2"`, `"3"`) are drawn as a **numeral inside the dot**, with the event standing alone — a "how it was done" list. Anything longer is the date label over the event.
+- **`{Timeline:Span,"text"}`** (optional, once, before the End, wide only) draws a bracket under the line from the first node to the last with your text in a pill — the point of the sequence ("Two weeks"). Exactly one quoted field. In a side timeline, or given twice, it is ignored with a warning.
+- The spacing is **not** computed from the dates and no other dates are drawn — say what the gap is, or put it in the Span.
+- **Send Mugs off for it** (`{Position:Off}` above the first node). It is drawn over a dimmed scene, so with him on screen the labels of the nodes on his side sit on top of him and are hard to read.
+- Cleared like `Versus`: by a `{Transition:…}` or an extreme close-up. Always close it with `{Timeline:End}`.
+- Without `,Wide`, a timeline opened while Mugs is off is the usual vertical card, centred and wide.
 
 **Map** ✅ — a region map with the countries you list lit up one after another, plus your caption and source underneath. For "at least eight more countries" — a list nobody can hold in their head.
 ```
@@ -535,6 +628,17 @@ Fields: `"region","countries","caption","source",duration|Start[,Left|,Right]` �
 {BigMedia:Google+Brave+X,4}
 ```
 
+**Logos one by one — `{BigMedia:name}` … `{BigMedia:End}` (no durations).** Like line-by-line `BigText`: each duration-less `{BigMedia:name}` lands **one logo** on its word, popping into a grid that re-centres as it grows — one row up to four, two rows from the fifth, **eight at most** (a 9th is ignored with a warning). **`{BigMedia:End}` closes the grid** and is mandatory.
+```
+{BigMedia:Google}Google did it. {BigMedia:Brave}Brave did it. {BigMedia:X}So did X.
+{BigMedia:Strike,Brave}Brave has since backed out.
+{BigMedia:End}
+```
+- **Names.** A run's logos resolve like the timed form's, and then also from the disk `Logos/` folder by **filename** (case doesn't matter) — so the logo files listed in `MEDIA_LIBRARY.md` work here. The timed `{BigMedia:a+b,4}` does **not** look in `Logos/`.
+- **`{BigMedia:Strike,name}`** draws a red cross over that logo and dims it — "this one is out". The name must be a logo already in the grid (case doesn't matter). A strike with no run open, on a name that isn't there, or on a logo already struck is ignored with a warning. It only works inside a run, not on the timed `{BigMedia:a+b,4}`.
+- Don't mix the forms in one beat: a duration-less logo that lands while a timed BigMedia is up joins it and keeps the timed lifetime.
+- **Send Mugs off first.** The grid is drawn across the whole frame, in front of him — from four logos on it reaches the edges, and a logo lands on top of a presenter standing at `Left` or `Right`. Write `{Position:Off}` above the run.
+
 **BigText** — 1 to 4 big centered text lines. No commas in the text (use `+`; each `+` starts a new stacked line). It has **two modes**:
 
 **Line-by-line (preferred for multi-line)** — `{BigText:LINE}` … `{BigText:End}`, **no duration numbers**. Each duration-less tag lands ONE line at its exact spot in the narration: the first opens the stack, each following tag slides its line in beneath the ones on screen (the stack re-centers), and **`{BigText:End}` closes the whole stack** — the same in-tag/out-tag principle as `{Zoom:ExtremeIn}`…`{Zoom:ExtremeOut}` and `{Video:}`…`{Video:End}`. This is how you sync each line to the words being spoken. These tags may sit **mid-sentence, right on the word they belong to** (an exception to the own-line rule, like emotion tags). Up to 4 lines; `End` is a **reserved word** (never a displayable line). Always close the stack — an unclosed one is force-closed when the narration ends, with a warning.
@@ -550,7 +654,7 @@ And that should worry you. {BigText:End}
 ```
 Don't mix the modes in one beat — a duration-less line landing while a timed BigText is up joins it but keeps the timed lifetime.
 
-**BigImage** 📁 — a large website-article or headline **screenshot** that covers the **left 3/4** of the screen, leaving the right quarter open for the presenter. It fills that area edge-to-edge (cropped to fit, no distortion) and drops in from the top. `name` is an image **filename (no extension)** in the same disk image folders `{Image:}` uses — use a real one from `MEDIA_LIBRARY.md` (drop your screenshot there first). It's a feature card (not suppressed at `Center`), but it's designed to **share** the screen: put the presenter on the **right** so they stand in the open quarter beside the article, not behind it.
+**BigImage** 📁 — (*with Mugs off it takes the full width, and `,Scroll` after the duration pans a tall page top to bottom — see **Image**.*) a large website-article or headline **screenshot** that covers the **left 3/4** of the screen, leaving the right quarter open for the presenter. It fills that area edge-to-edge (cropped to fit, no distortion) and drops in from the top. `name` is an image **filename (no extension)** in the same disk image folders `{Image:}` uses — use a real one from `MEDIA_LIBRARY.md` (drop your screenshot there first). It's a feature card (not suppressed at `Center`), but it's designed to **share** the screen: put the presenter on the **right** so they stand in the open quarter beside the article, not behind it.
 ```
 {Position:Right}
 {BigImage:tesla_q3_article,6}
@@ -567,6 +671,68 @@ Fields: `"left label","left text","right label","right text",duration|Start[,Vs]
 - Each panel shows its **label** small (left in slate, right in the accent colour) above its **text** in big bold type (up to 4 lines) — so keep each text a short claim, not a paragraph.
 - `,Vs` (optional, last) puts **VS** in the badge instead of **≠** — use it for a match-up of two things rather than a claim contradicted by evidence. It takes **no** `,Left`/`,Right` (it's centered).
 - A fullscreen feature card: it shows at **any position, including `Center`**, dims the scene behind it, and is wiped by a `{Transition:…}` or cut by `{Zoom:ExtremeIn}`. Hold it with `Start` … `{Versus:End}` while the narration under it plays, or give it a duration.
+
+**Clipping** ✅ — **several headlines in a row**, as press clippings on paper: "three outlets reported it" in four seconds. Line by line, like `BigText`: each `{Clipping:…}` drops one sheet on its word — on top of the last one, slightly turned, so they read as a pile — and the marker sweeps its phrase. **`{Clipping:End}` lifts the pile away** and is mandatory.
+```
+{Clipping:"Apple Store Subscription Sign-Up Controversy Exposed","Subscription Sign-Up","MacRumors"}
+MacRumors has the story.
+{Clipping:"Apple Quietly Drops Store Sign-Up Target","Quietly Drops","9to5Mac"}
+So does 9to5Mac.
+{Clipping:End}
+```
+Fields: `"headline","phrase to highlight","source"` — exactly **3** quoted fields, no duration.
+- **Only clip real headlines** — the exact published wording, and its real source. It is drawn as a press clipping; an invented one is a fabricated quote.
+- The phrase must appear in the headline **exactly**, or the sheet shows without a highlight (and a warning).
+- **Up to 5 per run**; a 6th is ignored with a warning. Leave each one about a second — a sheet covered less than 0.8 s after it lands logs a warning.
+- It is full screen and **covers the presenter**, at any position — like a `,bigCenter` headline, which stays the device for a single headline held under narration.
+- A `{Transition:…}`, a `{Black}` or an extreme close-up clears the pile early; later sheets are then ignored and the End is harmless.
+- `{Mark:"…"}` works on the top sheet (see **Mark**).
+
+**Graph** ✅ — a **full-screen chart** for what `Compare` can't hold: a ranking, a trend, a share of a whole.
+```
+{Graph:"Apple Services revenue","Last quarter=$31.6B;A year earlier=$28.75B","Apple quarterly results",Start,Bars}
+{Graph:"Browser share","Chrome=69%;Safari=16%;Brave=1%","StatCounter, Oct. 2026",6,Share}
+{Graph:"Monthly sign-ups","Jan=2.1M;Feb=2.4M;Mar=3.9M;Apr=4.0M","Company filing",Start,Line}
+{Graph:End}
+```
+Fields: `"title","label=value;label=value;…","source",duration|Start[,Bars|,Line|,Share][,Cropped]` — exactly **3** quoted fields.
+- **The data field** is points joined with `;`, each `label=value`. A label is any text without `=` or `;` (spaces and commas are fine). A value is written as in `Compare` — currency sign, thousands commas, `K/M/B/T`, `%`, `x`, a trailing `+` — and may start with `<`, `>` or `~`. **Every label and value is shown exactly as written. All values must be the same kind.**
+- **`Bars`** (the default) — 2 to 6 horizontal bars, linear from zero, growing one after another. **The first point is the story's subject** (accent colour); the rest are neutral.
+- **`Line`** — 3 to 12 points in script order, joined by one line that draws left to right. Every label sits under the axis; values are shown on the first and last point only. The axis starts at zero.
+- **`Share`** — 2 to 5 parts of a whole, all `%`. A ring fills clockwise from twelve o'clock; whatever is left to 100 % is an unlabelled neutral segment. Parts adding up to more than 100 % are not drawn as a ring.
+- **`,Cropped`** (Line only, last) lets the axis start just under the smallest value — and then the card prints **AXIS DOES NOT START AT ZERO** on screen. Without it the axis is never cropped. On `Bars` or `Share` it is ignored with a warning.
+- **If the data can't be charted** — a value that isn't a number, mixed kinds, too few or too many points — there is no chart: the points are listed as large text rows (label left, value right), with a warning. Write chartable data when you want the chart.
+- Full screen, at any position; it takes **no** `,Left`/`,Right`. Wiped by a `{Transition:…}`, cut by an extreme close-up. Give a timed one at least 3 s — the bars, line or ring take up to 2 s to draw.
+
+### Overlays — a name label and a centre-screen phrase
+
+**Name** ✅ — **who the picture shows.** A lower-third label over an image or clip: the name large, the role under it.
+```
+{Position:Off}
+{Image:jensen-huang,Start}
+{Name:"Jensen Huang","Nvidia CEO",Start}
+The same day, Huang emailed his staff.
+{Name:End}
+{Image:End}
+```
+Fields: `"name","role",duration|Start` — exactly **2** quoted fields. Closed by `{Name:End}` when held.
+- It sits in the lower-left corner — or the lower-right while Mugs stands (or peeks) on the left. It takes no `,Left`/`,Right`.
+- Another `{Name:…}` replaces the one on screen. A `{Transition:…}`, a `{Black}` or an extreme close-up removes it.
+- **It labels a picture.** Put it on the line right under the `{Image:}`/`{Video:}` it belongs to, and close it before (or with) that picture. A label over the bare background logs a warning.
+- Name and role are shown exactly as written — a real person's real role.
+- **Not on a `{Transition:…}` line.** A label isn't one of the tags a transition applies under its cover; write it on the line below, with its picture.
+
+**Pop** ✅ — **one phrase at a time, centre screen.** The scene dims and the phrase lands on a bar in the middle of the frame, on its word; the next `{Pop:…}` replaces it; `{Pop:End}` clears it. For the two or three words a line turns on.
+```
+[flat] {Pop:"On their device."}On their device. {Pop:"Not yours."}Not yours.
+[matter-of-fact, level and even] {Pop:End}To be fair, other staff say they do it by the book.
+```
+Fields: `"phrase"` — exactly **1** quoted field, no duration. **Always close the run with `{Pop:End}`** (an open run is closed when the narration ends, with a warning).
+- Put each tag **mid-sentence, directly before the words it shows** — and `{Pop:End}` directly before the first word that should be said over the clean frame again.
+- **At most six words**, shown exactly as written (it is not upper-cased for you). A longer phrase still shows, shrunk onto one line, with a warning.
+- **Only words the narration says on that line**, or that are already on a card in the script — a Pop is emphasis, not a new fact.
+- **Not on a `{Transition:…}` line** — a Pop isn't applied under the cover; start it on a spoken line.
+- It works at any position and over an open card (the card stays, dimmed). A card that comes due during a Pop run waits and lands after `{Pop:End}` — and so does anything written after that card, so don't open cards inside a Pop run. A `{Transition:…}`, a `{Black}` or an extreme close-up ends the run; it also releases a `{Zoom:In}` run.
 
 ---
 
@@ -585,6 +751,8 @@ Fields: `"left label","left text","right label","right text",duration|Start[,Vs]
 - **Pick the side (optional).** A side card sits on the **left** of the screen by default. Append `,Left` or `,Right` as the card's **last** value to choose which side it rests on and slides in from (e.g. `{Quote:"…","…","…",5,Right}`, `{Logo:Brave,4,Right}`) — `,Right` mirrors it to the right side. It's independent of where the character stands, so with the presenter on the `Left` you can drop a card on the `Right`. For `Headline`, it's an alternative to `,bigCenter`. **The `{Image:}` and `{Video:}` media tags take the same modifier** (e.g. `{Image:privacy_headline,4,Right}`, `{Video:hardDriveSpinning,Right}` — on `{Video:}` it goes on the *opening* tag, never on `{Video:End}`) and enter with the same eased slide.
 - **Fullscreen feature cards work anywhere.** `BigText`/`BigMedia`/`Versus` (and a `Headline` with `,bigCenter`) render in front of everything, so they appear in any position — including `Center`. Use them for the "front and center" moments.
 - **`BigImage` is the feature card that wants a side.** It isn't suppressed at `Center`, but it covers only the left 3/4 — set `{Position:Right}` so the presenter stands in the open right quarter beside the article instead of hidden behind it.
+- **Evidence first: give the frame to the evidence.** On a line that reports a fact and has a card, clip, image or graph to show, write `{Position:Off}` directly above that tag — it fills the frame while Mugs narrates. Bring him back (`{Position:Center}` or a side) for the lines that are *his*: the dry, deadpan, wry asides and the questions. For **one short line of his over a card that should stay up**, use `{Position:PeekLeft}`/`{Position:PeekRight}` instead and `{Position:Off}` after it. **If a line has nothing to show, he stays on** — an empty stage is worse than Mugs. Aim for him on screen for about 40 % of a video or less.
+- **The tags that land on a word go inside the sentence**, right before that word: `{Pop:"…"}`, `{Mark:"…"}`, a duration-less `{BigMedia:name}` and `{BigMedia:Strike,name}`, and several images, timeline nodes or clippings that fall within one spoken line. Their End tags go right before the first word that should play over the cleared frame.
 - **Transitions open a new section.** Put `{Transition:…}` on the **first line of a section** and group that section's whole scene change onto the same line (position, emotion, mood, a card, an image, a zoom). They're applied under cover — see §4. This is the one place you deliberately stack several tags on a single line. A side card grouped on a transition line still needs a `Left`/`Right` position on that same line (rule 8). Placing it there is also what earns the transition its silent gap: "first line" means **nothing spoken before it** — other tags (`{Timestamp:"…"}`, and the ones on its own line) are fine, a narration line above it is not.
 - **A `{Video:}` has no duration — you end it with `{Video:End}`.** Put `{Video:name}` before the lines the b-roll should cover and `{Video:End}` after the last one; the clip loops under everything in between and cuts exactly there. The end tag is optional: an unclosed clip still ends at the next beat (a `{Position:...}` change, a content card, another `{Image:}`/`{Video:}`, or the end of the narration) — but `{Video:End}` is the only way to stop b-roll mid-read without spending one of those beats (§4).
 - **`{Zoom:ExtremeIn}` has no duration either — you end it with `{Zoom:ExtremeOut}`.** Same in-tag/out-tag principle as `{Video:}`: put the in tag before the line you want in close-up and the out tag after the last line it covers. It works from any position (`Left`/`Right`/`Center`), needs no `{Zoom:Reset}` afterwards, and **must always be closed** — an unpaired `ExtremeIn` holds the close-up for the rest of the video (§4).
@@ -593,12 +761,12 @@ Fields: `"left label","left text","right label","right text",duration|Start[,Vs]
 - **`{Echo}` is the one tag that ignores the next word.** It always opens on the video's first frame, as long as it sits at the top of the cold open (above the first spoken line). Placed anywhere else it fires like any other tag — and the log warns that it belongs at the top.
 - **Don't place a tag on the script's very last word and expect it to fire late** — it's fine, the recording now holds until trailing tags (e.g. an end-card `{Logo:...,8}` or final `{Black:2}`) finish their full duration.
 - **A `Timeline` builds as you speak.** Put each `{Timeline:"date","event"}` on its own line right before the sentence that mentions that date, and `{Timeline:End}` after the last line the timeline should stay up for — like a line-by-line `BigText`.
-- Reasonable default durations: cards 5s, excerpts and documents 6s, compare and map 5–6s, versus 5s (or held), big text 3–4s, logos 3–4s, black cuts 2–3s.
+- Reasonable default durations: cards 5s, excerpts and documents 6s, compare and map 5–6s, versus 5s (or held), graph 5–6s (or held), name label 3–4s (or held), big text 3–4s, logos 3–4s, black cuts 2–3s.
 
 ### Captions in the gaps (automatic, no tag)
 With the main menu's **Captions in gaps** on (the default), the script's own spoken words appear in a band along the bottom whenever nothing else is on screen. There is no tag. Captions follow from where you leave the frame bare, so this is what decides when they show:
 - **A caption is a phrase of 3–7 words, shown whole or not at all.** It appears on its first word and stays until just after its last (bridged to the next phrase when that follows within 0.6 s). It never pops in halfway through a line.
-- **It only starts if nothing is due before its last word**: a card or its End, an `{Image:}`/`{Video:}`, a zoom, `{Black}`, a transition, a chapter title, the `{Echo}`, or Mugs gliding to a new `{Position}`. A phrase that would be cut off is skipped, and the next one gets its turn.
+- **It only starts if nothing is due before its last word**: a card or its End, an `{Image:}`/`{Video:}`, a zoom, `{Black}`, a transition, a chapter title, the `{Echo}`, a `{Pop}`, a `{Name}` label, or Mugs gliding to a new `{Position}`. (No caption either while he is leaving, popping up or peeking, or while a Pop or a name label is up.) A phrase that would be cut off is skipped, and the next one gets its turn.
 - **The frame must have been bare for 0.4 s first**, so a caption never arrives in the same breath as a card leaving. A line that starts on the same word a card ends gets no caption; the next phrase does.
 - **Never over a zoom.** No caption during a `{Zoom:In}` run, the glide home or an extreme close-up, and the cold open's first line never gets one.
 - The upshot: a stretch with no visual for a sentence or two shows captions; a section packed with cards shows almost none. To keep a passage text-free, put a visual on it; to give it captions, leave it bare.
@@ -652,6 +820,12 @@ Notes on the example:
 - [ ] File begins with `## SECTION`.
 - [ ] Every `{...}` card / Logo / BRoll / BigMedia / BigImage / Versus ends in `,number` (before any modifier keywords). `BigText` too, **unless** it's the line-by-line mode — then **no** tag in the run carries a number and the run **ends with `{BigText:End}`** (count opens and Ends; a stack left open is force-closed at narration end). **Side cards** (`Headline`/`Excerpt`/`Quote`/`Stat`/`Compare`/`Document`/`Map`/`Logo`/`BRoll`) and `Versus` may instead use `,Start`, and a big headline `,Start,bigCenter` — then each has a matching same-type `{Tag:End}` later in the script (count them per type, the totals must be equal; a held big headline counts as a `Headline`).
 - [ ] **Every `Timeline` run has no durations, at most 5 nodes, a `,Left`/`,Right` only on its first node, and ends with `{Timeline:End}`.**
+- [ ] **A `,Wide` timeline has at most 6 nodes, `Wide` on its first node only, at most one `{Timeline:Span,"text"}` (before the End), and ends with `{Timeline:End}`.**
+- [ ] **Every `{Clipping:…}` run (≤5) ends with `{Clipping:End}`, every `{Pop:…}` run with `{Pop:End}`, every duration-less `{BigMedia:name}` run (≤8) with `{BigMedia:End}`** — and none of those tags carries a duration. Every clipping is a real headline with its real source.
+- [ ] **Every `{Mark:"phrase"}` sits while a `Document`, `Excerpt` or `Clipping` is up, its phrase appears in that card's text exactly, and no card gets more than 3.** Every `{BigMedia:Strike,name}` names a logo already in its open run.
+- [ ] **Every `{Graph:…}` has 3 quoted fields, points written `label=value` joined with `;`, values all of one kind, and the right count for its kind** (`Bars` 2–6, `Line` 3–12, `Share` 2–5 percentages ≤ 100 %). `,Cropped` only on a `Line`, and only when the cropped axis is honest to show.
+- [ ] **Every `{Name:"name","role",…}` sits right under the `{Image:}`/`{Video:}` it labels** and is closed before or with it; a `,Photo=` is the person actually quoted, from `MEDIA_LIBRARY.md`.
+- [ ] **Every `{Position:Off}` has something on screen for as long as he is away** (a card, an image, a clip, a graph — never more than 3 s of bare stage), **and he is back before any `{Zoom:In}`/`{Zoom:Pullback}`/`{Zoom:ExtremeIn}`.** A peek is one short line over a side card or picture, never over a full-screen card.
 - [ ] **`Compare` values are the same kind** (same currency, both `%`, both `x`, or both plain) so the bars can be drawn; value A is the story's subject.
 - [ ] **`Map` region is one of** `World`/`Europe`/`NorthAmerica`/`SouthAmerica`/`Africa`/`MiddleEast`/`Asia`/`Oceania`, and the countries are two-letter ISO codes joined with `+` (no names, no spaces).
 - [ ] **Every `Document` stamp is accurate** — `,Allegation` on anything claimed but not decided, `,Ruling` only on an actual court decision; the highlight phrase appears in the passage exactly.
@@ -663,16 +837,16 @@ Notes on the example:
 - [ ] **Every `{Pause:seconds}` is on its own line between two sentences** — never on a line with spoken words, never mid-sentence — with a value from 0.1 to 3.0, **below** the tags that should fire before the beat and **above** the ones that should fire after it.
 - [ ] **Every 📁/🎬 media name (`Image` / `Video` / `BigImage` / `Logo` / `BigMedia` / `BRoll`) is a real name copied from `MEDIA_LIBRARY.md`** — exact spelling and case, no extension. Any beat without a confirmed name uses a ✅ text card (`Headline`/`Stat`/`Quote`/`Excerpt`/`BigText`) instead. No invented or placeholder names.
 - [ ] **No space next to a field-separating comma or between `"` and `"`** — `"a","b","c",5`, never `"a", "b", "c", 5`.
-- [ ] **No empty `""` fields; field counts exact** — `Headline`/`Timeline` have 2 quoted fields, `Excerpt`/`Quote`/`Stat`/`Document` have 3, `Versus`/`Map` have 4, `Compare` has 5.
+- [ ] **No empty `""` fields; field counts exact** — `Mark`/`Pop`/`Timeline:Span` have 1 quoted field, `Headline`/`Timeline`/`Name` have 2, `Excerpt`/`Quote`/`Stat`/`Document`/`Clipping`/`Graph` have 3, `Versus`/`Map` have 4, `Compare` has 5.
 - [ ] No smart quotes anywhere; no `"` inside a quoted field.
 - [ ] No commas inside `Logo` / `BRoll` / `BigMedia` / `BigText` / `BigImage` names (used `+` for multiples, ≤4; `BigImage` is a single image).
 - [ ] Emotion / Position / Zoom keywords spelled exactly and capitalized.
 - [ ] `Transition` / `Mood` (and their variants) spelled exactly and capitalized.
 - [ ] Each `{Transition:…}` is on the first line of its section, with that section's other tags grouped onto the same line.
-- [ ] Every content card is preceded by a `Left` or `Right` position.
-- [ ] Any `,Left`/`,Right` entry-side modifier (side cards, `{Image:}`, `{Video:}`) is the **last** value in the tag (after the duration **or** `Start`, and after a Stat arrow or Document stamp), spelled exactly (capitalized), not combined with `,bigCenter`, never on `Versus`, and never on an `End` tag.
+- [ ] Every content card is preceded by a `Left` or `Right` position — or by `{Position:Off}` / a peek, where it shows centred and wide. Never `Center`.
+- [ ] Any `,Left`/`,Right` entry-side modifier (side cards, `{Image:}`, `{Video:}`) is the **last** value in the tag (after the duration **or** `Start`, and after a Stat arrow, a Document stamp, a `,Scroll` or a `,Photo=`), spelled exactly (capitalized), not combined with `,bigCenter`, never on `Versus`, and never on an `End` tag.
 - [ ] **Every `Stat` arrow is deliberate** — `,Win` (green up) only on a real gain, `,Loss` (red down) only on a real drop, nothing (or `,NoArrow`) on a neutral number. The keyword sits right after the duration/`Start`, before any `,Left`/`,Right`, and appears on `Stat` tags only.
 - [ ] No `T=` written by hand.
-- [ ] One tag per line.
+- [ ] One tag per line — except the transition line and the tags that land on a word (§2 rule 2).
 - [ ] Each `## SECTION` that should be a YouTube chapter has a `{Timestamp:"..."}` on its first line, and the first section's is at the very top (so its chapter is `0:00`).
 - [ ] **At most one `{Echo:"HEADLINE","accent",seconds}`**, on its own line under the cold open's opening tags, above the first spoken line — HEADLINE and accent word copied exactly from the thumbnail, ≤5 words, the accent one of those words.

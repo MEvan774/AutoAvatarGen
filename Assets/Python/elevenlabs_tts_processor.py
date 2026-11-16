@@ -116,19 +116,26 @@ _ALL_MARKERS = re.compile(
        # alternative below the BRoll line. Lockstep with TtsScriptProcessor.cs.
        r'|\{Headline:"[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Left|Right))?\}'  # headline cards (+optional bigCenter / side)
        r'|\{Excerpt:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'   # excerpt cards (+optional side)
-       r'|\{Quote:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'     # quote cards (+optional side)
+       r'|\{Quote:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*Photo=[^,}]+)?(?:,\s*(?:Left|Right))?\}'     # quote cards (+optional ,Photo=image_name portrait, +optional side); lockstep with TtsScriptProcessor.cs
        r'|\{Stat:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Win|Loss|NoArrow|Left|Right)){0,2}\}'  # stat cards (+optional arrow keyword and/or side, either order)
        r'|\{Logo:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
        r'|\{BRoll:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
        r'|\{Compare:"[^"]*","[^"]*","[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'  # compare cards: value A, label A, value B, label B, source (+optional side); lockstep with TtsScriptProcessor.cs
        r'|\{Versus:"[^"]*","[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*Vs)?\}'  # versus cards: left label, left text, right label, right text (+optional ,Vs); lockstep with TtsScriptProcessor.cs
        r'|\{Document:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Allegation|Filing|Ruling|Report))?(?:,\s*(?:Left|Right))?\}'  # document cards: passage, phrase, source (+optional stamp, +optional side); lockstep with TtsScriptProcessor.cs
-       r'|\{Timeline:"[^"]*","[^"]*"(?:,\s*(?:Left|Right))?\}'  # timeline nodes: date, event (+optional side on the first); no duration; lockstep with TtsScriptProcessor.cs
+       r'|\{Timeline:"[^"]*","[^"]*"(?:,\s*(?:Left|Right|Wide))?\}'  # timeline nodes: date, event (+optional side — or ,Wide for the full-screen horizontal one — on the first); no duration; lockstep with TtsScriptProcessor.cs
+       r'|\{Timeline:Span,"[^"]*"\}'                         # the wide timeline's closing bracket and label
        r'|\{Map:"[^"]*","[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'  # map cards: region, countries (ISO codes joined with +), caption, source (+optional side); lockstep with TtsScriptProcessor.cs
-       r'|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End\}' # held pair closing edge ({Tag:...,Start}…{Tag:End})
-       r'|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}'                # big-media feature cards
+       r'|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map|Name|Graph|Clipping|Pop):End\}' # held pair closing edge ({Tag:...,Start}…{Tag:End})
+       r'|\{Name:"[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)\}'  # {Name:"name","role",duration|Start} — a name label over a full-frame photo or clip; lockstep with TtsScriptProcessor.cs
+       r'|\{Graph:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Bars|Line|Share))?(?:,\s*Cropped)?\}'  # {Graph:"title","label=value;…","source",duration|Start[,Bars|,Line|,Share][,Cropped]}
+       r'|\{Clipping:"[^"]*","[^"]*","[^"]*"\}'              # one sheet of a press-clipping run (no duration)
+       r'|\{Mark:"[^"]*"\}'                                  # {Mark:"phrase"} — the open text card's highlighter moves on
+       r'|\{Pop:"[^"]*"\}'                                   # {Pop:"phrase"} — one spoken phrase at a time, centre screen
+       r'|\{BigMedia:[^,}]+(?:,\d+(?:\.\d+)?)?\}'           # big-media feature cards — duration OPTIONAL (the line-by-line logo run {BigMedia:name}…{BigMedia:End}); lockstep with TtsScriptProcessor.cs
+       r'|\{BigMedia:Strike,[^,}]+\}'                        # {BigMedia:Strike,name} — crosses out a logo of the open run
        r'|\{BigText:[^,}]+(?:,\d+(?:\.\d+)?)?\}'            # big-text cards — duration OPTIONAL (persistent {BigText:LINE}…{BigText:End} flow); lockstep with TtsScriptProcessor.cs
-       r'|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}'                # big-image article cards
+       r'|\{BigImage:[^,}]+,\d+(?:\.\d+)?(?:,\s*Scroll)?\}' # big-image article cards (+optional ,Scroll)
        r'|\[[^\]]*\]'                                       # [stage directions] (any chars, incl. commas)
        # SAFETY NET — last alternative, so every pattern above still wins first.
        # Anything else wrapped in {...} on a single line is a tag we don't know
@@ -598,7 +605,17 @@ def _stamp_marker(marker: str, t: float) -> str:
     # {Headline:End} / {Quote:End} / {Logo:End} / … — the held pair's closing
     # edge ({Tag:...,Start}…{Tag:End}); keep the keyword verbatim (like
     # {Black:End}) so the runtime parser sees the close.
-    if re.match(r'^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End$', inner):
+    if re.match(r'^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map|Name|Graph|Clipping|Pop):End$', inner):
+        return f"{{{inner},{ts}}}"
+
+    # {Clipping:"headline","phrase","source"} / {Mark:"phrase"} / {Pop:"phrase"}
+    # — line-by-line tags with no duration: only the time is appended.
+    # Lockstep with TtsScriptProcessor.cs.
+    if inner.startswith(('Clipping:', 'Mark:', 'Pop:')):
+        return f"{{{inner},{ts}}}"
+
+    # {Timeline:Span,"text"} — the wide timeline's closing bracket; time only.
+    if re.match(r'^Timeline:Span,"[^"]*"$', inner):
         return f"{{{inner},{ts}}}"
 
     # {Image:file,5}  /  {Video:file,0}  /  {Image:file,Start} held pair
@@ -607,9 +624,11 @@ def _stamp_marker(marker: str, t: float) -> str:
     # sees the side. "Start" in the duration slot is the held pair form
     # ({Image:name,Start}…{Image:End}) — the keyword is preserved verbatim,
     # like {Black:Start}.
-    m_media = re.match(r'^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?|Start))?(?:,\s*(Left|Right))?$', inner)
+    # An image may also carry ",Scroll" between the duration and the side —
+    # kept verbatim too.
+    m_media = re.match(r'^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?|Start))?((?:,\s*Scroll)?)(?:,\s*(Left|Right))?$', inner)
     if m_media:
-        side = f",{m_media.group(4)}" if m_media.group(4) else ''
+        side = m_media.group(4) + (f",{m_media.group(5)}" if m_media.group(5) else '')
         if m_media.group(3) == 'Start':
             return f"{{{m_media.group(1)}:{m_media.group(2)},{ts},Start{side}}}"
         dur = m_media.group(3) or '0'
@@ -628,10 +647,19 @@ def _stamp_marker(marker: str, t: float) -> str:
 
     # {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}
     # Fullscreen feature cards — timed only, no held pair form.
-    m_big = re.match(r'^(BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?$', inner)
+    m_big = re.match(r'^(BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)((?:,\s*(?:Left|Right|Scroll))?)$', inner)
     if m_big:
-        side = f",{m_big.group(4)}" if m_big.group(4) else ''
-        return f"{{{m_big.group(1)}:{m_big.group(2)},{ts},D={m_big.group(3)}{side}}}"
+        return f"{{{m_big.group(1)}:{m_big.group(2)},{ts},D={m_big.group(3)}{m_big.group(4)}}}"
+
+    # {BigMedia:Strike,name} — crosses out a logo of the open logo run: time only.
+    if re.match(r'^BigMedia:Strike,([^,}]+)$', inner):
+        return f"{{{inner},{ts}}}"
+
+    # {BigMedia:name} — a duration-less logo of a line-by-line run (or
+    # {BigMedia:End}). D=0, exactly like {BigText:LINE}.
+    m_bm = re.match(r'^BigMedia:([^,}]+)$', inner)
+    if m_bm:
+        return f"{{BigMedia:{m_bm.group(1)},{ts},D=0}}"
 
     # {BigText:LINE} — duration-less persistent line (or {BigText:End}).
     # D=0 marks the persistent flow for the runtime parser.
@@ -642,7 +670,7 @@ def _stamp_marker(marker: str, t: float) -> str:
     # {Timeline:"date","event"[,Left|,Right]} — a line-by-line node like
     # {BigText:LINE}: D=0 (held), its side kept after it. Lockstep with
     # TtsScriptProcessor.cs.
-    m_tl = re.match(r'^Timeline:("[^"]*","[^"]*")((?:,\s*(?:Left|Right))?)$', inner)
+    m_tl = re.match(r'^Timeline:("[^"]*","[^"]*")((?:,\s*(?:Left|Right|Wide))?)$', inner)
     if m_tl:
         return f"{{Timeline:{m_tl.group(1)},{ts},D=0{m_tl.group(2)}}}"
 
@@ -655,7 +683,7 @@ def _stamp_marker(marker: str, t: float) -> str:
     # is the held pair form ({Quote:...,Start}…{Quote:End}) and stamps D=0 —
     # the same persistent marker the duration-less BigText flow uses.
     # Lockstep with TtsScriptProcessor.cs.
-    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Allegation|Filing|Ruling|Report)){0,2})$',
+    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map|Name|Graph):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Allegation|Filing|Ruling|Report|Bars|Line|Share|Cropped|Photo=[^,}"]+)){0,2})$',
                       inner, re.DOTALL)
     if m_card:
         suffix = m_card.group(4)

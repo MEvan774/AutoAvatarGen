@@ -68,6 +68,24 @@ public class BigImageCard : ContentCard
     private int lastTexW = -1;
     private int lastTexH = -1;
 
+    // The image's own motion while it is up (MugsTech.Stage.MediaMotionMath):
+    //   ,Scroll     — a tall page fitted to the box's WIDTH and panned from its
+    //                 top to its bottom over the card's time on screen;
+    //   the push-in — only while Mugs is away and the image has the full
+    //                 width: a slow lean toward the headline third.
+    // Both change the uvRect only, so the image can never show its own edge.
+    private bool scrollAsked, scrolls, scrollWarned, pushesIn;
+    private float motionClock = -1f;     // seconds since Show (< 0: not shown yet)
+    private float motionDuration;
+    private float visibleShare = 1f;
+    private Rect coverUv = new Rect(0f, 0f, 1f, 1f);
+    private Vector2 focus = MugsTech.Stage.MediaMotionMath.CentreFocus;
+    private string imageName = "";
+
+    /// <summary>True when the image is panning top to bottom (read by the self-tests).</summary>
+    public bool IsScrolling => scrolls;
+    public Rect UvRect => image != null ? image.uvRect : new Rect(0f, 0f, 1f, 1f);
+
     protected override void BuildUI()
     {
         // Soft drop shadow behind the image box (created first so it renders
@@ -118,6 +136,10 @@ public class BigImageCard : ContentCard
     {
         Texture2D tex = null;
         bool owned = false;
+        imageName = data.primaryText ?? "";
+        scrollAsked = data.scroll;
+        motionDuration = data.duration;
+        focus = MugsTech.Stage.MediaMotionMath.FocusFor(imageName);
 
         // Same lookup {Image:...} uses (external Images → Logos → Resources/Media),
         // routed through MediaPresentationSystem so the external-folder override
@@ -125,6 +147,10 @@ public class BigImageCard : ContentCard
         var mps = FindObjectOfType<MediaPresentationSystem>();
         if (mps != null)
             tex = mps.LoadImageTexture(data.primaryText, out owned);
+
+        // Mugs is off or peeking: nobody needs the open right quarter, so the
+        // article takes the full width (same margins all round).
+        if (mps != null && mps.IsStageWide) UseFullWidth();
         if (tex == null)
             tex = Resources.Load<Texture2D>($"Media/{data.primaryText}");
 
@@ -150,6 +176,27 @@ public class BigImageCard : ContentCard
         }
     }
 
+    /// <summary>True when the image covers the full width (the wide stage) instead of the left 3/4.</summary>
+    public bool IsFullWidth { get; private set; }
+
+    private void UseFullWidth()
+    {
+        IsFullWidth = true;
+        imageRect.anchorMax = new Vector2(1f, 1f);
+        imageRect.offsetMin = new Vector2(EDGE_MARGIN, EDGE_MARGIN);
+        imageRect.offsetMax = new Vector2(-EDGE_MARGIN, -EDGE_MARGIN);
+        restPos = imageRect.anchoredPosition;
+
+        if (shadowRect != null)
+        {
+            float g = ContentCardUIBuilder.ShadowGrowPx, dy = ContentCardUIBuilder.ShadowOffsetYPx;
+            shadowRect.anchorMax = new Vector2(1f, 1f);
+            shadowRect.offsetMin = new Vector2(EDGE_MARGIN - g, EDGE_MARGIN - g - dy);
+            shadowRect.offsetMax = new Vector2(-EDGE_MARGIN + g, -EDGE_MARGIN + g - dy);
+            shadowRestDelta = shadowRect.anchoredPosition - restPos;
+        }
+    }
+
     public override void Show()
     {
         KillCurrentSequence();
@@ -160,6 +207,7 @@ public class BigImageCard : ContentCard
         rectTransform.localEulerAngles = Vector3.zero;
         imageRect.localEulerAngles = Vector3.zero;
         canvasGroup.alpha = 0f;
+        motionClock = 0f;   // the scroll / push-in runs from here
 
         Vector2 offset = EntryOffset(ResolvedEntryDirection, SLIDE_TRAVEL_BASE * SlideDistanceFactor);
         imageRect.anchoredPosition = restPos + offset;
@@ -212,26 +260,64 @@ public class BigImageCard : ContentCard
         int texW = image.texture.width;
         int texH = image.texture.height;
 
-        if (boxW == lastBoxW && boxH == lastBoxH && texW == lastTexW && texH == lastTexH)
+        bool unchanged = boxW == lastBoxW && boxH == lastBoxH && texW == lastTexW && texH == lastTexH;
+        if (unchanged && !scrolls && !pushesIn)
             return;
 
-        lastBoxW = boxW; lastBoxH = boxH; lastTexW = texW; lastTexH = texH;
-
-        float boxAspect = boxW / boxH;
-        float texAspect = (float)texW / Mathf.Max(1, texH);
-
-        if (texAspect > boxAspect)
+        if (!unchanged)
         {
-            // Texture is wider than the box → keep full height, crop the sides.
-            float w = boxAspect / texAspect;            // < 1
-            image.uvRect = new Rect((1f - w) * 0.5f, 0f, w, 1f);
+            lastBoxW = boxW; lastBoxH = boxH; lastTexW = texW; lastTexH = texH;
+
+            float boxAspect = boxW / boxH;
+            float texAspect = (float)texW / Mathf.Max(1, texH);
+
+            if (texAspect > boxAspect)
+            {
+                // Texture is wider than the box → keep full height, crop the sides.
+                float w = boxAspect / texAspect;            // < 1
+                coverUv = new Rect((1f - w) * 0.5f, 0f, w, 1f);
+            }
+            else
+            {
+                // Texture is taller than the box → keep full width, crop top/bottom.
+                float h = texAspect / boxAspect;            // <= 1
+                coverUv = new Rect(0f, (1f - h) * 0.5f, 1f, h);
+            }
+            image.uvRect = coverUv;
+
+            // ,Scroll: only an image taller than the box at the box's width can pan.
+            visibleShare = MugsTech.Stage.MediaMotionMath.VisibleShare(boxW, boxH, texW, texH);
+            scrolls = scrollAsked && MugsTech.Stage.MediaMotionMath.CanScroll(visibleShare);
+            if (scrollAsked && !scrolls && !scrollWarned)
+            {
+                scrollWarned = true;
+                Debug.LogWarning($"[BigImage] {{BigImage:{imageName},…,Scroll}}: the image ({texW}×{texH}) is not taller than " +
+                                 "its slot at that width — shown without scrolling.");
+            }
+            // The push-in never runs on a scrolling image, nor on the classic left-3/4 card.
+            pushesIn = !scrolls && IsFullWidth && MugsTech.Stage.StagePrefs.PushIn;
         }
-        else
-        {
-            // Texture is taller than the box → keep full width, crop top/bottom.
-            float h = texAspect / boxAspect;            // <= 1
-            image.uvRect = new Rect(0f, (1f - h) * 0.5f, 1f, h);
-        }
+
+        float t = Mathf.Max(0f, motionClock);
+        if (scrolls)
+            image.uvRect = MugsTech.Stage.MediaMotionMath.ScrollUv(visibleShare,
+                MugsTech.Stage.MediaMotionMath.ScrollProgress(t, motionDuration, visibleShare));
+        else if (pushesIn)
+            image.uvRect = MugsTech.Stage.MediaMotionMath.PushUv(coverUv,
+                MugsTech.Stage.MediaMotionMath.PushScaleAt(t, motionDuration, MugsTech.Stage.MediaMotionMath.BigImagePushInMax), focus);
+    }
+
+    void Update()
+    {
+        if (motionClock >= 0f) motionClock += Time.deltaTime;
+    }
+
+    /// <summary>One frame of the image's motion; public so the self-tests can step it in edit mode.</summary>
+    public void Advance(float dt)
+    {
+        if (motionClock < 0f) motionClock = 0f;
+        motionClock += dt;
+        LateUpdate();
     }
 
     private static Vector2 EntryOffset(EntryDirection dir, float dist)

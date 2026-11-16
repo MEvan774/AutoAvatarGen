@@ -76,10 +76,113 @@ public class ContentZoneController : MonoBehaviour
     // no-op that resets this. Warned once, when it happens.
     private bool timelineCleared;
 
+    // The same for the two full-screen line-by-line runs: a wide Timeline and a
+    // Clipping pile cleared (a transition, a close-up, for a Clipping also a
+    // {Black}) before their End. Later nodes / sheets / the Span are ignored
+    // until that End, which is then a quiet no-op.
+    private readonly HashSet<ContentCardType> clearedRuns = new HashSet<ContentCardType>();
+
     // Lazily-built mirror of `contentZone` on the right side of the screen. Side
     // cards tagged ",Right" rest here so they land on the right, mirroring how
     // default/",Left" cards sit in `contentZone` on the left.
     private RectTransform contentZoneRight;
+
+    // The wide stage (Mugs off or peeking — see MugsTech.Stage): side cards are
+    // drawn here, centred and about 75 % of the frame wide, whatever ",Left" /
+    // ",Right" they carry. Lazily built, like the right-hand zone.
+    private RectTransform contentZoneWide;
+    private bool stageWide;
+
+    // The event the card on screen was opened by (its side, when it has to
+    // glide back from the wide slot).
+    private ContentCardEvent activeCardEvent;
+
+    /// <summary>True while side cards are drawn in the wide slot.</summary>
+    public bool IsStageWide => stageWide;
+
+    /// <summary>
+    /// True when the card on screen hides Mugs completely: a big headline's
+    /// panel or a clipping's backdrop covers the frame edge to edge. (BigText,
+    /// Versus and the other dimmed cards leave him visible behind them.)
+    /// </summary>
+    public bool ActiveCardCoversPresenter =>
+        activeCard != null && (activeCardType == ContentCardType.BigCenter || activeCardType == ContentCardType.Clipping);
+
+    /// <summary>
+    /// Mugs left the frame (or came back): from now on side cards open in the
+    /// wide slot (or their side slot again). A side card that is open glides
+    /// there and grows / shrinks — at once when <paramref name="instant"/>
+    /// (a ,Cut, or under a transition's cover).
+    /// </summary>
+    public void SetStageWide(bool wide, bool instant)
+    {
+        if (stageWide == wide) return;
+        stageWide = wide;
+        if (activeCard == null || IsFeatureCard(activeCardType)) return;
+
+        // A card on its way out stays where it is: re-fitting it for the other
+        // layout while it fades would make it drift and change size in its last
+        // frames (a wide Stat would even jump larger). Same for a held card
+        // whose End is due on this very beat — {Stat:End} written with the
+        // {Position:…} that brings him back.
+        // (isPaused: he is at Center, where a side card is hidden or left for a
+        // close-up's cut — either way it is not staying.)
+        if (activeCard.IsHiding || isPaused) return;
+        if (activeCardEvent != null && voiceAudio != null && !float.IsNaN(activeCardEvent.endTime) &&
+            activeCardEvent.endTime <= voiceAudio.time + 0.05f)
+            return;
+
+        RectTransform target = wide ? EnsureWideContentZone() : SideZoneFor(activeCardEvent);
+        if (target == null) return;
+        activeCard.SetStageLayout(wide, FrameHeight());
+        activeCard.MoveToZone(target, instant ? 0f : MugsTech.Stage.StageMath.CardGlideSeconds);
+        Debug.Log($"[Card] {activeCardType} card {(wide ? "glides to the centre and grows (wide stage)" : "glides back to its side")}" +
+                  (instant ? " — at once" : ""));
+    }
+
+    private RectTransform SideZoneFor(ContentCardEvent evt)
+    {
+        if (evt != null && evt.entryDirectionOverride == EntryDirection.FromRight)
+        {
+            RectTransform right = EnsureRightContentZone();
+            if (right != null) return right;
+        }
+        return contentZone;
+    }
+
+    // The frame's height in canvas px (the zones' parent is the canvas).
+    private float FrameHeight()
+    {
+        RectTransform parent = contentZone != null ? contentZone.parent as RectTransform : null;
+        float h = parent != null ? parent.rect.height : 0f;
+        return h > 1f ? h : 1080f;
+    }
+
+    // Centred, 75 % × 78 % of the frame: clear of the strip above the cards
+    // where the chapter titles and the Echo sit.
+    private RectTransform EnsureWideContentZone()
+    {
+        if (contentZoneWide != null) return contentZoneWide;
+        if (contentZone == null) return null;
+
+        GameObject go = new GameObject("ContentZone_Cards_Wide", typeof(RectTransform));
+        go.transform.SetParent(contentZone.parent, false);
+
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(MugsTech.Stage.StageMath.WideXMin, 1f - MugsTech.Stage.StageMath.WideYMax);
+        rt.anchorMax = new Vector2(MugsTech.Stage.StageMath.WideXMax, 1f - MugsTech.Stage.StageMath.WideYMin);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+        rt.localScale = contentZone.localScale;
+
+        go.transform.SetSiblingIndex(contentZone.GetSiblingIndex() + 1);
+        EnsureSortingCanvas(rt, 30000);
+
+        contentZoneWide = rt;
+        Debug.Log("ContentZoneController: created the wide content zone");
+        return contentZoneWide;
+    }
 
     /// <summary>True when a content card is currently visible.</summary>
     public bool IsCardActive => activeCard != null;
@@ -256,6 +359,8 @@ public class ContentZoneController : MonoBehaviour
         heldCardSeconds = 0f;
         skippedEndIndices.Clear();
         timelineCleared = false;
+        clearedRuns.Clear();
+        runItemsLanded.Clear();
 
         Debug.Log($"ContentZoneController: Timeline set with {events.Count} events");
     }
@@ -315,6 +420,11 @@ public class ContentZoneController : MonoBehaviour
                     // A side card waits for the presenter to finish a smooth
                     // move, or they walk across it. Retried next frame.
                     if (HoldForPresenter(i))
+                        break;
+
+                    // A card that comes due during a {Pop:} run waits behind it
+                    // (as cards wait behind a big headline) and lands after {Pop:End}.
+                    if (HoldBehindPop(timeline[i]))
                         break;
 
                     if (ReleaseHeldCard(i, currentTime))
@@ -394,7 +504,7 @@ public class ContentZoneController : MonoBehaviour
         }
 
         ContentCardEvent evt = timeline[index];
-        if (mediaPresentationSystem == null || evt.dismissesCard || IsFeatureCard(evt.cardType) ||
+        if (mediaPresentationSystem == null || evt.dismissesCard || evt.isMark || IsFeatureCard(evt.cardType) ||
             (evt.cardType == ContentCardType.Timeline && (OpenTimeline != null || timelineCleared)) ||
             !mediaPresentationSystem.IsPresenterGliding ||
             heldCardSeconds >= mediaPresentationSystem.PresenterLandCap)
@@ -402,6 +512,18 @@ public class ContentZoneController : MonoBehaviour
 
         heldCardSeconds += Time.deltaTime;
         return true;
+    }
+
+    // True while a {Pop:} run holds the frame and this event would put
+    // something new on it. Ends, marks and strikes act on what is already up,
+    // so they pass — unless a new card is already being held ahead of them:
+    // the tracker stops at the first held event, so script order is kept and
+    // they land with it at {Pop:End}. The run always ends: its End, or the
+    // narration's.
+    private bool HoldBehindPop(ContentCardEvent evt)
+    {
+        if (mediaPresentationSystem == null || !mediaPresentationSystem.IsPopRunning) return false;
+        return !evt.dismissesCard && !evt.isMark && !evt.strikesLogo;
     }
 
     // Reports a hold that just ended. Returns true when the card should be
@@ -440,6 +562,12 @@ public class ContentZoneController : MonoBehaviour
     /// </summary>
     public void ShowCard(ContentCardEvent evt)
     {
+        // Not cards: a {Mark:…} moves the open text card's highlighter, a
+        // {BigMedia:Strike,…} crosses out a logo of the open run. Neither is
+        // ever queued, and neither shows anything of its own.
+        if (evt.isMark) { ApplyMark(evt); return; }
+        if (evt.strikesLogo) { StrikeLogo(evt); return; }
+
         RectTransform zone = GetZoneForCard(evt);
         if (zone == null)
         {
@@ -460,6 +588,12 @@ public class ContentZoneController : MonoBehaviour
                 timelineCleared = false;
                 closeUpCutHeldTypes.Remove(ContentCardType.Timeline);
                 Debug.Log("{Timeline:End} — its timeline was already cleared; nothing to close.");
+                return;
+            }
+            if (clearedRuns.Remove(evt.cardType))
+            {
+                closeUpCutHeldTypes.Remove(evt.cardType);
+                Debug.Log($"{{{RunTagName(evt.cardType)}:End}} — it was already cleared; nothing to close.");
                 return;
             }
             if (EndClosesActiveCard(evt.cardType))
@@ -499,6 +633,15 @@ public class ContentZoneController : MonoBehaviour
         // timeline was cleared, folded into one still waiting in the queue
         // (it catches up when it shows) — or it opens a new timeline below.
         if (evt.cardType == ContentCardType.Timeline && RouteTimelineNode(evt))
+            return;
+
+        // The other line-by-line runs work the same way: a wide Timeline's
+        // nodes and Span, a Clipping pile's sheets, a logo run's logos.
+        if (evt.cardType == ContentCardType.TimelineWide && RouteWideTimeline(evt))
+            return;
+        if (evt.cardType == ContentCardType.Clipping && RouteClipping(evt))
+            return;
+        if (evt.cardType == ContentCardType.BigMedia && evt.duration <= 0f && RouteLogo(evt))
             return;
 
         // If a card is already on screen (or others are waiting), queue this one
@@ -630,6 +773,291 @@ public class ContentZoneController : MonoBehaviour
         if (!TimelineOnScreenOrQueued()) NoteTimelineCleared("Center (the presenter was centred as it came due)");
     }
 
+    // ---- The other line-by-line runs: wide Timeline, Clipping, logo run ----------
+
+    private static string RunTagName(ContentCardType type) =>
+        type == ContentCardType.TimelineWide ? "Timeline" : type.ToString();
+
+    private static bool IsRunType(ContentCardType type) =>
+        type == ContentCardType.TimelineWide || type == ContentCardType.Clipping;
+
+    private bool RunQueued(ContentCardType type)
+    {
+        foreach (ContentCardEvent q in cardQueue)
+            if (q.cardType == type && !q.dismissesCard && !q.timelineSpan && !q.strikesLogo) return true;
+        return false;
+    }
+
+    private readonly HashSet<ContentCardEvent> runItemsLanded = new HashSet<ContentCardEvent>();
+    private TimelineWideCard OpenWideTimeline => activeCard is TimelineWideCard t && !t.IsClosing ? t : null;
+    private ClippingCard OpenClipping => activeCard is ClippingCard c && !c.IsClosing ? c : null;
+    private BigMediaCard OpenLogos => activeCard is BigMediaCard b && !b.IsClosing ? b : null;
+
+    // True when the event was handled here (added, folded or ignored); false
+    // when it opens a new wide timeline.
+    private bool RouteWideTimeline(ContentCardEvent evt)
+    {
+        if (clearedRuns.Contains(ContentCardType.TimelineWide))
+        {
+            Debug.Log($"[Card] Timeline {(evt.timelineSpan ? "span" : "node")} \"{evt.primaryText}\" ignored — its timeline was cleared before {{Timeline:End}}.");
+            return true;
+        }
+        if (OpenWideTimeline != null) { AddToRun(evt, instant: false); return true; }
+        if (RunQueued(ContentCardType.TimelineWide)) return true;   // read ahead when it shows
+        if (evt.timelineSpan)
+        {
+            Debug.LogWarning($"[Card] {{Timeline:Span,\"{evt.primaryText}\"}} fired with no wide timeline on screen — ignored.");
+            return true;
+        }
+        return false;
+    }
+
+    private bool RouteClipping(ContentCardEvent evt)
+    {
+        if (clearedRuns.Contains(ContentCardType.Clipping))
+        {
+            Debug.Log($"[Card] Clipping \"{Shorten(evt.primaryText)}\" ignored — its run was cleared before {{Clipping:End}}.");
+            return true;
+        }
+        if (OpenClipping != null) { AddToRun(evt, instant: false); return true; }
+        return RunQueued(ContentCardType.Clipping);
+    }
+
+    // A duration-less {BigMedia:name}: lands on the open grid — a run, or a
+    // timed BigMedia (which keeps its timed lifetime, the BigText rule).
+    private bool RouteLogo(ContentCardEvent evt)
+    {
+        if (OpenLogos != null) { AddToRun(evt, instant: false); return true; }
+        foreach (ContentCardEvent q in cardQueue)
+            if (q.cardType == ContentCardType.BigMedia && q.duration <= 0f && !q.dismissesCard && !q.strikesLogo)
+                return true;   // its run is still queued: read ahead when it shows
+        return false;
+    }
+
+    // Adds one item to the run on screen: a wide-timeline node or its Span, a
+    // clipping, a logo. Logs the line the render report reads, and the
+    // warnings the limits call for.
+    private void AddToRun(ContentCardEvent evt, bool instant)
+    {
+        // One item lands once. When a run opens straight from the tracker, the
+        // catch-up in HideAndShowSequence and the tracker itself can both reach
+        // an item written on the opener's beat, on the same frame.
+        if (!runItemsLanded.Add(evt)) return;
+
+        float t = voiceAudio != null ? voiceAudio.time : evt.triggerTime;
+
+        if (activeCard is TimelineWideCard wide)
+        {
+            if (evt.timelineSpan)
+            {
+                if (wide.ShowSpan(evt.primaryText))
+                    Debug.Log($"[Card] t={t:F2}s Timeline span shown (\"{evt.primaryText}\")");
+                else
+                    Debug.LogWarning($"[Card] {{Timeline:Span,\"{evt.primaryText}\"}} ignored — this timeline already shows its Span.");
+                return;
+            }
+            if (!wide.AppendNode(evt.primaryText, evt.secondaryText, instant))
+            {
+                Debug.LogWarning($"[Card] Timeline node \"{evt.primaryText}\" ignored — a wide timeline holds at most " +
+                                 $"{TimelineWideTypography.MaxNodes} nodes.");
+                return;
+            }
+            Debug.Log($"[Card] t={t:F2}s Timeline shown wide (node {wide.NodeCount} of {Mathf.Max(wide.NodeCount, RunLength(activeCardEvent))}: \"{evt.primaryText}\")");
+            if (!instant) TagSfxPlayer.Instance.Play(ContentCardType.Timeline);
+            return;
+        }
+
+        if (activeCard is ClippingCard pile)
+        {
+            float age = pile.TopSheetLandedSeconds;   // since it LANDED — its drop isn't reading time
+            if (!pile.AppendSheet(evt.primaryText, evt.secondaryText, evt.tertiaryText, instant))
+            {
+                Debug.LogWarning($"[Card] Clipping \"{Shorten(evt.primaryText)}\" ignored — a run holds at most {ClippingTypography.MaxSheets} clippings.");
+                return;
+            }
+            if (!instant && age < ClippingTypography.MinReadSeconds)
+                Debug.LogWarning($"[Card] t={t:F2}s the clipping before \"{Shorten(evt.primaryText)}\" was covered {age:F2}s after it landed — " +
+                                 $"under {ClippingTypography.MinReadSeconds:F1}s is too short to read.");
+            Debug.Log($"[Card] t={t:F2}s Clipping shown ({pile.SheetCount} of {Mathf.Max(pile.SheetCount, RunLength(activeCardEvent))})");
+            return;
+        }
+
+        if (activeCard is BigMediaCard logos)
+        {
+            foreach (string part in (evt.primaryText ?? "").Split('+'))
+            {
+                string name = part.Trim();
+                if (!logos.AppendLogo(name, instant))
+                {
+                    Debug.LogWarning($"[Card] BigMedia logo \"{name}\" ignored — a logo run holds at most {BigMediaGrid.MaxLogos}.");
+                    continue;
+                }
+                Debug.Log($"[Card] t={t:F2}s BigMedia logo shown ({logos.LogoCount} of " +
+                          $"{Mathf.Max(logos.LogoCount, logos.AnticipatedCount)}: \"{name}\")");
+                if (!instant) TagSfxPlayer.Instance.Play(ContentCardType.BigMedia);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Every event of the run <paramref name="opening"/> starts, itself
+    /// included, in script order up to its End: a wide Timeline's nodes and
+    /// Span, a Clipping pile's sheets, a logo run's duration-less logos (for a
+    /// logo run that stops at a timed BigMedia too). An event that isn't in
+    /// the timeline (a card claimed by a transition line) gets only itself.
+    /// </summary>
+    public static List<ContentCardEvent> AnticipateRun(IList<ContentCardEvent> timeline, ContentCardEvent opening)
+    {
+        var run = new List<ContentCardEvent> { opening };
+        int idx = timeline != null ? timeline.IndexOf(opening) : -1;
+        if (idx < 0) return run;
+        for (int i = idx + 1; i < timeline.Count; i++)
+        {
+            ContentCardEvent e = timeline[i];
+            if (e.cardType != opening.cardType || e.isMark || e.strikesLogo) continue;
+            if (e.dismissesCard) break;
+            if (opening.cardType == ContentCardType.BigMedia && e.duration > 0f) break;   // the next timed row
+            run.Add(e);
+        }
+        return run;
+    }
+
+    // How many items the run opened by this event holds (nodes, sheets or logos; a Span isn't one).
+    private int RunLength(ContentCardEvent opening)
+    {
+        if (opening == null) return 1;
+        int n = 0;
+        foreach (ContentCardEvent e in AnticipateRun(timeline, opening))
+        {
+            if (e.timelineSpan) continue;
+            n += opening.cardType == ContentCardType.BigMedia ? (e.primaryText ?? "").Split('+').Length : 1;
+        }
+        return Mathf.Max(1, n);
+    }
+
+    // When the active held card's {Tag:End} is due on the voice clock (NaN when
+    // the script has none after it).
+    private float FindEndTime(ContentCardEvent opening)
+    {
+        if (timeline == null) return float.NaN;
+        float from = opening.triggerTime;
+        int idx = timeline.IndexOf(opening);
+        for (int i = idx >= 0 ? idx + 1 : 0; i < timeline.Count; i++)
+        {
+            ContentCardEvent e = timeline[i];
+            if (!e.dismissesCard || e.triggerTime < from) continue;
+            if (EndCloses(e.cardType, opening.cardType)) return e.triggerTime;
+        }
+        return float.NaN;
+    }
+
+    // A run on screen (or waiting in the queue) is gone before its End: say so
+    // once; its later items are ignored until that End.
+    private void NoteRunsCleared(string by)
+    {
+        foreach (ContentCardType type in new[] { ContentCardType.TimelineWide, ContentCardType.Clipping })
+        {
+            bool onScreen = type == ContentCardType.TimelineWide ? OpenWideTimeline != null : OpenClipping != null;
+            if (!onScreen && !RunQueued(type)) continue;
+            if (clearedRuns.Add(type))
+                Debug.LogWarning($"[Card] {(type == ContentCardType.TimelineWide ? "Wide timeline" : "Clipping run")} cleared by {by} " +
+                                 $"before {{{RunTagName(type)}:End}} — its later items are ignored.");
+        }
+    }
+
+    /// <summary>
+    /// A {Black} closes a Clipping pile early (the other full-screen cards stay
+    /// under the black, as they always have). Later sheets are ignored and the
+    /// pile's End is a quiet no-op.
+    /// </summary>
+    public void ClearClippingForBlack()
+    {
+        // A pile that is already lifting has had its End: nothing left to clear
+        // (flagging it would swallow the NEXT run's sheets).
+        if (OpenClipping == null && !RunQueued(ContentCardType.Clipping)) return;
+        if (clearedRuns.Add(ContentCardType.Clipping))
+            Debug.LogWarning("[Card] Clipping run cleared by a {Black} before {Clipping:End} — its later items are ignored.");
+
+        // Drop the pile's queued opener, keep everything else that is waiting.
+        int count = cardQueue.Count;
+        for (int i = 0; i < count; i++)
+        {
+            ContentCardEvent e = cardQueue.Dequeue();
+            if (e.cardType != ContentCardType.Clipping) cardQueue.Enqueue(e);
+        }
+        if (!(activeCard is ClippingCard)) return;
+
+        if (durationCoroutine != null) { StopCoroutine(durationCoroutine); durationCoroutine = null; }
+        ContentCard card = activeCard;
+        activeCard = null;
+        activeCardPersistent = false;
+        card.OnHideComplete = null;
+        card.KillAllTweens();
+        if (Application.isPlaying) Destroy(card.gameObject);
+        else DestroyImmediate(card.gameObject);
+        ShowNextQueued();
+    }
+
+    // ---- {Mark:"phrase"} and {BigMedia:Strike,name} ---------------------------------
+
+    private void ApplyMark(ContentCardEvent evt)
+    {
+        float t = voiceAudio != null ? voiceAudio.time : evt.triggerTime;
+        string phrase = evt.primaryText ?? "";
+        if (!(activeCard is IMarkable markable) || (activeCard is ClippingCard c && c.IsClosing))
+        {
+            Debug.LogWarning($"[Card] t={t:F2}s {{Mark:\"{Shorten(phrase)}\"}} fired with no Document, Excerpt or Clipping open — ignored.");
+            return;
+        }
+        switch (markable.AddMark(phrase))
+        {
+            case MarkResult.Ok:
+                Debug.Log($"[Card] t={t:F2}s Mark shown (\"{Shorten(phrase)}\" on the {activeCardType})");
+                break;
+            case MarkResult.NotFound:
+                Debug.LogWarning($"[Card] t={t:F2}s {{Mark:\"{Shorten(phrase)}\"}}: the phrase isn't in the open {activeCardType}'s " +
+                                 "text (it must match exactly) — ignored.");
+                break;
+            case MarkResult.TooMany:
+                Debug.LogWarning($"[Card] t={t:F2}s {{Mark:\"{Shorten(phrase)}\"}} ignored — a card takes at most three marks.");
+                break;
+            case MarkResult.Repeated:
+                Debug.LogWarning($"[Card] t={t:F2}s {{Mark:\"{Shorten(phrase)}\"}} ignored — that phrase is already marked.");
+                break;
+        }
+    }
+
+    private void StrikeLogo(ContentCardEvent evt)
+    {
+        float t = voiceAudio != null ? voiceAudio.time : evt.triggerTime;
+        string name = evt.primaryText ?? "";
+        BigMediaCard logos = OpenLogos;
+        if (logos == null || !logos.IsRun)
+        {
+            Debug.LogWarning($"[Card] t={t:F2}s {{BigMedia:Strike,{name}}} fired with no logo run open — ignored. " +
+                             "(A strike only works inside {BigMedia:name} … {BigMedia:End}.)");
+            return;
+        }
+        switch (logos.Strike(name))
+        {
+            case MarkResult.Ok:
+                Debug.Log($"[Card] t={t:F2}s BigMedia strike (\"{name}\")");
+                break;
+            case MarkResult.Repeated:
+                Debug.LogWarning($"[Card] t={t:F2}s {{BigMedia:Strike,{name}}} ignored — that logo is already struck out.");
+                break;
+            default:
+                Debug.LogWarning($"[Card] t={t:F2}s {{BigMedia:Strike,{name}}}: no logo called \"{name}\" is in the grid — ignored.");
+                break;
+        }
+    }
+
+    private static string Shorten(string text)
+    {
+        text = (text ?? "").Replace('\n', ' ');
+        return text.Length <= 48 ? text : text.Substring(0, 45) + "…";
+    }
+
     /// <summary>
     /// Shows the next queued card once the current one has finished. While the
     /// timeline is paused (character centered) it skips — and drops — side cards
@@ -713,7 +1141,7 @@ public class ContentZoneController : MonoBehaviour
     // never hid it, and skipping the End would leave it up until the narration
     // ends.
     private bool SkippedWhileCentered(ContentCardEvent evt)
-        => isPaused && !IsFeatureCard(evt.cardType) && !ClosesHeldBigHeadline(evt);
+        => isPaused && !evt.isMark && !IsFeatureCard(evt.cardType) && !ClosesHeldBigHeadline(evt);
 
     private bool ClosesHeldBigHeadline(ContentCardEvent evt)
     {
@@ -730,6 +1158,14 @@ public class ContentZoneController : MonoBehaviour
     {
         if (IsFeatureCard(evt.cardType))
             return featureMediaZone != null ? featureMediaZone : contentZone;
+
+        // Mugs is off or peeking: every side card is drawn centred and wide
+        // (a ",Left" / ",Right" on it is accepted and ignored).
+        if (stageWide)
+        {
+            RectTransform wide = EnsureWideContentZone();
+            if (wide != null) return wide;
+        }
 
         // A side card tagged ",Right" rests on the right: route it to the
         // mirrored right-hand zone (built lazily). Default and ",Left" cards
@@ -790,7 +1226,10 @@ public class ContentZoneController : MonoBehaviour
         || type == ContentCardType.BigCenter
         || type == ContentCardType.BigText
         || type == ContentCardType.BigImage
-        || type == ContentCardType.Versus;
+        || type == ContentCardType.Versus
+        || type == ContentCardType.Clipping
+        || type == ContentCardType.TimelineWide
+        || type == ContentCardType.Graph;
 
     // Gives a zone its own override-sorting canvas so its cards render at a fixed
     // order regardless of the parent canvas — used to lift side cards above the
@@ -829,6 +1268,9 @@ public class ContentZoneController : MonoBehaviour
             }
         }
 
+        // The stage may have changed while the old card faded (Mugs left or came back).
+        zone = GetZoneForCard(evt) ?? zone;
+
         // Create a GameObject and add the appropriate card component
         GameObject cardObj = new GameObject(
             evt.cardType + "Card",
@@ -863,6 +1305,9 @@ public class ContentZoneController : MonoBehaviour
             case ContentCardType.Document: activeCard = cardObj.AddComponent<DocumentCard>(); break;
             case ContentCardType.Timeline: activeCard = cardObj.AddComponent<TimelineCard>(); break;
             case ContentCardType.Map: activeCard = cardObj.AddComponent<MapCard>(); break;
+            case ContentCardType.Clipping: activeCard = cardObj.AddComponent<ClippingCard>(); break;
+            case ContentCardType.TimelineWide: activeCard = cardObj.AddComponent<TimelineWideCard>(); break;
+            case ContentCardType.Graph: activeCard = cardObj.AddComponent<GraphCard>(); break;
             default:
                 Debug.LogWarning($"Unknown card type: {evt.cardType}");
                 Destroy(cardObj);
@@ -870,7 +1315,9 @@ public class ContentZoneController : MonoBehaviour
         }
 
         activeCardType = evt.cardType;
+        activeCardEvent = evt;
         activeCard.EnsureBuilt();
+        activeCard.SetStageLayout(stageWide && zone == contentZoneWide, FrameHeight());
 
         // A BigText stack is sized once, from its longest line — including the
         // held flow's later {BigText:LINE} tags, read ahead from the timeline.
@@ -885,12 +1332,47 @@ public class ContentZoneController : MonoBehaviour
             timelineCard.AnticipatedNodes = timelineNodes.ConvertAll(n => (n.primaryText, n.secondaryText));
         }
 
+        // The other runs are sized once too, from what the script still holds.
+        List<ContentCardEvent> runEvents = null;
+        if (activeCard is TimelineWideCard wideTimeline)
+        {
+            runEvents = AnticipateRun(timeline, evt);
+            var nodes = new List<(string, string)>();
+            bool span = false;
+            foreach (ContentCardEvent r in runEvents)
+            {
+                if (r.timelineSpan) span = true;
+                else if (nodes.Count < TimelineWideTypography.MaxNodes) nodes.Add((r.primaryText, r.secondaryText));
+            }
+            wideTimeline.AnticipatedNodes = nodes;
+            wideTimeline.SpanAnticipated = span;
+        }
+        else if (activeCard is ClippingCard)
+        {
+            runEvents = AnticipateRun(timeline, evt);
+        }
+        else if (activeCard is BigMediaCard logos && evt.duration <= 0f)
+        {
+            runEvents = AnticipateRun(timeline, evt);
+            int count = 0;
+            foreach (ContentCardEvent r in runEvents) count += (r.primaryText ?? "").Split('+').Length;
+            logos.AnticipatedCount = Mathf.Min(count, BigMediaGrid.MaxLogos);
+        }
+
+        // A held card may use the time its End is due (a wide Quote spreads its type-on up to it).
+        if (evt.duration <= 0f && float.IsNaN(evt.endTime)) evt.endTime = FindEndTime(evt);
+
         activeCard.Initialize(evt, cardAssets);
 
         // Nodes whose beat passed while this timeline waited in the queue land at once.
         if (activeCard is TimelineCard late && timelineNodes != null && voiceAudio != null)
             for (int i = 1; i < timelineNodes.Count && timelineNodes[i].triggerTime <= voiceAudio.time; i++)
                 AddTimelineNode(late, timelineNodes[i], instant: true);
+
+        // …and so do a run's later items (wide nodes, the Span, sheets, logos).
+        if (runEvents != null && voiceAudio != null)
+            for (int i = 1; i < runEvents.Count && runEvents[i].triggerTime <= voiceAudio.time; i++)
+                AddToRun(runEvents[i], instant: true);
 
         // Compute and apply entry direction based on the active style preset
         // (falls back to FromBottom if no preset is active).
@@ -969,8 +1451,32 @@ public class ContentZoneController : MonoBehaviour
 
     private void LogCardShown(ContentCardEvent evt)
     {
-        if (!s_LoggedShown.Contains(evt.cardType)) return;
         float t = voiceAudio != null ? voiceAudio.time : evt.triggerTime;
+
+        // The evidence-first devices (2026-11): what appeared, and how much of a run it is.
+        switch (evt.cardType)
+        {
+            case ContentCardType.Clipping:
+                Debug.Log($"[Card] t={t:F2}s Clipping shown (1 of {RunLength(evt)})");
+                return;
+            case ContentCardType.TimelineWide:
+                Debug.Log($"[Card] t={t:F2}s Timeline shown wide (node 1 of {RunLength(evt)}: \"{evt.primaryText}\")");
+                return;
+            case ContentCardType.Graph:
+                Debug.Log($"[Card] t={t:F2}s Graph shown ({(activeCard is GraphCard g && g.IsFallback ? "as text rows" : evt.graphKind.ToString())}" +
+                          $"{(evt.graphCropped && evt.graphKind == GraphKind.Line ? ", cropped axis" : "")})");
+                return;
+            case ContentCardType.BigMedia when evt.duration <= 0f:
+                Debug.Log($"[Card] t={t:F2}s BigMedia logo shown (1 of {RunLength(evt)}: \"{evt.primaryText}\")");
+                return;
+        }
+        if (stageWide && !IsFeatureCard(evt.cardType))
+        {
+            Debug.Log($"[Card] t={t:F2}s {evt.cardType} shown (wide, centred)");
+            return;
+        }
+
+        if (!s_LoggedShown.Contains(evt.cardType)) return;
         string side = IsFeatureCard(evt.cardType) ? "Full" :
                       evt.entryDirectionOverride == EntryDirection.FromRight ? "Right" : "Left";
         Debug.Log($"[Card] t={t:F2}s {evt.cardType} shown (side={side})");
@@ -1001,6 +1507,9 @@ public class ContentZoneController : MonoBehaviour
             case ContentCardType.BigMedia:
             case ContentCardType.BigImage:
             case ContentCardType.Versus:
+            case ContentCardType.Clipping:
+            case ContentCardType.TimelineWide:
+            case ContentCardType.Graph:
                 mediaPresentationSystem.EndZoomRun($"{{{type}}}", hiddenBehindCover: false);
                 break;
         }
@@ -1053,6 +1562,7 @@ public class ContentZoneController : MonoBehaviour
     private void ClearZone(string by)
     {
         if (TimelineOnScreenOrQueued()) NoteTimelineCleared(by);
+        NoteRunsCleared(by);
         cardQueue.Clear();
 
         if (durationCoroutine != null) { StopCoroutine(durationCoroutine); durationCoroutine = null; }

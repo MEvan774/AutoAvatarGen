@@ -7,7 +7,41 @@ using UnityEngine;
 /// </summary>
 public static class ProceduralSprites
 {
-    private static Sprite s_Circle, s_SoftCircle;
+    private static Sprite s_Circle, s_SoftCircle, s_Ring;
+
+    /// <summary>
+    /// A ring that fills its square: soft on both edges, <paramref name="thickness"/>
+    /// of the radius wide. Laid over the rim of a round portrait (CircleImage),
+    /// it hides the disc's hard edge. One thickness is cached.
+    /// </summary>
+    public static Sprite Ring(float thickness = 0.085f)
+    {
+        if (s_Ring != null) return s_Ring;
+
+        const int size = 256;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.DontSave,
+        };
+        var px = new Color32[size * size];
+        float r = size * 0.5f, inner = r * (1f - thickness);
+        const float feather = 1.5f;
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float dx = x + 0.5f - r, dy = y + 0.5f - r;
+                float dist = Mathf.Sqrt(dx * dx + dy * dy);
+                float a = Mathf.Clamp01((r - dist) / feather) * Mathf.Clamp01((dist - inner) / feather);
+                px[y * size + x] = new Color32(255, 255, 255, (byte)Mathf.RoundToInt(a * 255f));
+            }
+        tex.SetPixels32(px);
+        tex.Apply(false, true);
+        s_Ring = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+        s_Ring.hideFlags = HideFlags.DontSave;
+        return s_Ring;
+    }
 
     public static Sprite Circle(bool soft = false)
     {

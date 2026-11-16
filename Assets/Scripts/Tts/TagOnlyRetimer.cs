@@ -515,9 +515,11 @@ namespace MugsTech.Tts
             switch (kind)
             {
                 case "Image": case "Video": case "BigText": case "Timeline":
+                case "BigMedia":   // a duration-less logo of a line-by-line run (or {BigMedia:End})
                     return zero ? "" : "," + d;
                 case "Headline": case "Excerpt": case "Quote": case "Stat": case "Logo": case "BRoll":
                 case "Compare": case "Versus": case "Document": case "Map":
+                case "Name": case "Graph":
                     return zero ? ",Start" : "," + d;
                 case "Echo":   // {Echo:"…","…",T=…,D=3} → {Echo:"…","…",3}
                     return "," + d;

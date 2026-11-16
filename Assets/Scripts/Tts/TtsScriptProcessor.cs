@@ -94,7 +94,8 @@ namespace MugsTech.Tts
             // own alternative below the BRoll line.
             @"|\{Headline:""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Left|Right))?\}" +
             @"|\{Excerpt:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
-            @"|\{Quote:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
+            // Quote also takes ",Photo=image_name" (a round portrait) before its side.
+            @"|\{Quote:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*Photo=[^,}]+)?(?:,\s*(?:Left|Right))?\}" +
             // Stat also takes an arrow keyword (",Win"/",Loss"/",NoArrow")
             // beside its side, in either order — up to two modifiers.
             @"|\{Stat:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Win|Loss|NoArrow|Left|Right)){0,2}\}" +
@@ -107,16 +108,34 @@ namespace MugsTech.Tts
             // {Document:"passage","phrase","source",duration|Start[,Allegation|,Filing|,Ruling|,Report][,Left|,Right]}
             @"|\{Document:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Allegation|Filing|Ruling|Report))?(?:,\s*(?:Left|Right))?\}" +
             // {Timeline:"date","event"[,Left|,Right]} — one node, no duration
-            @"|\{Timeline:""[^""]*"",""[^""]*""(?:,\s*(?:Left|Right))?\}" +
+            // (",Wide" in the first node's side slot opens the full-screen horizontal
+            // timeline; {Timeline:Span,"text"} is its closing bracket and label.)
+            @"|\{Timeline:""[^""]*"",""[^""]*""(?:,\s*(?:Left|Right|Wide))?\}" +
+            @"|\{Timeline:Span,""[^""]*""\}" +
             // {Map:"region","countries","caption","source",duration|Start[,Left|,Right]}
             @"|\{Map:""[^""]*"",""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
-            @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End\}" +
-            @"|\{BigMedia:[^,}]+,\d+(?:\.\d+)?\}" +
+            @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map|Name|Graph|Clipping|Pop):End\}" +
+            // {Name:"name","role",duration|Start} — a name label over a full-frame photo or clip
+            @"|\{Name:""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)\}" +
+            // {Graph:"title","label=value;…","source",duration|Start[,Bars|,Line|,Share][,Cropped]}
+            @"|\{Graph:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Bars|Line|Share))?(?:,\s*Cropped)?\}" +
+            // {Clipping:"headline","phrase","source"} — one sheet of a press-clipping run (no duration)
+            @"|\{Clipping:""[^""]*"",""[^""]*"",""[^""]*""\}" +
+            // {Mark:"phrase"} — the highlighter of the open text card moves on (no duration, no End)
+            @"|\{Mark:""[^""]*""\}" +
+            // {Pop:"phrase"} — one spoken phrase at a time, centre screen (closed by {Pop:End})
+            @"|\{Pop:""[^""]*""\}" +
+            // BigMedia's duration is OPTIONAL — duration-less is the line-by-line
+            // logo run ({BigMedia:name}…{BigMedia:End}), and {BigMedia:Strike,name}
+            // crosses out a logo already in it. ({BigMedia:Strike,4} is still a
+            // timed logo called "Strike": the first alternative takes it.)
+            @"|\{BigMedia:[^,}]+(?:,\d+(?:\.\d+)?)?\}" +
+            @"|\{BigMedia:Strike,[^,}]+\}" +
             // BigText duration is OPTIONAL — duration-less is the persistent
             // line-by-line flow ({BigText:LINE}…{BigText:End}); kept in
             // lockstep with elevenlabs_tts_processor.py.
             @"|\{BigText:[^,}]+(?:,\d+(?:\.\d+)?)?\}" +
-            @"|\{BigImage:[^,}]+,\d+(?:\.\d+)?\}" +
+            @"|\{BigImage:[^,}]+,\d+(?:\.\d+)?(?:,\s*Scroll)?\}" +
             // [stage directions] — match anything up to the closing bracket so
             // directions containing commas/punctuation (e.g. "[slowing down,
             // serious]") are stripped too. The OLD pattern \[[\w\s]+\] only
@@ -505,7 +524,19 @@ namespace MugsTech.Tts
             // {Headline:End} / {Quote:End} / {Logo:End} / … — the held pair's
             // closing edge ({Tag:...,Start}…{Tag:End}); keep the keyword
             // verbatim (like {Black:End}) so the runtime parser sees the close.
-            if (Regex.IsMatch(innerCurly, @"^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End$"))
+            if (Regex.IsMatch(innerCurly, @"^(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map|Name|Graph|Clipping|Pop):End$"))
+                return "{" + innerCurly + "," + ts + "}";
+
+            // {Clipping:"headline","phrase","source"} / {Mark:"phrase"} / {Pop:"phrase"}
+            // — line-by-line tags with no duration: only the time is appended
+            // (no D= slot, so TagOnlyRetimer.Unstamp gives back the authored tag).
+            if (innerCurly.StartsWith("Clipping:", System.StringComparison.Ordinal) ||
+                innerCurly.StartsWith("Mark:", System.StringComparison.Ordinal) ||
+                innerCurly.StartsWith("Pop:", System.StringComparison.Ordinal))
+                return "{" + innerCurly + "," + ts + "}";
+
+            // {Timeline:Span,"text"} — the wide timeline's closing bracket; time only.
+            if (Regex.IsMatch(innerCurly, @"^Timeline:Span,""[^""]*""$"))
                 return "{" + innerCurly + "," + ts + "}";
 
             // {Image:file,5}  /  {Video:file,0}  /  {Image:file,Start} held pair
@@ -514,11 +545,13 @@ namespace MugsTech.Tts
             // runtime parser still sees the side. "Start" in the duration slot
             // is the held pair form ({Image:name,Start}…{Image:End}) — the
             // keyword is preserved verbatim, like {Black:Start}.
+            // An image may also carry ",Scroll" (a tall page panned through its
+            // slot) between the duration and the side; it is kept verbatim too.
             Match mMedia = Regex.Match(innerCurly,
-                @"^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?|Start))?(?:,\s*(Left|Right))?$");
+                @"^(Image|Video):([^,}]+)(?:,(\d+(?:\.\d+)?|Start))?((?:,\s*Scroll)?)(?:,\s*(Left|Right))?$");
             if (mMedia.Success)
             {
-                string side = mMedia.Groups[4].Success ? "," + mMedia.Groups[4].Value : "";
+                string side = mMedia.Groups[4].Value + (mMedia.Groups[5].Success ? "," + mMedia.Groups[5].Value : "");
                 if (mMedia.Groups[3].Success && mMedia.Groups[3].Value == "Start")
                     return "{" + mMedia.Groups[1].Value + ":" + mMedia.Groups[2].Value
                          + "," + ts + ",Start" + side + "}";
@@ -544,14 +577,26 @@ namespace MugsTech.Tts
 
             // {BigMedia:name,5}  /  {BigText:line,5}  /  {BigImage:name,5}
             // Fullscreen feature cards — timed only, no held pair form.
+            // (A {BigImage:} may carry ",Scroll" after its duration — kept verbatim.)
             Match mBig = Regex.Match(innerCurly,
-                @"^(BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)(?:,\s*(Left|Right))?$");
+                @"^(BigMedia|BigText|BigImage):([^,}]+),(\d+(?:\.\d+)?)((?:,\s*(?:Left|Right|Scroll))?)$");
             if (mBig.Success)
             {
-                string side = mBig.Groups[4].Success ? "," + mBig.Groups[4].Value : "";
                 return "{" + mBig.Groups[1].Value + ":" + mBig.Groups[2].Value
-                     + "," + ts + ",D=" + mBig.Groups[3].Value + side + "}";
+                     + "," + ts + ",D=" + mBig.Groups[3].Value + mBig.Groups[4].Value + "}";
             }
+
+            // {BigMedia:Strike,name} — crosses out a logo of the open logo run:
+            // time only. (A numeric second value was a timed logo, taken above.)
+            Match mStrike = Regex.Match(innerCurly, @"^BigMedia:Strike,([^,}]+)$");
+            if (mStrike.Success)
+                return "{" + innerCurly + "," + ts + "}";
+
+            // {BigMedia:name} — a duration-less logo of a line-by-line run (or
+            // {BigMedia:End}). D=0, exactly like {BigText:LINE}.
+            Match mBigMedia = Regex.Match(innerCurly, @"^BigMedia:([^,}]+)$");
+            if (mBigMedia.Success)
+                return "{BigMedia:" + mBigMedia.Groups[1].Value + "," + ts + ",D=0}";
 
             // {BigText:LINE} — duration-less persistent line (or {BigText:End}).
             // D=0 marks the persistent flow for the runtime parser.
@@ -561,7 +606,7 @@ namespace MugsTech.Tts
 
             // {Timeline:"date","event"[,Left|,Right]} — a line-by-line node like
             // {BigText:LINE}: D=0 (held), its side kept after it.
-            Match mTimeline = Regex.Match(innerCurly, @"^Timeline:(""[^""]*"",""[^""]*"")((?:,\s*(?:Left|Right))?)$");
+            Match mTimeline = Regex.Match(innerCurly, @"^Timeline:(""[^""]*"",""[^""]*"")((?:,\s*(?:Left|Right|Wide))?)$");
             if (mTimeline.Success)
                 return "{Timeline:" + mTimeline.Groups[1].Value + "," + ts + ",D=0" + mTimeline.Groups[2].Value + "}";
 
@@ -576,7 +621,7 @@ namespace MugsTech.Tts
             // ({Quote:...,Start}…{Quote:End}) and stamps D=0 — the same
             // persistent marker the duration-less BigText flow uses.
             Match mCard = Regex.Match(innerCurly,
-                @"^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Allegation|Filing|Ruling|Report)){0,2})$",
+                @"^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map|Name|Graph):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Allegation|Filing|Ruling|Report|Bars|Line|Share|Cropped|Photo=[^,}""]+)){0,2})$",
                 RegexOptions.Singleline);
             if (mCard.Success)
             {

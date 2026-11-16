@@ -502,6 +502,29 @@ public class AutomationRunner : MonoBehaviour
               .Append(", \"snaps\": ").Append(drift.Snaps)
               .Append(", \"background\": ").Append(JsonStr(drift.Background))
               .Append("},\n");
+        // The evidence-first stage (MugsTech.Stage): Mugs's share of the take at
+        // Left / Right / Center in view (the target is 0.40 or less), his share
+        // peeking, and the detail behind them — seconds counted, times he went
+        // off, time hidden behind a full-frame cover, empty-stage warnings (he
+        // was off and nothing was on screen for over 3 s), zooms ignored while
+        // he was away.
+        var onStage = MugsTech.Stage.StageReport.Last;
+        sb.Append("  \"mugsOnScreenShare\": ").Append(onStage != null ? F(onStage.OnScreenShare) : "null").Append(",\n");
+        sb.Append("  \"mugsPeekShare\": ").Append(onStage != null ? F(onStage.PeekShare) : "null").Append(",\n");
+        if (onStage == null)
+            sb.Append("  \"stage\": null,\n");
+        else
+            sb.Append("  \"stage\": {")
+              .Append("\"seconds\": ").Append(F(onStage.Seconds))
+              .Append(", \"offShare\": ").Append(F(onStage.OffShare))
+              .Append(", \"coveredShare\": ").Append(F(onStage.CoveredShare))
+              .Append(", \"offCount\": ").Append(onStage.OffCount)
+              .Append(", \"peekCount\": ").Append(onStage.PeekCount)
+              .Append(", \"openedWithoutMugs\": ").Append(onStage.OpenedWithoutMugs ? "true" : "false")
+              .Append(", \"emptyStageWarnings\": ").Append(onStage.EmptyStageWarnings)
+              .Append(", \"longestEmptySeconds\": ").Append(F(onStage.LongestEmptySeconds))
+              .Append(", \"ignoredZooms\": ").Append(onStage.IgnoredZooms)
+              .Append("},\n");
         // The thumbnail echo ({Echo:…}; MugsTech.Echo.EchoOverlay): what it said,
         // whether it showed from the first frame, its size, what ended it, and
         // any warning (a second Echo, over five words, an accent not in it).

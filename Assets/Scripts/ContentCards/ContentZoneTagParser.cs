@@ -29,9 +29,16 @@ public static class ContentZoneTagParser
     // Stat may carry an arrow keyword (",Win"/",Loss"/",NoArrow") as well as a
     // side, in either order — hence up to two trailing modifiers.
     private static readonly Regex StripAllRegex = new Regex(
-        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right)){0,2}\}" +
+        @"\{(?:Headline|Excerpt|Quote|Stat):""[^""]*""(?:,""[^""]*"")*(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Photo=[^,}""]+)){0,2}\}" +
         @"|\{(?:Logo|BRoll):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
-        @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End(?:,T=\d+(?:\.\d+)?)?\}" +
+        @"|\{(?:Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map|Clipping|Graph):End(?:,T=\d+(?:\.\d+)?)?\}" +
+        // {Clipping:"headline","phrase","source"} — one sheet of a clipping run — and any other {Clipping:…} (malformed).
+        @"|\{Clipping:[^}\n]*\}" +
+        // {Mark:"phrase"} — and any other {Mark:…} (malformed).
+        @"|\{Mark:[^}\n]*\}" +
+        // {Graph:"title","label=value;…","source",duration|Start[,Bars|,Line|,Share][,Cropped]} — and any other {Graph:…}.
+        @"|\{Graph:""[^""]*""(?:,""[^""]*""){2}(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Bars|Line|Share))?(?:,\s*Cropped)?\}" +
+        @"|\{Graph:[^}\n]*\}" +
         // {Compare:"value A","label A","value B","label B","source",duration|Start[,Left|,Right]}
         // — and, after it, any other {Compare:…} (malformed: stripped, warned, skipped).
         @"|\{Compare:""[^""]*""(?:,""[^""]*""){4}(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
@@ -46,13 +53,18 @@ public static class ContentZoneTagParser
         @"|\{Document:[^}\n]*\}" +
         // {Timeline:"date","event"[,Left|,Right]} — one node, no duration (stamped T=…,D=0) —
         // and, after it, any other {Timeline:…} (malformed: stripped, warned, skipped).
-        @"|\{Timeline:""[^""]*"",""[^""]*""(?:,T=\d+(?:\.\d+)?)?(?:,D=0)?(?:,\s*(?:Left|Right))?\}" +
+        @"|\{Timeline:""[^""]*"",""[^""]*""(?:,T=\d+(?:\.\d+)?)?(?:,D=0)?(?:,\s*(?:Left|Right|Wide))?\}" +
         @"|\{Timeline:[^}\n]*\}" +
         // {Map:"region","countries","caption","source",duration|Start[,Left|,Right]}
         // — and, after it, any other {Map:…} (malformed: stripped, warned, skipped).
         @"|\{Map:""[^""]*""(?:,""[^""]*""){3}(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
         @"|\{Map:[^}\n]*\}" +
-        @"|\{(?:BigMedia|BigImage):[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?\}" +
+        // BigMedia's duration is OPTIONAL — duration-less is the line-by-line
+        // logo run ({BigMedia:name}…{BigMedia:End}); {BigMedia:Strike,name}
+        // crosses a logo of it out.
+        @"|\{BigMedia:[^,}]+(?:,T=\d+(?:\.\d+)?)?(?:,(?:D=)?\d+(?:\.\d+)?)?\}" +
+        @"|\{BigMedia:Strike,[^,}]+(?:,T=\d+(?:\.\d+)?)?\}" +
+        @"|\{BigImage:[^,}]+(?:,T=\d+(?:\.\d+)?)?,(?:D=)?\d+(?:\.\d+)?(?:,\s*Scroll)?\}" +
         // BigText's duration is OPTIONAL — the duration-less form is the
         // persistent line-by-line flow ({BigText:LINE}…{BigText:End}).
         @"|\{BigText:[^,}]+(?:,T=\d+(?:\.\d+)?)?(?:,(?:D=)?\d+(?:\.\d+)?)?\}");
@@ -69,8 +81,10 @@ public static class ContentZoneTagParser
     private static readonly Regex ExcerptRegex = new Regex(
         @"\{Excerpt:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
 
+    // Quote also takes ",Photo=image_name" (a round portrait beside the name
+    // and role) after the duration and before the side: group 6, the side group 7.
     private static readonly Regex QuoteRegex = new Regex(
-        @"\{Quote:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Left|Right))?\}");
+        @"\{Quote:""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*Photo=([^,}""]+))?(?:,\s*(Left|Right))?\}");
 
     // Stat's last capture group is its whole modifier tail rather than just the
     // side: an optional arrow keyword (",Win"/",Loss"/",NoArrow") and an optional
@@ -88,7 +102,7 @@ public static class ContentZoneTagParser
     // — closes the matching held card ({Tag:...,Start}), the same in-tag/out-tag
     // principle as {Black:Start}…{Black:End} and {BigText:LINE}…{BigText:End}.
     private static readonly Regex CardEndRegex = new Regex(
-        @"\{(Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map):End(?:,T=(\d+(?:\.\d+)?))?\}");
+        @"\{(Headline|Excerpt|Quote|Stat|Logo|BRoll|Compare|Versus|Document|Timeline|Map|Clipping|Graph):End(?:,T=(\d+(?:\.\d+)?))?\}");
 
     // {Compare:"value A","label A","value B","label B","source",duration|Start[,Left|,Right]}
     private static readonly Regex CompareRegex = new Regex(
@@ -118,11 +132,35 @@ public static class ContentZoneTagParser
     // timeline (like {BigText:LINE}): no duration; the first node opens the
     // card and its side applies, each later one adds a node, {Timeline:End}
     // closes it. Stamped as T=…,D=0 with the side after it.
+    // ",Wide" in the first node's side slot opens the full-screen horizontal
+    // timeline instead (up to six nodes), which {Timeline:Span,"text"} can
+    // close with a bracket and a label.
     private static readonly Regex TimelineRegex = new Regex(
-        @"\{Timeline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?(?:,D=0)?(?:,\s*(Left|Right))?\}");
+        @"\{Timeline:""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?(?:,D=0)?(?:,\s*(Left|Right|Wide))?\}");
 
-    // Any {Timeline:…} at all — the ones TimelineRegex doesn't take are malformed.
+    // {Timeline:Span,"text"} — exactly one quoted field.
+    private static readonly Regex TimelineSpanRegex = new Regex(
+        @"\{Timeline:Span,""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?\}");
+
+    // Any {Timeline:…} at all — the ones the two above don't take are malformed.
     private static readonly Regex TimelineAnyRegex = new Regex(@"\{Timeline:(?!End\b)[^}\n]*\}");
+
+    // {Clipping:"headline","phrase to highlight","source"} — one sheet of a
+    // line-by-line run of press clippings (no duration; {Clipping:End} closes).
+    // The phrase and the source may be empty; the headline may not.
+    private static readonly Regex ClippingRegex = new Regex(
+        @"\{Clipping:""([^""]+)"",""([^""]*)"",""([^""]*)""(?:,T=(\d+(?:\.\d+)?))?\}");
+    private static readonly Regex ClippingAnyRegex = new Regex(@"\{Clipping:(?!End\b)[^}\n]*\}");
+
+    // {Mark:"phrase"} — the highlighter of the open text card moves on.
+    private static readonly Regex MarkRegex = new Regex(
+        @"\{Mark:""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?\}");
+    private static readonly Regex MarkAnyRegex = new Regex(@"\{Mark:[^}\n]*\}");
+
+    // {Graph:"title","label=value;…","source",duration|Start[,Bars|,Line|,Share][,Cropped]}
+    private static readonly Regex GraphRegex = new Regex(
+        @"\{Graph:""([^""]+)"",""([^""]*)"",""([^""]*)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Bars|Line|Share))?(?:,\s*(Cropped))?\}");
+    private static readonly Regex GraphAnyRegex = new Regex(@"\{Graph:(?!End\b)[^}\n]*\}");
 
     // {Map:"region","countries","caption","source",duration|Start[,Left|,Right]}
     private static readonly Regex MapRegex = new Regex(
@@ -131,8 +169,18 @@ public static class ContentZoneTagParser
     // Any {Map:…} at all — the ones MapRegex doesn't take are malformed.
     private static readonly Regex MapAnyRegex = new Regex(@"\{Map:(?!End\b)[^}\n]*\}");
 
+    // Duration optional (like BigText): {BigMedia:name} with no duration is one
+    // logo of a line-by-line run — it opens the grid or lands on the open one —
+    // and {BigMedia:End} closes it. With a duration it's the classic timed row.
     private static readonly Regex BigMediaRegex = new Regex(
-        @"\{BigMedia:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+        @"\{BigMedia:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,(?:D=)?(\d+(?:\.\d+)?))?\}");
+
+    // {BigMedia:Strike,name} — crosses out a logo already in the open run.
+    // "Strike" followed by a NUMBER is still the timed form for a logo that
+    // happens to be called Strike ({BigMedia:Strike,4}); BigMediaRegex takes
+    // that one, and the lookahead keeps this pattern off it.
+    private static readonly Regex BigMediaStrikeRegex = new Regex(
+        @"\{BigMedia:Strike,(?!T=|D=|\d+(?:\.\d+)?[,}])([^,}]+)(?:,T=(\d+(?:\.\d+)?))?\}");
 
     // Duration optional (unlike every other card): {BigText:LINE} with no
     // duration is a persistent line — it opens/joins an on-screen stack that
@@ -140,8 +188,9 @@ public static class ContentZoneTagParser
     private static readonly Regex BigTextRegex = new Regex(
         @"\{BigText:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?(?:,(?:D=)?(\d+(?:\.\d+)?))?\}");
 
+    // (+ optional ",Scroll": a tall page panned through the card's slot.)
     private static readonly Regex BigImageRegex = new Regex(
-        @"\{BigImage:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)\}");
+        @"\{BigImage:([^,}]+)(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?)(?:,\s*(Scroll))?\}");
 
     /// <summary>
     /// Parses all content card tags from the script, builds timed events, and returns
@@ -171,6 +220,14 @@ public static class ContentZoneTagParser
         ExtractDocuments(script, audioDuration, totalCleanChars, events);
         ExtractTimelines(script, audioDuration, totalCleanChars, events);
         ExtractMaps(script, audioDuration, totalCleanChars, events);
+        ExtractClippings(script, audioDuration, totalCleanChars, events);
+        ExtractMarks(script, audioDuration, totalCleanChars, events);
+        ExtractGraphs(script, audioDuration, totalCleanChars, events);
+
+        // Which {Timeline:…} nodes, Span and End belong to a ",Wide" run
+        // (they become TimelineWide events — a fullscreen card, so Center
+        // never hides them).
+        AssignWideTimelineRuns(events);
 
         // Sort by trigger time
         events.Sort((a, b) => a.triggerTime.CompareTo(b.triggerTime));
@@ -292,9 +349,11 @@ public static class ContentZoneTagParser
                 secondaryText = match.Groups[2].Value,
                 tertiaryText = match.Groups[3].Value,
                 duration = ParseDuration(match.Groups[5].Value),
-                entryDirectionOverride = ParseSide(match.Groups[6])
+                photoName = match.Groups[6].Success ? match.Groups[6].Value.Trim() : null,
+                entryDirectionOverride = ParseSide(match.Groups[7])
             });
-            Debug.Log($"  Quote at {time:F2}s: by {match.Groups[2].Value}");
+            Debug.Log($"  Quote at {time:F2}s: by {match.Groups[2].Value}" +
+                      (match.Groups[6].Success ? $" (photo {match.Groups[6].Value.Trim()})" : ""));
         }
     }
 
@@ -428,6 +487,7 @@ public static class ContentZoneTagParser
         {
             taken.Add(match.Index);
             float time = ResolveTriggerTime(script, match.Index, match.Groups[3], audioDuration, totalCleanChars);
+            bool wide = match.Groups[4].Success && match.Groups[4].Value == "Wide";
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
@@ -435,16 +495,35 @@ public static class ContentZoneTagParser
                 primaryText = match.Groups[1].Value,
                 secondaryText = match.Groups[2].Value,
                 duration = 0f, // held: open until {Timeline:End}
-                entryDirectionOverride = ParseSide(match.Groups[4]),
+                entryDirectionOverride = wide ? null : ParseSide(match.Groups[4]),
+                timelineWide = wide,
+                sourceIndex = match.Index,
             });
-            Debug.Log($"  Timeline node at {time:F2}s: \"{match.Groups[1].Value}\" — \"{match.Groups[2].Value}\"");
+            Debug.Log($"  Timeline node at {time:F2}s: \"{match.Groups[1].Value}\" — \"{match.Groups[2].Value}\"" + (wide ? " (Wide)" : ""));
+        }
+
+        foreach (Match match in TimelineSpanRegex.Matches(script))
+        {
+            taken.Add(match.Index);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.Timeline,   // AssignWideTimelineRuns decides whose it is
+                primaryText = match.Groups[1].Value,
+                duration = 0f,
+                timelineSpan = true,
+                sourceIndex = match.Index,
+            });
+            Debug.Log($"  Timeline span at {time:F2}s: \"{match.Groups[1].Value}\"");
         }
 
         foreach (Match match in TimelineAnyRegex.Matches(script))
         {
             if (taken.Contains(match.Index)) continue;
             Debug.LogWarning($"[Card] Timeline {Quote(match.Value)} isn't valid — it needs two non-empty quoted fields " +
-                             "(date, event), then an optional ,Left/,Right — no duration. Skipped.");
+                             "(date, event), then an optional ,Left/,Right (or ,Wide) — no duration; or {Timeline:Span,\"text\"} " +
+                             "with exactly one quoted field. Skipped.");
         }
     }
 
@@ -609,7 +688,8 @@ public static class ContentZoneTagParser
             {
                 triggerTime = time,
                 cardType = type,
-                dismissesCard = true
+                dismissesCard = true,
+                sourceIndex = match.Index,
             });
             Debug.Log($"  {type} End at {time:F2}s");
         }
@@ -620,14 +700,39 @@ public static class ContentZoneTagParser
         foreach (Match match in BigMediaRegex.Matches(script))
         {
             float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            string name = match.Groups[1].Value.Trim();
+            float duration = match.Groups[3].Success ? ParseFloat(match.Groups[3].Value) : 0f;
+
+            // Duration-less "End" (Stop/Out as typo-tolerance) closes the logo
+            // run — a reserved word, like {BigText:End}.
+            string lower = name.ToLowerInvariant();
+            bool dismiss = duration <= 0f && (lower == "end" || lower == "stop" || lower == "out");
+
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.BigMedia,
+                primaryText = name,
+                duration = duration,
+                dismissesCard = dismiss
+            });
+            Debug.Log(dismiss
+                ? $"  BigMedia End at {time:F2}s"
+                : $"  BigMedia at {time:F2}s: {name}" + (duration <= 0f ? " (a logo of a line-by-line run)" : ""));
+        }
+
+        foreach (Match match in BigMediaStrikeRegex.Matches(script))
+        {
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
             events.Add(new ContentCardEvent
             {
                 triggerTime = time,
                 cardType = ContentCardType.BigMedia,
                 primaryText = match.Groups[1].Value.Trim(),
-                duration = ParseFloat(match.Groups[3].Value)
+                duration = 0f,
+                strikesLogo = true
             });
-            Debug.Log($"  BigMedia at {time:F2}s: {match.Groups[1].Value.Trim()}");
+            Debug.Log($"  BigMedia strike at {time:F2}s: {match.Groups[1].Value.Trim()}");
         }
     }
 
@@ -668,9 +773,193 @@ public static class ContentZoneTagParser
                 triggerTime = time,
                 cardType = ContentCardType.BigImage,
                 primaryText = match.Groups[1].Value.Trim(),
-                duration = ParseFloat(match.Groups[3].Value)
+                duration = ParseFloat(match.Groups[3].Value),
+                scroll = match.Groups[4].Success
             });
-            Debug.Log($"  BigImage at {time:F2}s: {match.Groups[1].Value.Trim()}");
+            Debug.Log($"  BigImage at {time:F2}s: {match.Groups[1].Value.Trim()}" + (match.Groups[4].Success ? " (scrolling)" : ""));
+        }
+    }
+
+    // {Clipping:…} → one sheet each of a full-screen run of press clippings.
+    // Which sheet opens the card, the 5-sheet cap and a run cleared before its
+    // End are the controller's. A phrase that isn't in the headline is warned
+    // about here, once (the sheet shows without a highlight); a malformed tag
+    // is skipped with one warning that quotes it.
+    private static void ExtractClippings(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        var taken = new HashSet<int>();
+        foreach (Match match in ClippingRegex.Matches(script))
+        {
+            taken.Add(match.Index);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[4], audioDuration, totalCleanChars);
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.Clipping,
+                primaryText = match.Groups[1].Value,
+                secondaryText = match.Groups[2].Value,
+                tertiaryText = match.Groups[3].Value,
+                duration = 0f, // held: open until {Clipping:End}
+                sourceIndex = match.Index,
+            });
+            Debug.Log($"  Clipping at {time:F2}s: \"{match.Groups[1].Value}\"");
+
+            string phrase = match.Groups[2].Value;
+            if (phrase.Length > 0 && match.Groups[1].Value.IndexOf(phrase, System.StringComparison.Ordinal) < 0)
+                Debug.LogWarning($"[Card] Clipping {Quote(match.Value)} at {time:F2}s: the phrase \"{phrase}\" isn't in the " +
+                                 "headline (it must match exactly) — shown with no highlight.");
+        }
+
+        foreach (Match match in ClippingAnyRegex.Matches(script))
+        {
+            if (taken.Contains(match.Index)) continue;
+            Debug.LogWarning($"[Card] Clipping {Quote(match.Value)} isn't valid — it needs three quoted fields (a non-empty " +
+                             "headline, the phrase to highlight, the source) and nothing else — no duration. Skipped.");
+        }
+    }
+
+    // {Mark:"phrase"} → not a card: it moves the highlighter of the text card
+    // that is open (ContentZoneController.ApplyMark). The phrase can only be
+    // checked against that card, at playback.
+    private static void ExtractMarks(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        var taken = new HashSet<int>();
+        foreach (Match match in MarkRegex.Matches(script))
+        {
+            taken.Add(match.Index);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[2], audioDuration, totalCleanChars);
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.Document,   // unused: isMark routes it
+                primaryText = match.Groups[1].Value,
+                duration = 0f,
+                isMark = true,
+                sourceIndex = match.Index,
+            });
+            Debug.Log($"  Mark at {time:F2}s: \"{match.Groups[1].Value}\"");
+        }
+
+        foreach (Match match in MarkAnyRegex.Matches(script))
+        {
+            if (taken.Contains(match.Index)) continue;
+            Debug.LogWarning($"[Card] Mark {Quote(match.Value)} isn't valid — it needs one non-empty quoted phrase and nothing " +
+                             "else ({Mark:\"phrase\"}). Skipped.");
+        }
+    }
+
+    // {Graph:…} → the full-screen chart. The data field is checked here, once:
+    // a problem (a value that isn't a number, mixed kinds, too few or too many
+    // points, shares over 100 %) is warned about and the card lists the points
+    // as text instead; notes (a 3 % sliver, ,Cropped on Bars) are warned too.
+    private static void ExtractGraphs(string script, float audioDuration, int totalCleanChars, List<ContentCardEvent> events)
+    {
+        var taken = new HashSet<int>();
+        foreach (Match match in GraphRegex.Matches(script))
+        {
+            taken.Add(match.Index);
+            float time = ResolveTriggerTime(script, match.Index, match.Groups[4], audioDuration, totalCleanChars);
+            GraphKind kind = match.Groups[6].Success
+                ? (GraphKind)System.Enum.Parse(typeof(GraphKind), match.Groups[6].Value)
+                : GraphKind.Bars;
+            bool cropped = match.Groups[7].Success;
+            var fields = new[] { match.Groups[1].Value, match.Groups[2].Value, match.Groups[3].Value };
+            events.Add(new ContentCardEvent
+            {
+                triggerTime = time,
+                cardType = ContentCardType.Graph,
+                primaryText = fields[0],
+                secondaryText = fields[1],
+                tertiaryText = fields[2],
+                fields = fields,
+                duration = ParseDuration(match.Groups[5].Value),
+                graphKind = kind,
+                graphCropped = cropped,
+            });
+            Debug.Log($"  Graph at {time:F2}s: \"{fields[0]}\" ({kind}{(cropped ? ", cropped" : "")})");
+
+            GraphMath.Data data = GraphMath.Parse(fields[1], kind, cropped);
+            if (!data.Ok)
+                Debug.LogWarning($"[Card] Graph {Quote(match.Value)} at {time:F2}s: {data.Problem} — no chart; the points are listed as text.");
+            if (data.Notes != null)
+                foreach (string note in data.Notes)
+                    Debug.LogWarning($"[Card] Graph {Quote(match.Value)} at {time:F2}s: {note}.");
+        }
+
+        foreach (Match match in GraphAnyRegex.Matches(script))
+        {
+            if (taken.Contains(match.Index)) continue;
+            Debug.LogWarning($"[Card] Graph {Quote(match.Value)} isn't valid — it needs three quoted fields (a non-empty title, " +
+                             "the points as label=value joined with ;, the source), then a duration or Start, then an optional " +
+                             ",Bars / ,Line / ,Share, then an optional ,Cropped. Skipped.");
+        }
+    }
+
+    /// <summary>
+    /// Walks the {Timeline:…} events in script order and gives the ones that
+    /// belong to a ",Wide" run — its nodes, its Span and its End — the
+    /// TimelineWide type. ",Wide" on a later node is ignored (warned); a
+    /// {Timeline:Span} outside a Wide run is ignored (warned) and removed.
+    /// </summary>
+    public static void AssignWideTimelineRuns(List<ContentCardEvent> events)
+    {
+        var line = new List<ContentCardEvent>();
+        foreach (ContentCardEvent e in events)
+            if (e.cardType == ContentCardType.Timeline && !e.isMark) line.Add(e);
+        if (line.Count == 0) return;
+
+        // Script order: by time, ties by where the tag sits in the script.
+        line.Sort((a, b) => a.triggerTime != b.triggerTime
+            ? a.triggerTime.CompareTo(b.triggerTime)
+            : a.sourceIndex.CompareTo(b.sourceIndex));
+
+        bool open = false, wide = false, spanSeen = false;
+        foreach (ContentCardEvent e in line)
+        {
+            if (e.dismissesCard)
+            {
+                if (open && wide) e.cardType = ContentCardType.TimelineWide;
+                open = false;
+                wide = false;
+                spanSeen = false;
+                continue;
+            }
+
+            if (e.timelineSpan)
+            {
+                if (!open || !wide)
+                {
+                    Debug.LogWarning($"[Card] {{Timeline:Span,\"{e.primaryText}\"}} at {e.triggerTime:F2}s: a Span only closes a " +
+                                     "Wide timeline (…,Wide on the first node) — ignored.");
+                    events.Remove(e);
+                }
+                else if (spanSeen)
+                {
+                    Debug.LogWarning($"[Card] {{Timeline:Span,\"{e.primaryText}\"}} at {e.triggerTime:F2}s: this timeline already has " +
+                                     "its Span — ignored.");
+                    events.Remove(e);
+                }
+                else
+                {
+                    spanSeen = true;
+                    e.cardType = ContentCardType.TimelineWide;
+                }
+                continue;
+            }
+
+            if (!open)
+            {
+                open = true;
+                wide = e.timelineWide;
+                spanSeen = false;
+            }
+            else if (e.timelineWide)
+            {
+                Debug.LogWarning($"[Card] Timeline node \"{e.primaryText}\" at {e.triggerTime:F2}s: ,Wide on a later node is " +
+                                 "ignored — only the first node chooses the layout.");
+                e.timelineWide = false;
+            }
+            if (wide) e.cardType = ContentCardType.TimelineWide;
         }
     }
 }
