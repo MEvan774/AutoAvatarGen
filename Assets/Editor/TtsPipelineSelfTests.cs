@@ -93,6 +93,7 @@ public static partial class TtsPipelineSelfTests
         RunTimelineWideGroup(log);
         RunClippingGroup(log);
         RunGraphGroup(log);
+        RunVoiceGroup(log);
 
         log.Report();
     }

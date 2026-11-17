@@ -75,6 +75,8 @@ namespace MugsTech.Tts
         // MinRealPauseSeconds there.
         public const float EnvelopeWindowSeconds = 0.02f;
         public const float PauseThresholdDb      = -35f;
+        /// <summary>v3's floor. A generation voiced on eleven_v4 passes its own
+        /// (VoiceTiming.MinRealPauseSeconds, 0.20 s) to Apply / MeasurePauses.</summary>
         public const float MinPauseSeconds       = 0.25f;
 
         const float SilenceWindowSeconds      = 0.01f;
@@ -241,14 +243,15 @@ namespace MugsTech.Tts
         /// for when that analysis is switched off. <paramref name="startSeconds"/>
         /// is where <paramref name="samples"/> begins in the section file.
         /// </summary>
-        public static List<Gap> MeasurePauses(float[] samples, int channels, int sampleRate, float startSeconds)
+        public static List<Gap> MeasurePauses(float[] samples, int channels, int sampleRate, float startSeconds,
+                                              float minPauseSeconds = MinPauseSeconds)
         {
             var gaps = new List<Gap>();
             if (!TryEnvelope(samples, channels, sampleRate, EnvelopeWindowSeconds,
                              out float[] db, out float perWindow, out int first, out int last))
                 return gaps;
 
-            int minWindows = Math.Max(1, (int)Math.Round(MinPauseSeconds / EnvelopeWindowSeconds));
+            int minWindows = Math.Max(1, (int)Math.Round(minPauseSeconds / EnvelopeWindowSeconds));
             AddQuietRuns(db, first, last, PauseThresholdDb, minWindows, perWindow, startSeconds, gaps);
             return gaps;
         }
@@ -449,7 +452,8 @@ namespace MugsTech.Tts
         /// measure them here.</param>
         public static Result Apply(string section, IList<PauseTag> tags,
                                    float[] samples, int channels, int sampleRate, float startSeconds,
-                                   Func<float, float> toReal, IList<Gap> pauses)
+                                   Func<float, float> toReal, IList<Gap> pauses,
+                                   float minPauseSeconds = MinPauseSeconds)
         {
             var result = new Result { Samples = samples };
             if (tags == null || tags.Count == 0 || samples == null) return result;
@@ -467,7 +471,7 @@ namespace MugsTech.Tts
                     if (p.End > startSeconds && p.Start < endSeconds)
                         measured.Add(new Gap(Math.Max(p.Start, startSeconds), Math.Min(p.End, endSeconds)));
             }
-            else measured = MeasurePauses(samples, channels, sampleRate, startSeconds);
+            else measured = MeasurePauses(samples, channels, sampleRate, startSeconds, minPauseSeconds);
 
             List<Gap> silences = null;      // measured only if some tag needs them
             var accepted = new List<Splice>();

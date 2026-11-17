@@ -33,6 +33,23 @@ namespace MugsTech.Tts
     ///     to the gap's edges (above fires as it opens, below as it closes).
     /// Tags before the snapped one keep their times. Words are never moved, so
     /// captions are untouched; the word after a run snaps onto the same onset.
+    ///
+    /// eleven_v4 (VoiceTiming.FirstTagSetsBeat). v4 gives a break's pause to the
+    /// sentence before it and starts the newline characters at the silence's
+    /// END: on the 2026-11-17 lab takes an own-line tag was stamped a median
+    /// 0.01 s before the next word's onset, so it rarely needs the snap — and
+    /// with no snap the rule above never starts. Two tags on adjacent lines then
+    /// kept the few hundredths between their own characters: different frames
+    /// at 30 of 92 breaks, 1–4 frames apart, 0.24 s at worst. So for a
+    /// generation voiced on v4, when no tag of a run has snapped the run's
+    /// FIRST tag sets the beat and the later ones are pulled back onto it,
+    /// inside the same limits. A snap later in the run still takes over — and
+    /// then the tags BEFORE it join that onset too (at most 0.9 s, not over
+    /// another measured pause): on v4 an own-line tag stamped before its
+    /// silence began is the alignment running early (lab take 1, 40.72 s: the
+    /// first newline 0.14 s before the silence, the second inside it, 0.46 s
+    /// apart after the snap). This is the one place a tag moves LATER, and it
+    /// is v4 only: on v3 a tag above a silence fires as the sentence ends.
     /// Pure C#: no Unity types, no IO.
     /// </summary>
     public static class TagBeats
@@ -75,6 +92,7 @@ namespace MugsTech.Tts
             public Stamp Stamp;         // the tag that moved
             public Stamp SnappedBy;     // the tag whose snap set the onset
             public float From, To;      // measured-timeline seconds: where the mapping put it, the onset
+            public bool  OnFirstTag;    // joined the run's first tag (v4), not a snapped onset
         }
 
         /// <summary>What a mapping did with one time: where it landed, and whether the pause snap moved it there.</summary>
@@ -125,32 +143,72 @@ namespace MugsTech.Tts
         /// says, with the run rule applied. <paramref name="pauses"/> are the
         /// section's measured pauses (start, end) on that same timeline.
         /// <paramref name="joins"/>, when given, collects every tag pulled back.
+        /// <paramref name="firstTagSetsBeat"/> is the v4 rule (see the class
+        /// summary); off, this is exactly what every v3 take was timed with.
         /// </summary>
         public static float[] Resolve(IList<Stamp> stamps, Func<float, Mapped> map,
-                                      IList<(float From, float To)> pauses, List<Join> joins = null)
+                                      IList<(float From, float To)> pauses, List<Join> joins = null,
+                                      bool firstTagSetsBeat = false)
         {
             var at = new float[stamps.Count];
             int run = int.MinValue;
             float onset = float.NaN;
             Stamp snappedBy = null;
+            bool fromSnap = false;
             for (int i = 0; i < stamps.Count; i++)
             {
                 Stamp s = stamps[i];
                 Mapped m = map(s.T);
                 at[i] = m.At;
 
-                if (s.Run != run) { run = s.Run; onset = float.NaN; snappedBy = null; }
+                if (s.Run != run) { run = s.Run; onset = float.NaN; snappedBy = null; fromSnap = false; }
                 if (s.Run < 0 || !s.Tag || s.PauseRun) continue;
 
-                if (m.Snapped) { onset = m.At; snappedBy = s; continue; }
-                if (float.IsNaN(onset)) continue;
+                if (m.Snapped)
+                {
+                    onset = m.At; snappedBy = s; fromSnap = true;
+                    if (firstTagSetsBeat) JoinEarlier(stamps, at, i, onset, pauses, joins);
+                    continue;
+                }
+                if (float.IsNaN(onset))
+                {
+                    // v4: nothing has snapped, so this tag — the run's first — is the beat.
+                    if (firstTagSetsBeat) { onset = m.At; snappedBy = s; }
+                    continue;
+                }
                 if (m.At > onset && m.At - onset <= MaxPullBackSeconds && !PauseStartsBetween(pauses, onset, m.At))
                 {
-                    joins?.Add(new Join { Stamp = s, SnappedBy = snappedBy, From = m.At, To = onset });
+                    joins?.Add(new Join { Stamp = s, SnappedBy = snappedBy, From = m.At, To = onset,
+                                          OnFirstTag = !fromSnap });
                     at[i] = onset;
                 }
             }
             return at;
+        }
+
+        // v4: the tags of this run written before the one that just snapped.
+        static void JoinEarlier(IList<Stamp> stamps, float[] at, int snapped, float onset,
+                                IList<(float From, float To)> pauses, List<Join> joins)
+        {
+            Stamp by = stamps[snapped];
+            for (int j = snapped - 1; j >= 0 && stamps[j].Run == by.Run; j--)
+            {
+                Stamp e = stamps[j];
+                if (!e.Tag || e.PauseRun) continue;
+                float was = at[j];
+                if (was >= onset || onset - was > MaxPullBackSeconds) continue;
+                if (PauseEndsBetween(pauses, was, onset)) continue;   // sound between them: another beat
+                joins?.Add(new Join { Stamp = e, SnappedBy = by, From = was, To = onset });
+                at[j] = onset;
+            }
+        }
+
+        static bool PauseEndsBetween(IList<(float From, float To)> pauses, float a, float b)
+        {
+            if (pauses == null) return false;
+            foreach (var p in pauses)
+                if (p.To > a && p.To < b - 1e-4f) return true;
+            return false;
         }
 
         static bool PauseStartsBetween(IList<(float From, float To)> pauses, float a, float b)

@@ -26,7 +26,9 @@ namespace MugsTech.Tts
             public string ScriptText;
             public bool   DryRun;
             public string VoiceId = ElevenLabsClient.DefaultVoiceId;
-            public string ModelId = ElevenLabsClient.DefaultModelId;
+            /// <summary>Null = the voice setting (VoiceModel.CurrentId: eleven_v4
+            /// unless the creator picked eleven_v3). Resolved once, in Run().</summary>
+            public string ModelId;
             public ElevenLabsClient.VoiceSettings VoiceSettings
                 = new ElevenLabsClient.VoiceSettings();
 
@@ -63,9 +65,11 @@ namespace MugsTech.Tts
             /// one and records it in render_manifest.json.</summary>
             public int? Seed;
 
-            /// <summary>v3 takes three discrete values; Creative keeps the
-            /// performance the show is written for.</summary>
-            public float Stability = ElevenLabsClient.StabilityCreative;
+            /// <summary>Null = the model's own: on v4 the stored setting
+            /// (VoiceModel.CurrentV4Stability, 0.5 unless changed), on v3
+            /// Creative (0.0), which keeps the performance the show was written
+            /// for. v3 takes three discrete values; v4 any value from 0 to 1.</summary>
+            public float? Stability;
 
             /// <summary>Raw PCM is lossless and needs no decoder, but is
             /// plan-gated — the client falls back to mp3 by itself.</summary>
@@ -119,6 +123,11 @@ namespace MugsTech.Tts
             // couple of long takes and slices them back into the same
             // per-section files this method used to write one request at a
             // time. Flipping Chunked.Enabled off falls back to that older path.
+            //
+            // The model is read here, once, on the main thread: the setting when
+            // the caller named none. Everything after this reads cfg.ModelId.
+            cfg.ModelId = VoiceModel.Resolve(cfg.ModelId);
+
             if (cfg.Chunked != null && cfg.Chunked.Enabled)
                 return new ChunkedTtsGenerationJob(cfg, onProgress, onStatus, onComplete).Run();
 

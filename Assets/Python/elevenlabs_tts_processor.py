@@ -1,6 +1,17 @@
 """
 AutoAvatarGen — ElevenLabs TTS Pre-Processor  (v2 — Segmented)
 ===============================================================
+LEGACY TTS PATH (noted 2026-11-17). The app voices scripts itself now:
+Assets/Scripts/Tts (ChunkedTtsGenerationJob) renders the voice as two long
+takes on eleven_v4 (or eleven_v3, the TTS panel's Voice row) and slices them.
+This script still sends ONE REQUEST PER SECTION to the model in VOICE_CONFIG
+(eleven_multilingual_v2) with v3-era voice settings, and knows nothing of the
+per-model rules in Tts/VoiceModel.cs. Don't use it to voice a video.
+
+What IS still maintained here: the marker tables and the stamper
+(_ALL_MARKERS, _stamp_marker). They are kept byte for byte in step with
+TtsScriptProcessor.cs — a new tag still goes in both (see CLAUDE.md).
+
 Takes a Script.txt with ## SECTION NAME headings, splits it into segments,
 sends each segment to ElevenLabs separately, and outputs per-segment files.
 
@@ -70,7 +81,10 @@ import requests
 #  CONFIGURE YOUR VOICE HERE — edit once, never touch again
 # ==============================================================================
 
-ELEVENLABS_API_KEY = "sk_d5b1984b2dcfcc8ca651004f5a6d39e471a4db30f552806a"
+# Read from the environment — never write a key into this file: it is tracked
+# in git. (A key that was once committed here must be revoked at ElevenLabs;
+# removing the line does not remove it from the repository's history.)
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "YOUR_API_KEY_HERE")
 
 VOICE_CONFIG = {
     "voice_id":          "3jR9BuQAOPMWUjWpi0ll",    # from elevenlabs.io/app/voice-lab
@@ -811,7 +825,7 @@ def main():
     # Validate config
     if not args.dry_run:
         if ELEVENLABS_API_KEY == "YOUR_API_KEY_HERE":
-            print("[ERROR] Set ELEVENLABS_API_KEY at the top of this script.")
+            print("[ERROR] Set the ELEVENLABS_API_KEY environment variable.")
             sys.exit(1)
         if VOICE_CONFIG["voice_id"] == "YOUR_VOICE_ID_HERE":
             print("[ERROR] Set voice_id in VOICE_CONFIG at the top of this script.")

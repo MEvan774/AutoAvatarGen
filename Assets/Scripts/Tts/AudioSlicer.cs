@@ -56,6 +56,23 @@ namespace MugsTech.Tts
 
             /// <summary>Shortest quiet run that counts as a section pause.</summary>
             public float MinPauseSeconds = 0.12f;
+
+            /// <summary>
+            /// eleven_v4 (VoiceTiming.CutMidSilence; the chunked job sets it from
+            /// the model). v4 packs a break's pause into the LAST WORD of the
+            /// sentence before it: the next section's first character starts at
+            /// the silence's end, so the gap the alignment proposes is a sliver
+            /// 0.00–0.03 s wide, hard against the next word. On the 2026-11-17
+            /// lab takes that sent 50 of 92 cuts through the "alignment has
+            /// drifted" rescue and put the rest 3–13 ms before the next word.
+            ///
+            /// With this on, the window is [start of the section's last word,
+            /// start of the next section] and the cut goes in the middle of the
+            /// longest silence that window touches (the break's own at 92 of 92).
+            /// The audio is still the authority: no such silence = the old path,
+            /// rescue and all.
+            /// </summary>
+            public bool CutMidSilence;
         }
 
         /// <summary>One section's slice of the chunk.</summary>
@@ -146,10 +163,22 @@ namespace MugsTech.Tts
                 float gapStart = alignment.EndOfLastVisible(spans[i].Start, spans[i].End);
                 float gapEnd   = alignment.StartOfFirstVisible(spans[i + 1].Start, spans[i + 1].End);
 
-                boundarySeconds[i] = FindBoundary(
-                    audio.Samples, channels, sampleRate, frames,
-                    windowDb, windowFrames, threshold,
-                    gapStart, gapEnd, options, out string note, out bool severe);
+                string note; bool severe;
+                if (options.CutMidSilence &&
+                    TryFindSilenceTouching(windowDb, windowFrames, sampleRate, threshold,
+                        alignment.StartOfLastWord(spans[i].Start, spans[i].End), gapEnd,
+                        options, out float middle))
+                {
+                    boundarySeconds[i] = middle;
+                    note = null; severe = false;
+                }
+                else
+                {
+                    boundarySeconds[i] = FindBoundary(
+                        audio.Samples, channels, sampleRate, frames,
+                        windowDb, windowFrames, threshold,
+                        gapStart, gapEnd, options, out note, out severe);
+                }
 
                 if (note != null)
                 {
@@ -294,6 +323,55 @@ namespace MugsTech.Tts
                 ? QuietestPoint(samples, channels, sampleRate, frames,
                                 gapStart, gapEnd, options.CutSearchWindowSeconds)
                 : anchor;
+        }
+
+        /// <summary>
+        /// The middle of the longest quiet run (at least
+        /// <see cref="Options.MinPauseSeconds"/>) that reaches into
+        /// [<paramref name="fromSeconds"/>, <paramref name="toSeconds"/>]. The
+        /// run may begin before the window or end after it: the window says
+        /// which silence, the audio says where it is. Ties go to the run that
+        /// ends nearest the window's end, where the next section begins.
+        /// </summary>
+        public static bool TryFindSilenceTouching(
+            float[] windowDb, int windowFrames, int sampleRate, float thresholdDb,
+            float fromSeconds, float toSeconds, Options options, out float center)
+        {
+            center = 0f;
+            if (windowDb == null || windowDb.Length == 0 || !(toSeconds > fromSeconds)) return false;
+            options = options ?? new Options();
+
+            float perWindow = windowFrames / (float)sampleRate;
+            int   minRun    = Math.Max(1, (int)Math.Round(options.MinPauseSeconds / perWindow));
+
+            bool  found = false;
+            int   bestLength = 0;
+            float bestEndGap = float.MaxValue;
+            int   runStart = -1;
+
+            for (int w = 0; w <= windowDb.Length; w++)
+            {
+                bool quiet = w < windowDb.Length && windowDb[w] < thresholdDb;
+                if (quiet) { if (runStart < 0) runStart = w; continue; }
+                if (runStart < 0) continue;
+
+                float runFrom = runStart * perWindow, runTo = w * perWindow;
+                int   length  = w - runStart;
+                runStart = -1;
+
+                if (runFrom > toSeconds) break;             // past the window: nothing later touches it
+                if (length < minRun || runTo <= fromSeconds) continue;
+
+                float endGap = Math.Abs(runTo - toSeconds);
+                if (length > bestLength || (length == bestLength && endGap < bestEndGap))
+                {
+                    bestLength = length;
+                    bestEndGap = endGap;
+                    center     = 0.5f * (runFrom + runTo);
+                    found      = true;
+                }
+            }
+            return found;
         }
 
         /// <summary>Does any envelope window in the range fall below the speech threshold?</summary>

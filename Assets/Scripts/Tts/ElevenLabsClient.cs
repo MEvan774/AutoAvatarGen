@@ -18,7 +18,9 @@ namespace MugsTech.Tts
     public static class ElevenLabsClient
     {
         public const string DefaultVoiceId = "3jR9BuQAOPMWUjWpi0ll";
-        public const string DefaultModelId = "eleven_v3";
+        /// <summary>The model a request names when its caller names none.
+        /// The setting itself lives in <see cref="VoiceModel"/>.</summary>
+        public const string DefaultModelId = VoiceModel.DefaultId;
 
         // Raw 16-bit PCM: nothing to decode, trivially sliceable, lossless
         // through the cut. Plan-gated — 44.1kHz PCM/WAV needs Pro tier or
@@ -26,7 +28,8 @@ namespace MugsTech.Tts
         public const string OutputFormatPcm44100 = "pcm_44100";
         public const string OutputFormatMp3      = "mp3_44100_128";
 
-        // eleven_v3 takes three discrete stability values.
+        // eleven_v3 takes three discrete stability values. eleven_v4 takes any
+        // value from 0 to 1 and is never snapped (VoiceModel.ClampStability).
         public const float StabilityCreative = 0.0f;
         public const float StabilityNatural  = 0.5f;
         public const float StabilityRobust   = 1.0f;
@@ -40,7 +43,9 @@ namespace MugsTech.Tts
 
         /// <summary>
         /// Voice settings sent in the request body. Defaults mirror the
-        /// Python script's VOICE_CONFIG.
+        /// Python script's VOICE_CONFIG. eleven_v4 has Stability and Similarity
+        /// only: for it <c>style</c> and <c>use_speaker_boost</c> stay in this
+        /// object and are left out of the request (see BuildRequestJson).
         /// </summary>
         [Serializable]
         public class VoiceSettings
@@ -387,10 +392,20 @@ namespace MugsTech.Tts
             public TtsAlignment alignment;
         }
 
-        private static string BuildRequestJson(
+        /// <summary>
+        /// The request body. What it holds follows the model:
+        ///   • eleven_v4 — <c>stability</c> and <c>similarity_boost</c>, the two
+        ///     settings it has (the call tested on 2026-11-17). Written by hand,
+        ///     so a stability of 0.35 goes out as <c>0.35</c>.
+        ///   • anything else — every field of <see cref="VoiceSettings"/> through
+        ///     JsonUtility, byte for byte what v3 has always been sent.
+        /// </summary>
+        public static string BuildRequestJson(
             string text, string modelId, VoiceSettings settings, int? seed)
         {
             settings = settings ?? new VoiceSettings();
+            if (VoiceModel.IsV4(modelId)) return BuildV4RequestJson(text, modelId, settings, seed);
+
             if (!seed.HasValue)
             {
                 return JsonUtility.ToJson(new RequestPayload {
@@ -406,6 +421,43 @@ namespace MugsTech.Tts
                 voice_settings = settings,
                 seed           = Math.Max(0, seed.Value),
             });
+        }
+
+        static string BuildV4RequestJson(
+            string text, string modelId, VoiceSettings settings, int? seed)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var sb = new StringBuilder((text ?? "").Length + 160);
+            sb.Append("{\"text\":").Append(TtsGenerationJob.JsonString(text ?? ""))
+              .Append(",\"model_id\":").Append(TtsGenerationJob.JsonString(modelId.Trim()))
+              .Append(",\"voice_settings\":{\"stability\":")
+              .Append(VoiceModel.ClampStability(modelId, settings.stability).ToString("0.####", inv))
+              .Append(",\"similarity_boost\":")
+              .Append(settings.similarity_boost.ToString("0.####", inv))
+              .Append('}');
+            if (seed.HasValue) sb.Append(",\"seed\":").Append(Math.Max(0, seed.Value).ToString(inv));
+            return sb.Append('}').ToString();
+        }
+
+        /// <summary>The voice settings a request to <paramref name="modelId"/>
+        /// carries, as the render manifest records them: only what is sent.</summary>
+        public static string SentVoiceSettingsJson(string modelId, VoiceSettings settings, string indent)
+        {
+            settings = settings ?? new VoiceSettings();
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            var sb = new StringBuilder();
+            sb.Append(indent).Append("\"stability\": ")
+              .Append(VoiceModel.ClampStability(modelId, settings.stability).ToString("0.###", inv)).Append(",\n");
+            sb.Append(indent).Append("\"similarity_boost\": ")
+              .Append(settings.similarity_boost.ToString("0.###", inv));
+            if (!VoiceModel.IsV4(modelId))
+            {
+                sb.Append(",\n").Append(indent).Append("\"style\": ")
+                  .Append(settings.style.ToString("0.###", inv)).Append(",\n");
+                sb.Append(indent).Append("\"use_speaker_boost\": ")
+                  .Append(settings.use_speaker_boost ? "true" : "false");
+            }
+            return sb.Append('\n').ToString();
         }
 
         private static TtsResult ParseResponse(string json)

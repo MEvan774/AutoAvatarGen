@@ -17,6 +17,9 @@ in a recording scene while Evereal VideoCapture records → muxed mp4.
    panel, `--auto-script`, and **MugsTech ▸ TTS ▸ Chunked Pipeline** in the
    editor. `ffmpeg` on PATH (or `AutoAvatarGen.FfmpegPath`) is used for
    loudness and mp3 encoding; without it the pipeline still runs and writes WAV.
+   The voice is **eleven_v4** unless the *Voice* row of the TTS panel (or the
+   editor window's *Model*) is switched to eleven_v3 — a setting, not a build
+   option (`Tts/VoiceModel`; see *Hard-won constraints*).
 2. **Recording** — `RecordingSession.Begin()` swaps to `SampleScene`;
    `ScriptFileReader` auto-loads the selected generation and dispatches to
    `MediaPresentationSystem`/`HybridAvatarSystem`, which starts
@@ -37,9 +40,10 @@ generation folder to its *Save copies to* folder (PlayerPref
 `AutoAvatarGen.GenerationSaveFolder`, default `Documents/AutoAvatarGen Saves`,
 empty = off) as `<yyyy-MM-dd_HH-mm> <Video name>` (`GenerationSave`), then
 makes the **copy** the selected generation so tag edits and recordings stay
-with it. The output library lists the save folder too. The two extra panel rows
+with it. The output library lists the save folder too. The extra panel rows
+(these two, and the *Voice* row above them: model button + v4 stability field)
 are cloned from the output folder row at runtime (`BuildSaveRows`), which grows
-the panel by two rows instead of touching the scene.
+the panel by three rows instead of touching the scene.
 
 ## Headless-style automation (Claude Cowork)
 
@@ -53,7 +57,9 @@ python Automation/generate_video.py path\to\script.txt
 
 Real GPU rendering is required, so the window opens and a run takes about the
 video's length; there is no true `-batchmode` mode. Each run spends ElevenLabs
-credits. One run at a time.
+credits. One run at a time. The result JSON's `voiceModel` / `voiceStability`
+are read from the generation's `render_manifest.json` — the voice the take was
+rendered with, so a reused v3 generation says v3 whatever the setting is.
 
 ## Script format
 
@@ -252,6 +258,48 @@ before any card or media parser sees the script).
   tail-mismatch re-render check, and `SegmentSequencer.correctTimingFromAudio`
   (measures real speech spans/pauses from the decoded clips). Don't remove any
   of them.
+- **The voice model is a setting, and a take's timing follows its generation,
+  never the setting.** `Tts/VoiceModel`: PlayerPref `AutoAvatarGen.TtsModel`
+  (absent = `eleven_v4`) and `AutoAvatarGen.TtsStability` (v4 only, 0–1, default
+  0.5, never snapped; v3 stays 0.0 through `SnapStability`). A null
+  `Config.ModelId` / `ChunkedOptions.Stability` means "the setting", resolved
+  once in `TtsGenerationJob.Run()`. The v4 request is hand-written JSON with
+  `stability` + `similarity_boost` only (v4 has no Style / Speed, and nothing
+  else was tested); the v3 request is still JsonUtility's four fields, byte for
+  byte (pinned in `Voice_RequestJsonFollowsTheModel`), and the render manifest
+  records only what was sent. Everything that TIMES a take asks
+  `VoiceTiming.For(VoiceModel.OfGeneration(folder))` — the `model` in that
+  generation's `render_manifest.json`, none = v3 — so a v3 generation is
+  re-timed and re-recorded with v3's numbers on any build (a dry-run replay
+  re-slices with the cached take's model too). Tag-only updates make no TTS
+  call and read no voice setting.
+- **eleven_v4 packs a break's pause into the sentence's last word** (the
+  2026-11-17 lab takes; three of them are the fixtures in
+  `Editor/TestData/VoiceLab~`). The newline and cue characters start at the
+  END of the silence, a break is 0.25–0.5 s where v3 left 0.6–0.9 s, and a
+  section break gets no more than a line break. Four rules answer that, all in
+  `VoiceTiming.V4`, none reached by a v3 generation:
+  (1) *the cut* — the alignment's gap is a 0–30 ms sliver hard against the next
+  word (on the two v4 fixtures the v3 rule needed its "drifted" rescue at 19 of
+  46 breaks and once cut outside silence), so
+  `AudioSlicer.Options.CutMidSilence` cuts in the middle of the longest silence
+  touching [the section's last word's start, the next section's start]; with
+  no such silence the old path runs, fallback included.
+  (2) *the pause floor* is 0.20 s (the shortest v4 break measured 0.26 s by the
+  engine's −35 dBFS rule; quiet runs inside words stay under 0.20 s).
+  (3) *one beat, one frame* — an own-line tag is stamped on the next word's
+  onset already, so the snap rarely fires and the join had nothing to start
+  from: stacked tags came out more than a frame apart at 12 of 46 breaks.
+  `TagBeats.Resolve(…, firstTagSetsBeat)`: the run's first tag sets the beat;
+  a snap later in the run still wins and then pulls the EARLIER tags of the
+  run onto its onset — the one place a tag moves later, v4 only.
+  (4) *captions* — a sentence-final word's end time is the silence's end, so
+  `CaptionBuilder.EndWordsAtPauses` ends it where its measured pause begins
+  (else a tag that opens a `{Pause}` gap is "due before the words are said"
+  and the phrase is skipped).
+  Forced alignment has never run on this account (every `render_manifest.json`
+  says `synthesis`), so these rules read v4's synthesis alignment directly.
+  The `Voice_*` self-tests hold all four on the real takes.
 - **The voice is generated in 2 long takes, not one per section** — v3 re-rolls
   its vocal character on every generation, so a request per section produced an
   audible "different person" jolt at each seam, and request stitching

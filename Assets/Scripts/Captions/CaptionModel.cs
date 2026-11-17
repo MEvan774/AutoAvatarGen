@@ -146,6 +146,7 @@ namespace MugsTech.Captions
             public Func<float, bool, float> Map;        // section seconds → take seconds (bool: snap a start onto a word onset)
             public List<(float From, float To)> Pauses; // measured pauses, take seconds
             public float SpeechEnd = float.NaN;         // the section's measured end of speech, take seconds (NaN = unknown)
+            public bool WordEndsAtPause;                // voiced on eleven_v4 (VoiceTiming): see EndWordsAtPauses
         }
 
         public static CaptionTrack Build(IList<Section> sections)
@@ -156,6 +157,7 @@ namespace MugsTech.Captions
                 List<CaptionWord> words = Narration(s.Script ?? "", s.Index, out var stamps);
                 track.Words += words.Count;
                 track.Unmatched += Attach(words, s.Words, s.Map);
+                if (s.WordEndsAtPause) EndWordsAtPauses(words, s.Pauses);
                 ApplyFallback(words, stamps, s.SpeechEnd);
                 foreach (List<CaptionWord> group in Split(words))
                 {
@@ -262,6 +264,35 @@ namespace MugsTech.Captions
         // ---------------------------------------------------------------------
         // Times from the word timings
         // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// eleven_v4 only. v4 gives the pause after a sentence to that
+        /// sentence's last word: on the 2026-11-17 lab takes the word's end
+        /// time was the END of the silence at 90 of 92 breaks (v3 ends the word
+        /// where the silence begins). Left alone, a phrase's SpokenEnd would
+        /// run through the pause — and through a {Pause}'s added silence — so a
+        /// tag written above that {Pause}, which fires as the gap opens, would
+        /// be "due before its words are said" and the phrase would be skipped.
+        /// A word's sound stops where a measured pause begins inside it, so
+        /// that is where it ends. Returns how many words were shortened.
+        /// </summary>
+        public static int EndWordsAtPauses(List<CaptionWord> words, List<(float From, float To)> pauses)
+        {
+            if (words == null || pauses == null || pauses.Count == 0) return 0;
+            int shortened = 0;
+            foreach (CaptionWord w in words)
+            {
+                if (!w.Timed) continue;
+                foreach (var p in pauses)
+                {
+                    if (p.From <= w.RawStart || p.From >= w.End) continue;
+                    w.End = p.From;
+                    shortened++;
+                    break;
+                }
+            }
+            return shortened;
+        }
 
         /// <summary>
         /// Lends each script word the time of the matching timed word (in order,

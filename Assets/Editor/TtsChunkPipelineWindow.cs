@@ -97,19 +97,44 @@ public class TtsChunkPipelineWindow : EditorWindow
                 "Falls back to a balanced split when no section matches."), boundarySection);
         maxChunkChars    = EditorGUILayout.IntField(
             new GUIContent("Max chars / chunk", "Overflow re-splits into more chunks at section " +
-                "boundaries. v3's documented limit is 5,000."), maxChunkChars);
+                "boundaries. Documented limits: v3 5,000, v4 10,000."), maxChunkChars);
         overlapSentences = EditorGUILayout.IntSlider(
             new GUIContent("Overlap sentences", "Trailing sentences of the previous chunk, " +
                 "prepended so the model reads into this one from the same context. " +
                 "Their audio is cut off afterwards."), overlapSentences, 0, 4);
         minOverlapChars  = EditorGUILayout.IntField("Min overlap chars", minOverlapChars);
         keepStageDirections = EditorGUILayout.Toggle(
-            new GUIContent("Send [stage directions]", "v3 reads bracketed cues as audio tags. " +
+            new GUIContent("Send [stage directions]", "v3 and v4 read bracketed cues as audio tags. " +
                 "Turn off if a take speaks them aloud."), keepStageDirections);
 
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Voice", EditorStyles.boldLabel);
-        stabilityIndex = EditorGUILayout.Popup("Stability", stabilityIndex, StabilityNames);
+        // The model and v4's stability are the app's own settings (VoiceModel,
+        // PlayerPrefs): changing them here changes them for the TTS panel and
+        // --auto-script too. v3 keeps its three steps, chosen per run here.
+        string model = VoiceModel.CurrentId;
+        int modelIndex = Mathf.Max(0, System.Array.IndexOf(VoiceModel.Choices, model));
+        int pickedModel = EditorGUILayout.Popup(
+            new GUIContent("Model", "The voice setting every generation uses. A generation " +
+                "already voiced keeps the model it was made with."), modelIndex, VoiceModel.Choices);
+        if (pickedModel != modelIndex)
+        {
+            VoiceModel.CurrentId = VoiceModel.Choices[pickedModel];
+            model = VoiceModel.CurrentId;
+        }
+        if (VoiceModel.IsV4(model))
+        {
+            float stored = VoiceModel.CurrentV4Stability;
+            float picked = EditorGUILayout.Slider(
+                new GUIContent("Stability", "v4: any value from 0 to 1, sent as it is. Lower is " +
+                    "more expressive. 0.5 is v4's own default."), stored, 0f, 1f);
+            picked = Mathf.Round(picked * 100f) / 100f;
+            if (!Mathf.Approximately(picked, stored)) VoiceModel.CurrentV4Stability = picked;
+        }
+        else
+        {
+            stabilityIndex = EditorGUILayout.Popup("Stability", stabilityIndex, StabilityNames);
+        }
         seed = EditorGUILayout.IntField(
             new GUIContent("Seed", "0 generates one per run. The same seed goes on every chunk " +
                 "of a video and is written into render_manifest.json."), seed);
@@ -290,7 +315,10 @@ public class TtsChunkPipelineWindow : EditorWindow
                 Chunking  = BuildChunkingOptions(),
                 Slicing   = new AudioSlicer.Options { EdgePadSeconds = edgePadMs / 1000f },
                 Seed      = seed > 0 ? seed : (int?)null,
-                Stability = StabilityValues[Mathf.Clamp(stabilityIndex, 0, StabilityValues.Length - 1)],
+                // v4: null = the stored setting shown above. v3: this run's step.
+                Stability = VoiceModel.IsV4(VoiceModel.CurrentId)
+                    ? (float?)null
+                    : StabilityValues[Mathf.Clamp(stabilityIndex, 0, StabilityValues.Length - 1)],
                 PreferredOutputFormat = preferPcm
                     ? ElevenLabsClient.OutputFormatPcm44100
                     : ElevenLabsClient.OutputFormatMp3,

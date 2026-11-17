@@ -159,6 +159,15 @@ public class SegmentSequencer : MonoBehaviour
     /// </summary>
     public static readonly List<PauseInserter.Entry> LastPauseReport = new List<PauseInserter.Entry>();
 
+    /// <summary>The model the loaded generation was voiced with (its
+    /// render_manifest.json; none = eleven_v3), for the take's log and the
+    /// --auto-script result. Null until a generation has been loaded.</summary>
+    public static string LastVoiceModel { get; private set; }
+
+    // The timing rules of THAT model — never of the current voice setting: a
+    // generation voiced on v3 is timed with v3's numbers on any build.
+    VoiceTiming voice = VoiceTiming.V3;
+
     public IEnumerator LoadAndBuild(string folder)
     {
         combinedClip = null;
@@ -168,6 +177,12 @@ public class SegmentSequencer : MonoBehaviour
         LastPauseReport.Clear();
         LastCaptions = null;
         LastCaptionsClip = null;
+
+        LastVoiceModel = VoiceModel.OfGeneration(folder);
+        voice = VoiceTiming.For(LastVoiceModel);
+        Debug.Log($"[SegmentSequencer] Voiced on {LastVoiceModel}: pauses from {voice.MinRealPauseSeconds:F2} s" +
+                  (voice.FirstTagSetsBeat ? ", a run's first tag sets its beat" : "") +
+                  (voice.WordEndsAtPause ? ", words end where their pause begins" : "") + ".");
 
         string manifestPath = Path.Combine(folder, "manifest.json");
         if (!File.Exists(manifestPath))
@@ -274,7 +289,7 @@ public class SegmentSequencer : MonoBehaviour
             // Ground the manifest's alignment-derived speech span (and later every
             // marker) against the audio that was actually rendered.
             SegmentAudioTiming timing = correctTimingFromAudio
-                ? AnalyzeSegmentAudio(clip, seg)
+                ? AnalyzeSegmentAudio(clip, seg, voice.MinRealPauseSeconds)
                 : null;
             timings[i] = timing;
             if (timing != null)
@@ -410,7 +425,8 @@ public class SegmentSequencer : MonoBehaviour
                     paused = PauseInserter.Apply(seg.slug, pauseTags[i], buffer, channels, sampleRate,
                         trimStart[i],
                         t => timing != null ? timing.MapToReal(t, false) : t,
-                        timing != null ? ToGaps(timing.pauses) : null);
+                        timing != null ? ToGaps(timing.pauses) : null,
+                        voice.MinRealPauseSeconds);
                     buffer = paused.Samples;
                 }
                 samples.AddRange(buffer);
@@ -421,7 +437,8 @@ public class SegmentSequencer : MonoBehaviour
             // into the previous segment after we trim leading silence.
             float delta        = globalOffset - trimStart[i];
             float minAllowedT  = globalOffset;
-            string shifted     = ShiftTimestamps(scripts[i], delta, minAllowedT, timing, paused?.Shift, seg.slug);
+            string shifted     = ShiftTimestamps(scripts[i], delta, minAllowedT, timing, paused?.Shift, seg.slug,
+                                                 voice.FirstTagSetsBeat);
 
             // The opening transition is the one marker that must fire BEFORE its
             // own segment's audio. Position it from the END of the gap — back off
@@ -467,6 +484,7 @@ public class SegmentSequencer : MonoBehaviour
                         return Mathf.Max(floorT, u + silence(u) + d);
                     },
                     Pauses = gaps,
+                    WordEndsAtPause = voice.WordEndsAtPause,
                     // The measured end of speech, on the take's clock (every inserted {Pause} is before it).
                     SpeechEnd = speechEnd[i] + d + (pz != null ? pz.TotalInserted : 0f),
                 });
@@ -780,7 +798,7 @@ public class SegmentSequencer : MonoBehaviour
 
     static string ShiftTimestamps(string script, float deltaSeconds, float minAllowedT,
                                   SegmentAudioTiming timing = null, PauseInserter.Shift pauses = null,
-                                  string slug = null)
+                                  string slug = null, bool firstTagSetsBeat = false)
     {
         // Alignment timeline -> measured-audio timeline first, for every T= of
         // the section at once: tags written on one beat (no spoken word between
@@ -793,14 +811,17 @@ public class SegmentSequencer : MonoBehaviour
             var joins = new List<TagBeats.Join>();
             float[] at = TagBeats.Resolve(stamps,
                 t => new TagBeats.Mapped(timing.MapToReal(t, true, out bool snapped), snapped),
-                timing.PauseSpans(), joins);
+                timing.PauseSpans(), joins, firstTagSetsBeat);
             measured = new Dictionary<int, float>(stamps.Count);
             for (int i = 0; i < stamps.Count; i++) measured[stamps[i].Index] = at[i];
             foreach (TagBeats.Join j in joins)
-                Debug.Log($"[SegmentSequencer] {slug}: {j.Stamp.Name} fires with {j.SnappedBy?.Name} on the " +
-                          $"word onset at {j.To:F2}s (video " +
+                Debug.Log($"[SegmentSequencer] {slug}: {j.Stamp.Name} fires with {j.SnappedBy?.Name} " +
+                          (j.OnFirstTag ? "on the run's first tag" : "on the word onset") +
+                          $" at {j.To:F2}s (video " +
                           $"{Clock(Mathf.Max(minAllowedT, j.To + deltaSeconds + (pauses != null ? pauses.InsertedBefore(j.Stamp.Index) : 0f)))}) — " +
-                          $"the alignment had it {j.From - j.To:F2}s into the next line.");
+                          (j.From < j.To
+                              ? $"the alignment had it {j.To - j.From:F2}s early, before the silence."
+                              : $"the alignment had it {j.From - j.To:F2}s into the next line."));
         }
 
         return _TPattern.Replace(script, match =>
@@ -839,7 +860,7 @@ public class SegmentSequencer : MonoBehaviour
     /// </summary>
     public static string ShiftSectionForTest(string script, float delta, float minAllowedT,
         float alignStart, float alignEnd, float realStart, float realEnd, List<Vector2> pauses,
-        PauseInserter.Shift pauseShift, out Func<float, bool, float> map)
+        PauseInserter.Shift pauseShift, out Func<float, bool, float> map, VoiceTiming voice = null)
     {
         var timing = new SegmentAudioTiming
         {
@@ -853,7 +874,8 @@ public class SegmentSequencer : MonoBehaviour
             float u = timing.MapToReal(x, snap);
             return Mathf.Max(minAllowedT, u + (pauseShift != null ? InsertedBeforeTime(pauseShift, u) : 0f) + delta);
         };
-        return ShiftTimestamps(script, delta, minAllowedT, timing, pauseShift, "test");
+        return ShiftTimestamps(script, delta, minAllowedT, timing, pauseShift, "test",
+                               voice != null && voice.FirstTagSetsBeat);
     }
 
     static string Clock(float seconds)
@@ -880,7 +902,9 @@ public class SegmentSequencer : MonoBehaviour
     //             word has begun — it snaps forward to the pause end (<= 0.9s),
     //             the measured onset of the word it was authored against.
     //             Pauses are "below -35 dBFS for >= 0.25s", which counts the
-    //             breaths eleven_v3 renders between sentences as pause.
+    //             breaths eleven_v3 renders between sentences as pause. A
+    //             generation voiced on eleven_v4 uses 0.20s (VoiceTiming): its
+    //             breaks are 0.25-0.5s, the shortest measured 0.26s.
     // -----------------------------------------------------------------------
 
     const float EnvelopeWindowSeconds = 0.02f;
@@ -888,7 +912,7 @@ public class SegmentSequencer : MonoBehaviour
     const float SpanThresholdMinDb    = -48f;
     const float SpanThresholdMaxDb    = -30f;
     const float PauseThresholdDb      = -35f;
-    const float MinRealPauseSeconds   = 0.25f;
+    const float MinRealPauseSeconds   = 0.25f;   // v3; the generation's own is VoiceTiming.MinRealPauseSeconds
     const float SpanAgreementSeconds  = 0.25f;
     const float PauseSnapMaxSeconds   = 0.9f;
     const float TrimPreRollSeconds    = 0.05f;
@@ -948,7 +972,8 @@ public class SegmentSequencer : MonoBehaviour
         }
     }
 
-    static SegmentAudioTiming AnalyzeSegmentAudio(AudioClip clip, SegmentManifestEntry seg)
+    static SegmentAudioTiming AnalyzeSegmentAudio(AudioClip clip, SegmentManifestEntry seg,
+                                                  float minPauseSeconds = MinRealPauseSeconds)
     {
         var timing = new SegmentAudioTiming {
             alignStart = Mathf.Max(0f, seg.speech_start),
@@ -1005,8 +1030,8 @@ public class SegmentSequencer : MonoBehaviour
         timing.rescale   = Mathf.Abs(timing.realStart - timing.alignStart) > SpanAgreementSeconds
                         || Mathf.Abs(timing.realEnd   - timing.alignEnd)   > SpanAgreementSeconds;
 
-        // Pauses inside the speech span (quiet run >= MinRealPauseSeconds).
-        int minPauseWindows = Mathf.Max(1, Mathf.RoundToInt(MinRealPauseSeconds / EnvelopeWindowSeconds));
+        // Pauses inside the speech span (quiet run >= the model's floor).
+        int minPauseWindows = Mathf.Max(1, Mathf.RoundToInt(minPauseSeconds / EnvelopeWindowSeconds));
         int runStart = -1;
         for (int w = firstLoud; w <= lastLoud + 1; w++)
         {

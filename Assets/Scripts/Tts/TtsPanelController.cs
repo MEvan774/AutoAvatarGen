@@ -92,6 +92,13 @@ namespace MugsTech.Tts
         Button         saveFolderBrowseButton;
         TMP_InputField videoNameInput;
 
+        // The voice (VoiceModel): one more cloned row above those two — the
+        // model on the row's button (click switches eleven_v4 / eleven_v3) and
+        // v4's stability in its field. Both are settings, read when a
+        // generation starts; tag edits and recordings never read them.
+        TMP_InputField stabilityInput;
+        Button         modelButton;
+
         // Two-value animation model: the job feeds `targetProgress` (the real
         // value we want to reach), Update() smoothly walks `displayedProgress`
         // toward it. Decoupling these two means the bar always animates even
@@ -137,6 +144,10 @@ namespace MugsTech.Tts
             if (videoNameInput != null)
                 videoNameInput.onValueChanged.AddListener(v =>
                     PlayerPrefs.SetString(GenerationSave.VideoNamePrefKey, v));
+            if (modelButton != null)
+                modelButton.onClick.AddListener(OnModelClicked);
+            if (stabilityInput != null)
+                stabilityInput.onEndEdit.AddListener(OnStabilityEdited);
 
             // Hide on load — panel only shows when Show() is called.
             panelRoot.SetActive(false);
@@ -157,6 +168,7 @@ namespace MugsTech.Tts
                 saveFolderInput.text = GenerationSave.ConfiguredFolder;
             if (videoNameInput != null)
                 videoNameInput.text = PlayerPrefs.GetString(GenerationSave.VideoNamePrefKey, "");
+            RefreshVoiceRow();
 
             RefreshApiKeyDisplay();
             SetStatus("Ready.", neutral: true);
@@ -368,7 +380,7 @@ namespace MugsTech.Tts
             float rowHeight = outputRow.sizeDelta.y;
             float step      = rowHeight + 8f;
             float split     = actionRow.anchoredPosition.y + actionRow.sizeDelta.y * (1f - actionRow.pivot.y);
-            MakeRoom(panel, split, 2f * step);
+            MakeRoom(panel, split, 3f * step);
 
             // Stacked up from the action row's new top edge, 8 px apart.
             float nameY = split - step + 8f + rowHeight * 0.5f;
@@ -379,6 +391,67 @@ namespace MugsTech.Tts
                 "Names the saved copy — empty uses the first chapter title", nameY,
                 keepBrowse: false, out _);
             if (videoNameInput != null) videoNameInput.characterLimit = 60;
+
+            // The voice row sits on top of the two; its Browse button becomes
+            // the model switch.
+            stabilityInput = CloneOutputRow(outputRow, "VoiceRow", "Voice",
+                "Stability 0–1", nameY + 2f * step,
+                keepBrowse: true, out modelButton);
+            if (stabilityInput != null) stabilityInput.characterLimit = 5;
+            if (modelButton != null)
+            {
+                var label = modelButton.GetComponentInChildren<TMP_Text>(true);
+                if (label != null)
+                {
+                    label.enableAutoSizing = true;
+                    label.fontSizeMax = label.fontSize;
+                    label.fontSizeMin = 10f;
+                }
+            }
+        }
+
+        // ---- voice ------------------------------------------------------
+
+        void OnModelClicked()
+        {
+            if (busy) return;
+            VoiceModel.CurrentId = VoiceModel.Next(VoiceModel.CurrentId);
+            RefreshVoiceRow();
+            SetStatus(VoiceModel.IsV4(VoiceModel.CurrentId)
+                ? $"New generations are voiced on {VoiceModel.CurrentId}."
+                : $"New generations are voiced on {VoiceModel.CurrentId} (stability 0, style 0.35, as before).",
+                neutral: true);
+        }
+
+        void OnStabilityEdited(string text)
+        {
+            if (!VoiceModel.IsV4(VoiceModel.CurrentId)) { RefreshVoiceRow(); return; }
+            if (VoiceModel.TryParseStability(text, out float v))
+                VoiceModel.CurrentV4Stability = v;
+            else
+                SetStatus("Stability is a number from 0 to 1 — kept " +
+                          VoiceModel.FormatStability(VoiceModel.CurrentV4Stability) + ".", warning: true);
+            RefreshVoiceRow();
+        }
+
+        // v3 has three fixed steps and the show uses the first (0), so its
+        // stability is shown, not edited; v4's is the stored setting.
+        void RefreshVoiceRow()
+        {
+            string model = VoiceModel.CurrentId;
+            bool   v4    = VoiceModel.IsV4(model);
+            if (modelButton != null)
+            {
+                var label = modelButton.GetComponentInChildren<TMP_Text>(true);
+                if (label != null) label.text = model;
+            }
+            if (stabilityInput != null)
+            {
+                stabilityInput.SetTextWithoutNotify(v4
+                    ? VoiceModel.FormatStability(VoiceModel.CurrentV4Stability)
+                    : "0 (fixed on v3)");
+                stabilityInput.interactable = v4 && !busy;
+            }
         }
 
         // Grows 'panel' by 'added' and opens a gap of that height at splitY.
@@ -706,6 +779,9 @@ namespace MugsTech.Tts
             if (backButton     != null) backButton.interactable     = on;
             if (loadGenerationButton != null) loadGenerationButton.interactable = on;
             if (updateTagsButton     != null) updateTagsButton.interactable     = on;
+            if (modelButton          != null) modelButton.interactable          = on;
+            if (stabilityInput       != null)
+                stabilityInput.interactable = on && VoiceModel.IsV4(VoiceModel.CurrentId);
         }
 
         // ---- folder picker ----------------------------------------------

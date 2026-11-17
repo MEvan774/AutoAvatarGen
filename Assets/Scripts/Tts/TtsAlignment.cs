@@ -88,6 +88,24 @@ namespace MugsTech.Tts
             return end > 0 ? character_end_times_seconds[Clamp(end - 1, 0, Length - 1)] : 0f;
         }
 
+        /// <summary>
+        /// Start time of the last word in <c>[start, end)</c>: the first
+        /// character of its last run of non-whitespace. eleven_v4 packs the
+        /// pause after a sentence into that word's span, so this is where the
+        /// search for a section's closing silence begins
+        /// (AudioSlicer.Options.CutMidSilence).
+        /// </summary>
+        public float StartOfLastWord(int start, int end)
+        {
+            end   = Clamp(end,   0, Length);
+            start = Clamp(start, 0, end);
+            int i = end - 1;
+            while (i >= start && IsBlank(characters[i])) i--;
+            if (i < start) return start < Length ? character_start_times_seconds[Clamp(start, 0, Length - 1)] : 0f;
+            while (i > start && !IsBlank(characters[i - 1])) i--;
+            return character_start_times_seconds[i];
+        }
+
         static bool IsBlank(string ch)
             => string.IsNullOrEmpty(ch) || char.IsWhiteSpace(ch[0]);
 

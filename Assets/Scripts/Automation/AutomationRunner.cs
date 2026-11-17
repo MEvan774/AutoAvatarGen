@@ -318,7 +318,7 @@ public class AutomationRunner : MonoBehaviour
             Finish(false, "tts",
                 "TTS finished but these segments stalled (markers won't line up): " +
                 string.Join(", ", ttsResult.StalledSegments) +
-                ". Re-run the job; eleven_v3 is non-deterministic so a retry usually clears it.");
+                ". Re-run the job; the voice model is non-deterministic so a retry usually clears it.");
             yield break;
         }
         }   // end of the fresh-TTS branch
@@ -441,6 +441,15 @@ public class AutomationRunner : MonoBehaviour
         sb.Append("  \"segmentsTotal\": ").Append(ttsResult != null ? ttsResult.SegmentsTotal : 0).Append(",\n");
         sb.Append("  \"reusedGeneration\": ").Append(reuseGeneration != null ? "true" : "false").Append(",\n");
         sb.Append("  \"tagUpdate\": ").Append(JsonStr(tagUpdateMessage)).Append(",\n");
+        // The voice this take was RENDERED with: the generation's own render
+        // manifest, so a reused v3 generation reports v3 whatever the voice
+        // setting is now. No render manifest = eleven_v3, stability unknown.
+        bool haveGeneration = !string.IsNullOrEmpty(generationFolder) && Directory.Exists(generationFolder);
+        float? voiceStability = haveGeneration ? VoiceModel.StabilityOfGeneration(generationFolder) : null;
+        sb.Append("  \"voiceModel\": ")
+          .Append(haveGeneration ? JsonStr(VoiceModel.OfGeneration(generationFolder)) : "null").Append(",\n");
+        sb.Append("  \"voiceStability\": ")
+          .Append(voiceStability.HasValue ? F(voiceStability.Value) : "null").Append(",\n");
         sb.Append("  \"videoPath\": ").Append(JsonStr(videoPath)).Append(",\n");
         sb.Append("  \"videoSizeBytes\": ").Append(videoSize).Append(",\n");
 

@@ -37,6 +37,9 @@ namespace MugsTech.Tts
         readonly Action<string> onStatus;
         readonly Action<TtsGenerationJob.Result> onComplete;
 
+        // Resolved once in Run(): what every chunk of this video is sent with.
+        float stability;
+
         public ChunkedTtsGenerationJob(TtsGenerationJob.Config c,
             Action<float> progress, Action<string> status,
             Action<TtsGenerationJob.Result> complete)
@@ -82,6 +85,25 @@ namespace MugsTech.Tts
                 yield break;
             }
             bool replaying = cfg.DryRun && HasDryRunCache(opts);
+
+            // The voice. A replay re-slices a take that already exists, so it
+            // is the model THAT take was voiced with (its generation's render
+            // manifest, beside chunks/), not the current setting: the cut rule
+            // and what the new render manifest records must match the audio.
+            string cachedGeneration = replaying
+                ? Path.GetDirectoryName(opts.DryRunCacheFolder.TrimEnd(
+                      Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+                : null;
+            cfg.ModelId = replaying ? VoiceModel.OfGeneration(cachedGeneration) : VoiceModel.Resolve(cfg.ModelId);
+
+            // Nothing is sent on a replay, so the stability on record is the
+            // one the cached take was sent with, when its manifest has it.
+            float? cachedStability = replaying ? VoiceModel.StabilityOfGeneration(cachedGeneration) : null;
+            stability = cachedStability ?? VoiceModel.ResolveStability(cfg.ModelId, opts.Stability,
+                VoiceModel.IsV4(cfg.ModelId) && !opts.Stability.HasValue ? VoiceModel.CurrentV4Stability : 0f);
+            if (opts.Slicing != null) opts.Slicing.CutMidSilence = VoiceTiming.For(cfg.ModelId).CutMidSilence;
+            Debug.Log($"[Tts] Voice: {cfg.ModelId}, stability {VoiceModel.FormatStability(stability)}" +
+                      (replaying ? " (replaying a cached take)" : ""));
             if (!cfg.DryRun && string.IsNullOrWhiteSpace(cfg.ApiKey))
             {
                 Finish(false, "No ElevenLabs API key set. Open the API Key popup first.");
@@ -334,7 +356,7 @@ namespace MugsTech.Tts
                 record.Seed = seed;
 
                 var settings = (cfg.VoiceSettings ?? new ElevenLabsClient.VoiceSettings()).Clone();
-                settings.stability = ElevenLabsClient.SnapStability(opts.Stability);
+                settings.stability = stability;
 
                 ElevenLabsClient.TtsResult tts = null;
                 string error = null;
@@ -766,11 +788,11 @@ namespace MugsTech.Tts
             sb.Append("  \"voice_id\": ").Append(J(cfg.VoiceId)).Append(",\n");
             sb.Append("  \"section_format\": ").Append(J(sectionExt.TrimStart('.'))).Append(",\n");
             sb.Append("  \"voice_settings\": {\n");
-            var vs = cfg.VoiceSettings ?? new ElevenLabsClient.VoiceSettings();
-            sb.Append("    \"stability\": ").Append(F(ElevenLabsClient.SnapStability(opts.Stability))).Append(",\n");
-            sb.Append("    \"similarity_boost\": ").Append(F(vs.similarity_boost)).Append(",\n");
-            sb.Append("    \"style\": ").Append(F(vs.style)).Append(",\n");
-            sb.Append("    \"use_speaker_boost\": ").Append(vs.use_speaker_boost ? "true" : "false").Append("\n");
+            // What was SENT, nothing else: eleven_v4 has no style or speaker
+            // boost, so a v4 generation records neither.
+            var vs = (cfg.VoiceSettings ?? new ElevenLabsClient.VoiceSettings()).Clone();
+            vs.stability = stability;
+            sb.Append(ElevenLabsClient.SentVoiceSettingsJson(cfg.ModelId, vs, "    "));
             sb.Append("  },\n");
             sb.Append("  \"chunking\": {\n");
             sb.Append("    \"boundary_section\": ").Append(J(opts.Chunking.BoundarySection)).Append(",\n");
@@ -783,6 +805,7 @@ namespace MugsTech.Tts
             sb.Append("  \"slicing\": {\n");
             sb.Append("    \"edge_pad_seconds\": ").Append(F(opts.Slicing.EdgePadSeconds)).Append(",\n");
             sb.Append("    \"fade_seconds\": ").Append(F(opts.Slicing.FadeSeconds)).Append(",\n");
+            sb.Append("    \"cut_mid_silence\": ").Append(opts.Slicing.CutMidSilence ? "true" : "false").Append(",\n");
             sb.Append("    \"target_lufs\": ").Append(F(opts.TargetLufs)).Append("\n");
             sb.Append("  },\n");
 

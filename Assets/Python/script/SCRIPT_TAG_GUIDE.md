@@ -135,13 +135,17 @@ The **thumbnail's headline, on screen for the first seconds** — so the viewer 
 ### Stage directions — `[ ... ]`
 A delivery cue for the narration (pacing, tone). It is **not** spoken and produces no on‑screen visual; ElevenLabs just uses it to shape the read. Any characters except `]` are allowed (commas are fine).
 ```
-[deadpan] A company did a thing. It was bad.
-[slowing down, serious] Here's what the policy actually says.
+[deadpan, low and unhurried] A company did a thing. It was bad.
+[a little quieter] Here's what the policy actually says.
 ```
-These are **eleven_v3 audio tags** — they are sent to the model verbatim and consumed rather than voiced, which is why they read like directions to a performer (`[whispers]`, `[sighs]`, `[laughing]`) rather than like notes to an editor. Plain descriptive moods work well; the further a cue drifts from something a voice can *do*, the likelier v3 is to read it aloud instead. If a take ever speaks one, turn **Send [stage directions]** off in *MugsTech ▸ TTS ▸ Chunked Pipeline* (or `Chunked.Chunking.KeepStageDirections`) and they go back to being stripped before the request — everything else, including their `T=` timestamps, is unaffected.
+These are **eleven_v4 audio tags** — they are sent to the model verbatim and consumed rather than voiced, which is why they read like directions to a performer (`[whispers]`, `[sighs]`, `[laughing]`) rather than like notes to an editor. The further a cue drifts from something a voice can *do*, the likelier the model is to read it aloud instead.
+
+**Write them for v4.** v4 is livelier than v3 and sits higher, so each kind of line wants its own cue. A **calm** line gets a cue that is exaggerated and physical — it has to pull the voice down: `[deadpan, low and unhurried]`, `[dry, low]`, `[flat, low and slow]`. An **ordinary** line (setup, explanation, a source being read) gets its register plus the same pull in a milder form, because a bare register word comes out in v4's own default voice, which is higher and busier than Mugs: `[matter-of-fact, low and relaxed]`, `[conversational, low and relaxed]`. A **lively** line gets one short, plain cue — v4 needs no pushing: `[a little quieter]`, `[disbelief]`. Every spoken line opens with a cue; a line without one is the default voice. The full palette lives in the writer prompt (`Prompts/MugsTech_Prompt_System.md`, section *ELEVENLABS VOICE MARKERS*); use that, not a list from memory. The build voices new generations on eleven_v4 unless the TTS panel's *Voice* row is switched to eleven_v3; a generation keeps the voice it was made with, so cues are judged against the model that read them.
+
+If a take ever speaks one, turn **Send [stage directions]** off in *MugsTech ▸ TTS ▸ Chunked Pipeline* (or `Chunked.Chunking.KeepStageDirections`) and they go back to being stripped before the request — everything else, including their `T=` timestamps, is unaffected.
 
 ### Pause — `{Pause:seconds}`
-A **beat you can count on**: the gap in the voice at this point is **at least** that many seconds. eleven_v3 has no dependable pause control — a `[pause]`, an ellipsis or a dash is a suggestion it takes or ignores per take — so this tag is never sent to the voice. When the take is assembled, the engine measures the silence v3 actually left there and adds **only the difference**: a take that already paused long enough is left alone (at least N, never N on top). Nothing is re-rendered and no credits are spent, so adding, moving or changing a `{Pause}` is a **tag-only edit** (*Update Tags Only*).
+A **beat you can count on**: the gap in the voice at this point is **at least** that many seconds. Neither eleven_v4 nor eleven_v3 has a dependable pause control — a `[pause]`, an ellipsis or a dash is a suggestion the model takes or ignores per take, and SSML breaks are not supported on either — so this tag is never sent to the voice. When the take is assembled, the engine measures the silence the voice actually left there and adds **only the difference**: a take that already paused long enough is left alone (at least N, never N on top). Nothing is re-rendered and no credits are spent, so adding, moving or changing a `{Pause}` is a **tag-only edit** (*Update Tags Only*).
 ```
 Freezing only works on coins a company controls.
 {Excerpt:End}
@@ -343,7 +347,7 @@ Hard-cuts a **fullscreen** black plane in (covering the character and all cards)
   {Black:End}
   [genuinely baffled, voice rising] {Position:Left,Cut}{Shocked}The keys did.
   ```
-  **Scripts that still use a voiced `[pause]` for this** must close the black inline instead: put `{Black:End}` at the start of the return line, after its stage direction, with the return frame's tags behind it (`[genuinely baffled, voice rising] {Black:End}{Position:Left,Cut}{Shocked}The keys did.`). v3 puts the silence wherever it likes after a `[pause]`, so an own-line End can cut back early and leave the silence playing on the revealed frame. With `{Pause}` that workaround is no longer needed.
+  **Scripts that still use a voiced `[pause]` for this** must close the black inline instead: put `{Black:End}` at the start of the return line, after its stage direction, with the return frame's tags behind it (`[genuinely baffled, voice rising] {Black:End}{Position:Left,Cut}{Shocked}The keys did.`). The voice (v3 and v4 alike) puts the silence wherever it likes after a `[pause]`, so an own-line End can cut back early and leave the silence playing on the revealed frame. With `{Pause}` that workaround is no longer needed.
 
 ### Scene transitions — `{Transition:Type}` `[,speed]`
 A **whole-screen transition** that covers the screen, reconfigures the scene *behind* the cover, then reveals — so each one reads as a fresh section break. Three variants:
