@@ -395,7 +395,16 @@ public class HybridAvatarSystem : MonoBehaviour
     /// zone (and below the full-screen cards) while it lasts, and their
     /// authored order again afterwards. The drop shadow follows on its own.
     /// </summary>
-    public void SetPeekSorting(bool peeking)
+    public void SetPeekSorting(bool peeking) =>
+        SetStageSorting(peeking ? MugsTech.Stage.StageMath.PeekSortingOrder : (int?)null);
+
+    /// <summary>
+    /// His sprites' sorting order on the stage: a peek's (in front of the card
+    /// zones), the handover's (in front of the full-screen cards too —
+    /// {Position:…,Over}), or null for the order the scene gave them. The drop
+    /// shadow follows on its own.
+    /// </summary>
+    public void SetStageSorting(int? stageOrder)
     {
         if (avatarRenderer == null) return;
         if (!restSortingKnown)
@@ -403,7 +412,7 @@ public class HybridAvatarSystem : MonoBehaviour
             restSortingOrder = avatarRenderer.sortingOrder;
             restSortingKnown = true;
         }
-        int order = peeking ? MugsTech.Stage.StageMath.PeekSortingOrder : restSortingOrder;
+        int order = stageOrder ?? restSortingOrder;
         if (avatarRenderer.sortingOrder == order) return;
         avatarRenderer.sortingOrder = order;
         if (crossfadeRenderer != null) crossfadeRenderer.sortingOrder = order + 1;
@@ -500,6 +509,13 @@ public class HybridAvatarSystem : MonoBehaviour
                                                                extremeZoomCutWindow))
                 Debug.Log("[Zoom] " + moved);
 
+        // Arrive on the word: an emotion that would change his face while he
+        // is rising from off stage is put on the first frame of the rise, as a
+        // cut — he comes up already wearing it instead of changing on landing.
+        if (mediaPresentation != null)
+            foreach (string moved in ApplyArrivalFaces(timeMarkers, mediaPresentation.LedArrivalWindows()))
+                Debug.Log("[Stage] " + moved);
+
         voiceAudio.clip = audio;
         voiceAudio.Play();  // Always play audio, recording or not
 
@@ -533,6 +549,36 @@ public class HybridAvatarSystem : MonoBehaviour
         return extremeZoomCutWindow > 0f
             && mediaPresentation != null
             && mediaPresentation.HasExtremeZoomCutNear(markerTime, extremeZoomCutWindow);
+    }
+
+    /// <summary>
+    /// Each window is an arrival from off stage that starts early: (the
+    /// start of his move, its tag's time). An emotion whose time falls in a
+    /// window — the face written with the arrival — moves to the window's
+    /// start and becomes a cut. Emotions outside the windows are untouched.
+    /// Returns one line per emotion moved.
+    /// </summary>
+    public static List<string> ApplyArrivalFaces(List<TimeMarkerData> markers, IList<Vector2> windows)
+    {
+        var moved = new List<string>();
+        if (markers == null || windows == null || windows.Count == 0) return moved;
+        const float after = 0.02f;   // a face stamped a moment after the tag is still the arrival's
+        foreach (TimeMarkerData m in markers)
+            foreach (Vector2 w in windows)
+            {
+                if (m.triggerTime < w.x - 1e-3f || m.triggerTime > w.y + after) continue;
+                moved.Add($"{m.emotion} at {m.triggerTime:F3}s is the face he arrives with: applied at {w.x:F3}s, as his rise starts (a cut).");
+                m.triggerTime = w.x;
+                m.transitionOverride = PresenterTransitionSettings.Style.Cut;
+                break;
+            }
+        if (moved.Count > 0)
+        {
+            var order = new Dictionary<TimeMarkerData, int>();
+            for (int i = 0; i < markers.Count; i++) order[markers[i]] = i;
+            markers.Sort((a, b) => a.triggerTime != b.triggerTime ? a.triggerTime.CompareTo(b.triggerTime) : order[a].CompareTo(order[b]));
+        }
+        return moved;
     }
 
     /// <summary>

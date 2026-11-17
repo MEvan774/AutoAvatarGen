@@ -144,11 +144,11 @@ public static partial class TtsPipelineSelfTests
             List<StageLeg> off = StageMath.PlanTravel(p, CharacterPosition.Off);
             log.IsTrue(off.Count == 2 && off[0] == StageLeg.SlideOut && off[1] == StageLeg.Park,
                 $"plan: {p} → Off slides out, then parks him out of reach");
-            log.Near(0.35f, StageMath.TravelSeconds(p, CharacterPosition.Off), 0.001f, $"plan: {p} → Off takes 0.35 s");
+            log.Near(0.60f, StageMath.TravelSeconds(p, CharacterPosition.Off), 0.001f, $"plan: {p} → Off takes 0.60 s");
 
             List<StageLeg> back = StageMath.PlanTravel(CharacterPosition.Off, p);
             log.IsTrue(back.Count == 1 && back[0] == StageLeg.PopUp, $"plan: Off → {p} pops up from below");
-            log.Near(0.35f, StageMath.TravelSeconds(CharacterPosition.Off, p), 0.001f, $"plan: Off → {p} takes 0.35 s");
+            log.Near(0.65f, StageMath.TravelSeconds(CharacterPosition.Off, p), 0.001f, $"plan: Off → {p} takes 0.65 s");
 
             log.IsTrue(!StageMath.CardsWaitFor(p, CharacterPosition.Off), $"plan: nothing waits for him to leave from {p}");
             log.IsTrue(StageMath.CardsWaitFor(CharacterPosition.Off, p), $"plan: a side card waits for him to land at {p}");
@@ -157,10 +157,12 @@ public static partial class TtsPipelineSelfTests
 
             foreach (CharacterPosition peek in new[] { CharacterPosition.PeekLeft, CharacterPosition.PeekRight })
             {
+                // A peek and a full position are always out, then in — on its own
+                // side too (Tier 5 tried one leg; the creator kept the drop and pop-up).
                 List<StageLeg> toPeek = StageMath.PlanTravel(p, peek);
+                List<StageLeg> fromPeek = StageMath.PlanTravel(peek, p);
                 log.IsTrue(toPeek.Count == 2 && toPeek[0] == StageLeg.SlideOut && toPeek[1] == StageLeg.RiseToPeek,
                     $"plan: {p} → {peek} slides him out, then brings the peek up");
-                List<StageLeg> fromPeek = StageMath.PlanTravel(peek, p);
                 log.IsTrue(fromPeek.Count == 2 && fromPeek[0] == StageLeg.DropFromPeek && fromPeek[1] == StageLeg.PopUp,
                     $"plan: {peek} → {p} drops, then pops up full size");
             }
@@ -173,10 +175,10 @@ public static partial class TtsPipelineSelfTests
 
         List<StageLeg> rise = StageMath.PlanTravel(CharacterPosition.Off, CharacterPosition.PeekLeft);
         log.IsTrue(rise.Count == 1 && rise[0] == StageLeg.RiseToPeek, "plan: Off → PeekLeft is one rise");
-        log.Near(0.25f, StageMath.TravelSeconds(CharacterPosition.Off, CharacterPosition.PeekLeft), 0.001f, "plan: …of 0.25 s");
+        log.Near(0.40f, StageMath.TravelSeconds(CharacterPosition.Off, CharacterPosition.PeekLeft), 0.001f, "plan: …of 0.40 s");
         List<StageLeg> drop = StageMath.PlanTravel(CharacterPosition.PeekRight, CharacterPosition.Off);
         log.IsTrue(drop.Count == 2 && drop[0] == StageLeg.DropFromPeek && drop[1] == StageLeg.Park, "plan: PeekRight → Off drops and parks");
-        log.Near(0.20f, StageMath.TravelSeconds(CharacterPosition.PeekRight, CharacterPosition.Off), 0.001f, "plan: …in 0.2 s");
+        log.Near(0.35f, StageMath.TravelSeconds(CharacterPosition.PeekRight, CharacterPosition.Off), 0.001f, "plan: …in 0.35 s");
 
         log.IsTrue(!StageMath.MoveEndsMedia(CharacterPosition.Off, CharacterPosition.PeekLeft) &&
                    !StageMath.MoveEndsMedia(CharacterPosition.PeekRight, CharacterPosition.Off),
@@ -215,16 +217,8 @@ public static partial class TtsPipelineSelfTests
 
     static void Stage_Easing(Log log)
     {
-        log.Near(0f, StageMath.SlideOutEase(0f), 1e-5f, "ease: the slide-out starts at rest");
-        log.Near(1f, StageMath.SlideOutEase(1f), 1e-5f, "ease: …and ends gone");
-        log.IsTrue(StageMath.SlideOutEase(0.5f) < 0.2f, "ease: the slide-out eases IN (slow off the mark)");
-
-        float peak = 0f;
-        for (int i = 0; i <= 100; i++) peak = Mathf.Max(peak, StageMath.PopEase(i / 100f));
-        log.Near(0f, StageMath.PopEase(0f), 1e-5f, "ease: the pop-up starts below the frame");
-        log.Near(1f, StageMath.PopEase(1f), 1e-5f, "ease: …and ends at rest");
-        log.IsTrue(peak > 1.02f && peak < 1.10f, $"ease: the pop-up overshoots a little (peak {peak:F3})");
-
+        // His own moves are poses now (StageMoves; the Tier5_* checks in
+        // TtsPipelineSelfTests.Motion.cs). What is left here is the card's glide.
         log.Near(0.5f, StageMath.GlideEase(0.5f), 1e-4f, "ease: a card's glide is symmetric");
         log.IsTrue(StageMath.GlideEase(0.1f) < 0.05f && StageMath.GlideEase(0.9f) > 0.95f, "ease: …eased in and out");
     }

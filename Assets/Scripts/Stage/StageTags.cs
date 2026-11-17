@@ -234,7 +234,7 @@ namespace MugsTech.Stage
         /// left (Left, PeekLeft) → the right corner; anywhere else → the left.
         /// </summary>
         public static bool OnRight(CharacterPosition mugs) =>
-            mugs == CharacterPosition.Left || mugs == CharacterPosition.PeekLeft;
+            mugs == CharacterPosition.Left || mugs == CharacterPosition.PeekLeft || mugs == CharacterPosition.LeanLeft;
     }
 
     /// <summary>The {Pop:…} phrase's sizes and motion (px at 1080p; × frame height ÷ 1080). Pure.</summary>

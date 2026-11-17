@@ -199,12 +199,25 @@ namespace MugsTech.Stage
     {
         public const string PushInKey = "AutoAvatarGen.FullFramePushIn";
         public const string TypeQuotesKey = "AutoAvatarGen.TypeQuotesOn";
+        public const string SideMoveKey = "AutoAvatarGen.SideMove";
 
         /// <summary>"Push in on full-frame images" (default on). Off: a full-frame image holds still.</summary>
         public static bool PushIn
         {
             get => PlayerPrefs.GetInt(PushInKey, 1) != 0;
             set { PlayerPrefs.SetInt(PushInKey, value ? 1 : 0); PlayerPrefs.Save(); }
+        }
+
+        /// <summary>
+        /// "Side move" (default Glide): how Mugs gets between Left, Right and
+        /// Center. Glide is the move every existing video was made with — one
+        /// eased second and a mirror flip halfway. Dash is the quick one
+        /// (<see cref="DashMath"/>). A main-menu choice only: no tag names it.
+        /// </summary>
+        public static bool SideMoveIsDash
+        {
+            get => PlayerPrefs.GetInt(SideMoveKey, 0) == 1;
+            set { PlayerPrefs.SetInt(SideMoveKey, value ? 1 : 0); PlayerPrefs.Save(); }
         }
 
         /// <summary>"Type quotes on" (default on). Off: a wide quote shows whole, like a side quote.</summary>

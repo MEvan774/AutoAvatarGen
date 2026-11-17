@@ -77,12 +77,120 @@ offline. The `--auto-script` result JSON reports each one in `pauses[]`.
 (`,Scroll`, logo runs + `Strike`, `{Name}`, Quote `,Photo=` + type-on,
 `{Clipping}`, `{Mark}`, `{Timeline:…,Wide}` + `Span`, `{Pop}`, `{Graph}`) are
 documented for authors in the tag guide (§4 *"Mugs off stage"* onward). Where
-it lives: `Stage/StageMath` (pure: travel plans, wide slot, `StageMeter`,
-`EmptyStageWatch`), `MediaPresentationSystem.Stage.cs` (the moves, full-frame
-media, the meter), `ContentZoneController` (wide zone, runs, marks, strikes),
+it lives: `Stage/StageMath` (pure: travel plans, leg durations, wide slot,
+`StageMeter`, `EmptyStageWatch`), `Stage/StageMoves` (pure: the pose of each
+leg), `MediaPresentationSystem.Stage.cs` (the moves, full-frame media, the
+meter), `ContentZoneController` (wide zone, runs, marks, strikes),
 `Stage/NameOverlay` + `Stage/PopOverlay` (parsed by the pure `Stage/StageTags`,
 before any card or media parser sees the script).
 
+- **A stage move is a pose per frame, on `avatarParent`** (`StageMoves`, built
+  like `HopMath`: travel that may pass 1 a little, scale X/Y, tilt;
+  `ApplyStagePose` puts it on the transform). Nothing else writes that
+  transform's scale or rotation, so the Hop / Grow / Shrink and the idle sway
+  on the pivot below it keep running under a move and the shadow follows.
+  Three things to keep: his size on the stage is `presenterUniform`, never
+  read back from `localScale` (it carries the squash); `StageMoves.HoldEdge`
+  moves the transform so the line he stands on — his feet, or the frame edge
+  under a peek — stays still (the transform's origin is ~0.4 above his feet);
+  a `,Cut` that stops a leg must call `EndStageShape`. A departure ends at
+  speed, out of sight; an arrival ends on exactly rest.
+- **The moves are calm — the creator's eye, not the brief's numbers.** The
+  brief asked for nothing longer than half a second, with anticipation and a
+  hard landing; on screen that was "way too hyper" for Mugs (he is relaxed; the
+  1 s Glide is his reference). The timings in `StageMath` (pop-up 0.65,
+  slide-out 0.60, peek and lean 0.40 in / 0.35 out) and the shapes in
+  `StageMoves` (`Arrive`: eases up, ~3 % past his mark, a soft give, no dead
+  stop; `Depart`: no wind-up, slow off the mark) were picked from a
+  side-by-side preview on 2026-11-17. Show a preview before changing either.
+- **A stage move is planned from where he is, never from where a move would
+  have ended** (`PlanStageMove`, `BeginStageLeg`). A peek or a lean ↔ a full
+  position is ALWAYS out, then in (`StageMath.PlanTravel`): Tier 5 first made
+  a peek rise straight into `Center` in one leg and the creator rejected it on
+  screen ("looks wrong") — don't bring that back.
+  A `{Position:…}` during a move never jumps. Caught while LEAVING
+  (`StageMath.IsLeaving` / `PlanWhileLeaving`): back to the place he is leaving,
+  still in view (`StageMath.InView`), he comes back from where he is (`ToFull` /
+  `ToPeek` / `ToLean`, the only use of those legs besides the redirect); for
+  anywhere else the running leg carries on untouched (`finishFirst`:
+  `StageTravel` resumes that same `StageLegRun` at `run.T`) and the arrival
+  follows it. Caught while arriving: he goes back down out of a pop-up, leaves
+  through the nearest edge between marks (`ExitFrom`); the squash and lean he
+  had are eased away over 0.10 s (`CarryShape`), not dropped. A Left / Right /
+  Center tag during an arrival redirects it (`RedirectStageArrival`, planned by
+  `PlanStageRedirect`) — the only stage code `MoveToPosition`'s side path
+  reaches, and only while `stageMoving`. A Glide
+  cut short by another Glide still starts from the mark, as it always has. The `Tier5_*` self-tests
+  (`TtsPipelineSelfTests.Motion.cs`) hold every pose to its limits.
+- **The side move has two styles, chosen in the main menu** (*Side move*,
+  PlayerPref `AutoAvatarGen.SideMove`, 0/absent = Glide, 1 = Dash; read once
+  per take in `BeginStageRun`; no tag keyword, like the Hop). Glide is
+  `MoveAvatar`, untouched, and must stay the default: every existing video
+  re-renders the same until the creator picks Dash. Dash is `Stage/DashMath`
+  (pure) applied by `MediaPresentationSystem.Dash.cs` on `avatarParent`, from
+  where he is; its turn closes his width and mirrors the sprite at zero.
+  `PresenterLandCap` is the longer of `SideMoveSeconds` and
+  `StageMath.LongestArrivalSeconds` (a peek's drop + the pop-up), + 0.25 s:
+  1.25 s in both styles. The result JSON carries
+  `sideMove` and `presenterHolds{count,totalSeconds,longestSeconds}`
+  (`Stage.PresenterHolds`, fed by both "Held … for the presenter to land"
+  sites). The menu row sits in the Sound card: the Look column is full.
+- **The handover — `{Position:…,Over}`** (`MediaPresentationSystem.Handover.cs`):
+  from off or a peek he comes up IN FRONT of what has the frame and it stays
+  exactly as it is until its own End. Three mechanisms, each easy to break:
+  (1) his sprites go to `StageMath.OverSortingOrder` 31200 through
+  `SetPresenterLayer` — every stage sorting change goes through it, never
+  straight to `SetPeekSorting` — with `HandoverDim` at 31100 under him;
+  (2) `ContentZoneController.BeginHandover` sets the zone's flags for his new
+  position WITHOUT `PauseTimeline` / `SetStageWide`, which would hide or move
+  the card under him, and `ActsOnHandoverCard` lets that card's End through
+  Center's skip; (3) `MoveOnStage` skips `DismissActiveMedia`. It ends when
+  `StepHandover` sees the card instance and the full-frame media gone (so he
+  keeps his layer through the fade), on a new beat (`HandoverNewBeat`, called
+  from the card tracker and the media tracker), on `{Position:Off}` / a plain
+  peek (`LeaveHandover`: it carries on) or a transition. He keeps the handover's
+  layer until the dim has gone (`handoverTail`) — on the first take an image
+  that ended on its usual cut left him UNDER the fading sheet for 9 frames;
+  an image under him now fades out behind him (`FadeMediaBehindPresenter`,
+  before its texture is destroyed; a clip still cuts). Zooms are ignored
+  meanwhile (`StageIgnoresZoom`). Both stampers already took a 2nd word on
+  `{Position:}`, so `,Over` needed no stamper change — the runtime regex is
+  `PositionTagRegex` (a 2nd word other than Cut / Smooth / Over is still not a
+  position tag). The result JSON's `stage{}` has `handovers`, `overSeconds`.
+- **The lean — `{Position:LeanLeft}` / `{Position:LeanRight}`** is the peek's
+  twin at a side edge (`StageMath.IsSmall` = peek or lean; ask that, not
+  `IsPeek`, for "a small appearance"). Its pose (`StageMath.Lean`) is tilted
+  **35°**, not the brief's 12°: at 12° his whole front was in the frame and he
+  read as standing cut off by the edge — the creator chose 35° from take
+  frames on 2026-11-17. It is the only position he RESTS at tilted, so a leg
+  carries the tilt it starts and ends at (`StageLegRun.TiltA/TiltB`), every
+  way out sets him upright (`UprightRotation`), and `PresenterBody` measures
+  his outline in `avatarParent`'s own space (a world-space box of a tilted
+  sprite is the wrong size). The sprite's outline is not centred on the
+  transform and mirrors with `flipX`: a pose that faces the other way is
+  computed from `FacingBody`. Lean legs hold the frame's SIDE edge still
+  (`StageMoves.HoldSideEdge`) and reuse the peek's shapes. A lean ↔ a full
+  position is out, then in, like a peek (also on its own side). The meter
+  counts a lean's seconds as peek seconds and its count apart (`leanCount`).
+- **Arrive on the word: an arrival from off stage starts early, and its tag
+  is never moved.** `Stage/ArrivalLeads` (pure) plans it from the PARSED
+  times — final by then, so the three timing defences, the `{Pause}` pins and
+  the same-beat join are untouched; do not move this into `SegmentSequencer`.
+  `PositionMarkerData.startTime` is when the travel starts; `triggerTime` is
+  still when the STAGE changes: `MoveOnStage(…, ledUntil)` leaves the media
+  dismissal, `PauseTimeline` and `SetStageWide` to `ApplyPendingStageChange`
+  on the tag's time (run early, a wide card would glide to its side 0.3 s
+  before its own End). `StageChangeIsDue` counts that pending change, or
+  media written on the same word would open and be dismissed on one frame.
+  The tracker starts him only once he is really off and still (a live clamp
+  on top of the planned one). `NextCaptionStop` and `NextCameraStop` use
+  `startTime`. `HybridAvatarSystem.ApplyArrivalFaces` puts an emotion that
+  would fire during the rise on its first frame as a cut. He lands BEFORE the
+  wide card he rose in front of starts to close, so he keeps the peek's layer
+  until it has (`frontHeld` / `StepFrontHold`) — without that he stood behind
+  it for three frames after every landing (found in frames). Not led: leaving,
+  `,Cut`, a move while on screen, under a `{Black}`, a `{Transition}` line,
+  the first position. `stage{}` reports `ledArrivals`, `shortenedLeads`.
 - **Old scripts must not notice.** Everything is reached only through a new
   `{Position:…}` value, a new tag or a new optional keyword; the side layout,
   the timed `{BigMedia:a+b,4}` row, the plain Quote and the vertical Timeline

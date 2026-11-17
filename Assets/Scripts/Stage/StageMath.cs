@@ -19,14 +19,29 @@ namespace MugsTech.Stage
     public static class StageMath
     {
         // ---- Timing (seconds) --------------------------------------------------------
-        /// <summary>He slides out of frame (ease-in).</summary>
-        public const float SlideOutSeconds = 0.35f;
-        /// <summary>He pops up from below the frame at a full position (small overshoot).</summary>
-        public const float PopUpSeconds = 0.35f;
-        /// <summary>His head rises for a peek (small overshoot).</summary>
-        public const float PeekRiseSeconds = 0.25f;
-        /// <summary>He drops back down from a peek.</summary>
-        public const float PeekDropSeconds = 0.20f;
+        // How long each leg takes. What he does in that time is StageMoves' pose
+        // for the leg. These are the CALM timings the creator chose from a
+        // side-by-side preview on 2026-11-17 (the first Tier 5 values — 0.30 /
+        // 0.32 / 0.22 / 0.18 — were "way too hyper" for Mugs; don't shorten them
+        // without showing it first).
+        /// <summary>He slides out of frame: slow off the mark, then away.</summary>
+        public const float SlideOutSeconds = 0.60f;
+        /// <summary>He pops up from below the frame at a full position: a little past his mark, a soft settle.</summary>
+        public const float PopUpSeconds = 0.65f;
+        /// <summary>His head rises for a peek (the pop-up, smaller).</summary>
+        public const float PeekRiseSeconds = 0.40f;
+        /// <summary>He drops back down from a peek (the slide-out, smaller).</summary>
+        public const float PeekDropSeconds = 0.35f;
+        /// <summary>He leans in over a side edge (the peek's rise, sideways)…</summary>
+        public const float LeanInSeconds = 0.40f;
+        /// <summary>…and pulls back out again (the peek's drop, sideways).</summary>
+        public const float LeanOutSeconds = 0.35f;
+        /// <summary>Only when a tag catches him still on his way out: from where he is, in view, back to a full position.</summary>
+        public const float ToFullSeconds = 0.50f;
+        /// <summary>The same, back into a peek or a lean.</summary>
+        public const float ToPeekSeconds = 0.40f;
+        /// <summary>The longest a (non-led) arrival at a full position takes: out of a peek or a lean, then the pop-up.</summary>
+        public const float LongestArrivalSeconds = PeekDropSeconds + PopUpSeconds;
         /// <summary>An open card glides between its side slot and the wide slot.</summary>
         public const float CardGlideSeconds = 0.35f;
 
@@ -51,6 +66,64 @@ namespace MugsTech.Stage
         /// <summary>His sprites' sorting order while peeking: in front of the cards (30000), behind the full-screen cards (31000).</summary>
         public const int PeekSortingOrder = 30500;
 
+        // ---- The handover ({Position:…,Over}) -------------------------------------------
+        /// <summary>
+        /// His sprites' sorting order while he stands in front of what has the
+        /// frame: above the full-screen cards (31000) and the {Name:} label
+        /// (30600), below the {Pop:} phrase (31300), captions, Echo and black.
+        /// </summary>
+        public const int OverSortingOrder = 31200;
+        /// <summary>The sheet that dims what is under him: above the cards, below him.</summary>
+        public const int HandoverDimSortingOrder = 31100;
+        /// <summary>What is under him is left at this brightness, so he reads against it.</summary>
+        public const float HandoverBrightness = 0.60f;
+        /// <summary>The dim goes with what is under him: as long as a card's own fade-out.</summary>
+        public const float HandoverDimOutSeconds = 0.30f;
+
+        /// <summary>
+        /// Alpha of the black sheet that leaves the scene at <see cref="HandoverBrightness"/>
+        /// in the encoded video (UI blends in linear light in linear colour space — as PopMath.DimAlpha).
+        /// </summary>
+        public static float HandoverDimAlpha(bool linearColorSpace) =>
+            1f - (linearColorSpace ? Mathf.Pow(HandoverBrightness, 2.2f) : HandoverBrightness);
+
+        /// <summary>
+        /// Whether a ",Over" means anything: something has the frame, and he
+        /// was away from it (off or peeking) — or is already standing in front
+        /// of it. Otherwise he moves as he would without the word.
+        /// </summary>
+        public static bool CanHandOver(CharacterPosition from, bool somethingHasTheFrame, bool alreadyOver) =>
+            somethingHasTheFrame && (IsWide(from) || alreadyOver);
+
+        /// <summary>
+        /// The sorting order his sprites take: in front of everything a card
+        /// can be while he is over one, a peek's order while he peeks or rises,
+        /// or null for the order the scene gave them.
+        /// </summary>
+        public static int? PresenterOrder(bool handover, bool peekLayer) =>
+            handover ? OverSortingOrder : peekLayer ? PeekSortingOrder : (int?)null;
+
+        /// <summary>
+        /// The words after a {Position:Side…}: "Cut" / "Smooth", or "Over"
+        /// (he comes up in front of what has the frame). A word after "Over"
+        /// is not a form — it is ignored, with <paramref name="warning"/>.
+        /// </summary>
+        public static void ReadPositionWords(string cutOrSmooth, string overWord, string afterOver,
+                                             out bool? cut, out bool over, out string warning)
+        {
+            cut = null;
+            warning = null;
+            if (!string.IsNullOrEmpty(cutOrSmooth))
+            {
+                string w = cutOrSmooth.ToLowerInvariant();
+                if (w == "cut") cut = true;
+                else if (w == "smooth") cut = false;
+            }
+            over = !string.IsNullOrEmpty(overWord);
+            if (over && !string.IsNullOrEmpty(afterOver))
+                warning = "\",Over," + afterOver + "\" is not a form — \"," + afterOver + "\" is ignored (a handover always uses his pop-up).";
+        }
+
         // ---- Off -----------------------------------------------------------------------
         /// <summary>Clear space kept between him and the frame edge once he has slid out (shadow, sway, tail).</summary>
         public const float OffMargin = 1.2f;
@@ -66,8 +139,15 @@ namespace MugsTech.Stage
         public static bool IsPeek(CharacterPosition p) =>
             p == CharacterPosition.PeekLeft || p == CharacterPosition.PeekRight;
 
-        /// <summary>The stage is wide while he is off or only peeking.</summary>
-        public static bool IsWide(CharacterPosition p) => p == CharacterPosition.Off || IsPeek(p);
+        /// <summary>A lean: his head and one shoulder in over the left or right edge.</summary>
+        public static bool IsLean(CharacterPosition p) =>
+            p == CharacterPosition.LeanLeft || p == CharacterPosition.LeanRight;
+
+        /// <summary>One of his two small appearances — a peek or a lean: for one short line, over what has the frame.</summary>
+        public static bool IsSmall(CharacterPosition p) => IsPeek(p) || IsLean(p);
+
+        /// <summary>The stage is wide while he is off, only peeking or only leaning in.</summary>
+        public static bool IsWide(CharacterPosition p) => p == CharacterPosition.Off || IsSmall(p);
 
         /// <summary>
         /// A position word from a {Position:…} tag. False for anything else
@@ -83,6 +163,8 @@ namespace MugsTech.Stage
                 case "off": position = CharacterPosition.Off; return true;
                 case "peekleft": position = CharacterPosition.PeekLeft; return true;
                 case "peekright": position = CharacterPosition.PeekRight; return true;
+                case "leanleft": position = CharacterPosition.LeanLeft; return true;
+                case "leanright": position = CharacterPosition.LeanRight; return true;
                 default: position = CharacterPosition.Center; return false;
             }
         }
@@ -92,21 +174,72 @@ namespace MugsTech.Stage
         /// <summary>
         /// What a stage move is made of, in order. Empty when there is nothing
         /// to do (the same position again) or when it isn't a stage move at all
-        /// (Left ↔ Right ↔ Center keep their old glide).
-        ///   leaving:  a full position slides out, a peek drops;
-        ///   arriving: Off parks him out of reach, a peek rises, a full position pops up from below.
+        /// (Left ↔ Right ↔ Center keep their side move).
+        /// He always leaves first (a full position slides out, a peek drops, a
+        /// lean pulls out) and then arrives (Off parks him out of reach, a peek
+        /// rises, a lean comes in, a full position pops up) — also between a
+        /// peek or a lean and a full position: the creator watched a peek rise
+        /// straight into Center and it "looks wrong"; the drop and pop-up stay.
+        /// <paramref name="inView"/> matters only when <paramref name="from"/> is
+        /// Off: a move that arrives while he is still on his way out starts from
+        /// where he is instead of from below the frame.
         /// </summary>
-        public static List<StageLeg> PlanTravel(CharacterPosition from, CharacterPosition target)
+        public static List<StageLeg> PlanTravel(CharacterPosition from, CharacterPosition target, bool inView = false)
         {
             var legs = new List<StageLeg>();
             if (from == target) return legs;
             if (IsFull(from) && IsFull(target)) return legs;
 
-            if (IsPeek(from)) legs.Add(StageLeg.DropFromPeek);
-            else if (IsFull(from)) legs.Add(StageLeg.SlideOut);
+            if (from == CharacterPosition.Off)
+            {
+                if (IsPeek(target)) legs.Add(inView ? StageLeg.ToPeek : StageLeg.RiseToPeek);
+                else if (IsLean(target)) legs.Add(inView ? StageLeg.ToLean : StageLeg.LeanIn);
+                else legs.Add(inView ? StageLeg.ToFull : StageLeg.PopUp);
+                return legs;
+            }
+
+            // Out, then in: between any two of a full position, a peek and a lean.
+            legs.Add(IsPeek(from) ? StageLeg.DropFromPeek : IsLean(from) ? StageLeg.LeanOut : StageLeg.SlideOut);
 
             if (target == CharacterPosition.Off) legs.Add(StageLeg.Park);
             else if (IsPeek(target)) legs.Add(StageLeg.RiseToPeek);
+            else if (IsLean(target)) legs.Add(StageLeg.LeanIn);
+            else legs.Add(StageLeg.PopUp);
+            return legs;
+        }
+
+        /// <summary>A leg that takes him out of sight: the slide-out, the peek's drop, the lean-out.</summary>
+        public static bool IsLeaving(StageLeg leg) =>
+            leg == StageLeg.SlideOut || leg == StageLeg.DropFromPeek || leg == StageLeg.LeanOut;
+
+        /// <summary>
+        /// What a move is made of when its tag arrives while he is still on
+        /// his way OUT. <paramref name="leaving"/> is what he is leaving: the
+        /// peek or the lean, or — for a slide-out — the full position nearest
+        /// to where he is.
+        ///   Back to that same place, while he can still be seen: he comes
+        ///   back from where he is (one leg, eased at both ends).
+        ///   Anywhere else: he FINISHES leaving (<paramref name="finishLeaving"/>;
+        ///   the running leg carries on untouched) and then arrives as he
+        ///   would from off stage — a peek never grows into an entrance and a
+        ///   full position never sinks into a peek, which the creator found
+        ///   "looks wrong". Already out of sight, the arrival starts at once.
+        /// </summary>
+        public static List<StageLeg> PlanWhileLeaving(CharacterPosition leaving, CharacterPosition target,
+                                                      bool inView, out bool finishLeaving)
+        {
+            var legs = new List<StageLeg>();
+            finishLeaving = false;
+            if (inView && target == leaving && target != CharacterPosition.Off)
+            {
+                legs.Add(IsPeek(target) ? StageLeg.ToPeek : IsLean(target) ? StageLeg.ToLean : StageLeg.ToFull);
+                return legs;
+            }
+
+            finishLeaving = inView;
+            if (target == CharacterPosition.Off) legs.Add(StageLeg.Park);
+            else if (IsPeek(target)) legs.Add(StageLeg.RiseToPeek);
+            else if (IsLean(target)) legs.Add(StageLeg.LeanIn);
             else legs.Add(StageLeg.PopUp);
             return legs;
         }
@@ -119,6 +252,11 @@ namespace MugsTech.Stage
                 case StageLeg.DropFromPeek: return PeekDropSeconds;
                 case StageLeg.RiseToPeek: return PeekRiseSeconds;
                 case StageLeg.PopUp: return PopUpSeconds;
+                case StageLeg.ToFull: return ToFullSeconds;
+                case StageLeg.ToPeek: return ToPeekSeconds;
+                case StageLeg.LeanIn: return LeanInSeconds;
+                case StageLeg.LeanOut: return LeanOutSeconds;
+                case StageLeg.ToLean: return ToPeekSeconds;
                 default: return 0f;
             }
         }
@@ -151,30 +289,7 @@ namespace MugsTech.Stage
             return true;
         }
 
-        // ---- Easing --------------------------------------------------------------------
-
-        /// <summary>Sliding out: slow off the mark, fastest as he leaves (ease-in cubic).</summary>
-        public static float SlideOutEase(float x)
-        {
-            x = Mathf.Clamp01(x);
-            return x * x * x;
-        }
-
-        /// <summary>Popping up: fast, a small overshoot (about 5 % of the way), then settled.</summary>
-        public static float PopEase(float x)
-        {
-            x = Mathf.Clamp01(x);
-            const float s = 1.1f;
-            float t = x - 1f;
-            return 1f + (s + 1f) * t * t * t + s * t * t;
-        }
-
-        /// <summary>Dropping from a peek (ease-in).</summary>
-        public static float DropEase(float x)
-        {
-            x = Mathf.Clamp01(x);
-            return x * x;
-        }
+        // ---- Easing (his own moves are poses: see StageMoves) ----------------------------
 
         /// <summary>An open card gliding to the other slot (ease-in-out cubic).</summary>
         public static float GlideEase(float x)
@@ -225,9 +340,11 @@ namespace MugsTech.Stage
             {
                 case CharacterPosition.Left:
                 case CharacterPosition.PeekLeft:
+                case CharacterPosition.LeanLeft:
                     return new Vector2(at.x - ((centre.x + halfW) - frame.Left) - OffMargin, at.y);
                 case CharacterPosition.Right:
                 case CharacterPosition.PeekRight:
+                case CharacterPosition.LeanRight:
                     return new Vector2(at.x + (frame.Right - (centre.x - halfW)) + OffMargin, at.y);
                 default:
                     return new Vector2(at.x, at.y - ((centre.y + halfH) - frame.Bottom) - OffMargin);
@@ -240,11 +357,40 @@ namespace MugsTech.Stage
             switch (from)
             {
                 case CharacterPosition.Left:
-                case CharacterPosition.PeekLeft: return slideOutTarget + Vector2.left * ParkDistance;
+                case CharacterPosition.PeekLeft:
+                case CharacterPosition.LeanLeft: return slideOutTarget + Vector2.left * ParkDistance;
                 case CharacterPosition.Right:
-                case CharacterPosition.PeekRight: return slideOutTarget + Vector2.right * ParkDistance;
+                case CharacterPosition.PeekRight:
+                case CharacterPosition.LeanRight: return slideOutTarget + Vector2.right * ParkDistance;
                 default: return slideOutTarget + Vector2.down * ParkDistance;
             }
+        }
+
+        /// <summary>
+        /// True while any part of him is inside the frame, with the moved
+        /// transform at <paramref name="at"/> and him at <paramref name="scale"/>.
+        /// A move that arrives while he is in view starts from where he is.
+        /// </summary>
+        public static bool InView(Vector2 at, Body body, Frame frame, float scale = 1f)
+        {
+            Vector2 centre = at + body.CentreOffset * scale;
+            float halfW = body.Size.x * 0.5f * scale, halfH = body.Size.y * 0.5f * scale;
+            return centre.x + halfW > frame.Left && centre.x - halfW < frame.Right &&
+                   centre.y + halfH > frame.Bottom && centre.y - halfH < frame.Top;
+        }
+
+        /// <summary>
+        /// The edge he leaves through when a move is cut short and he is
+        /// between his marks: the nearest one — left or right from the outer
+        /// parts of the frame, down from the middle. (At his marks this is the
+        /// same answer as his position gives: Left, Right, Center.)
+        /// </summary>
+        public static CharacterPosition ExitFrom(float x, Frame frame)
+        {
+            float reach = frame.HalfWidth * 0.4f;
+            if (x < frame.Centre.x - reach) return CharacterPosition.Left;
+            if (x > frame.Centre.x + reach) return CharacterPosition.Right;
+            return CharacterPosition.Center;
         }
 
         /// <summary>Where a pop-up at <paramref name="rest"/> starts: the same x, wholly below the frame.</summary>
@@ -291,6 +437,104 @@ namespace MugsTech.Stage
             };
         }
 
+        // ---- The lean ----------------------------------------------------------------
+
+        /// <summary>How far he tilts into the frame when he leans in over a side edge, in degrees.</summary>
+        public const float LeanTilt = 35f;
+        /// <summary>Where his head sits: this share of the frame's height above its middle (0 = mid-height).</summary>
+        public const float LeanHeadAboveMiddle = -0.03f;
+        /// <summary>
+        /// Which part of him sits ON the frame edge at head height, across his
+        /// outline from his back (0, the tail) to his front (1): everything in
+        /// front of it is in the frame.
+        /// </summary>
+        public const float LeanCutAcross = 0.34f;
+
+        // His outline as three boxes, in shares of it: across from his back (0)
+        // to his front (1), down from the top (0) to his feet (1). Measured on
+        // the Mugs sprites (the head is nearly half of him, the tail a third of
+        // his width behind him). Only used to say how much of a lean shows.
+        static readonly Rect LeanHeadBox = Rect.MinMaxRect(0.30f, 0.00f, 0.94f, 0.47f);
+        static readonly Rect LeanTrunkBox = Rect.MinMaxRect(0.41f, 0.47f, 0.85f, 1.00f);
+        static readonly Rect LeanTailBox = Rect.MinMaxRect(0.00f, 0.15f, 0.32f, 0.78f);
+        /// <summary>The middle of his head, in the same shares.</summary>
+        static readonly Vector2 LeanHeadCentre = new Vector2(0.62f, 0.24f);
+
+        /// <summary>A lean: where the moved transform rests, how he is turned and scaled, and how much of him shows.</summary>
+        public struct LeanPose
+        {
+            public Vector2 Rest;      // the moved transform, head and one shoulder inside the side edge
+            public Vector2 Hidden;    // the same height, wholly outside that edge
+            public float Scale;       // ≤ 1
+            public float Tilt;        // degrees, counter-clockwise: + from the right edge, − from the left
+            public float VisibleWidth, VisibleHeight;   // what shows, in world units
+        }
+
+        /// <summary>
+        /// The lean pose at the left or right edge, at about mid-height:
+        /// tilted <see cref="LeanTilt"/> into the frame about the moved
+        /// transform, his head at mid-height, the frame edge through him at
+        /// <see cref="LeanCutAcross"/>. Scaled down until what shows is inside
+        /// the peek's limits (<see cref="PeekMaxWidthOfFrame"/>,
+        /// <see cref="PeekMaxHeightOfFrame"/>). <paramref name="body"/> is his
+        /// outline AS HE FACES INTO THE FRAME (to the right from the left
+        /// edge), so his back — the tail — is outside.
+        /// </summary>
+        public static LeanPose Lean(bool right, Body body, Frame frame) =>
+            Lean(right, body, frame, LeanTilt, LeanCutAcross, LeanHeadAboveMiddle);
+
+        /// <summary><see cref="Lean(bool, Body, Frame)"/> with its three dials: the tilt, where the edge cuts him, how high his head is.</summary>
+        public static LeanPose Lean(bool right, Body body, Frame frame, float tiltDegrees, float cutAcross, float headAboveMiddle)
+        {
+            float maxW = PeekMaxWidthOfFrame * frame.Width, maxH = PeekMaxHeightOfFrame * frame.Height;
+            float scale = body.Size.x > 0f ? Mathf.Min(1f, maxW / body.Size.x) : 1f;
+            float side = right ? -1f : 1f;                  // which way "into the frame" is
+            float edge = right ? frame.Right : frame.Left;
+            float tilt = (right ? 1f : -1f) * tiltDegrees;  // his head leans into the frame
+            float rad = tilt * Mathf.Deg2Rad, cos = Mathf.Cos(rad), sin = Mathf.Sin(rad);
+
+            // A point of his outline (shares across and down) relative to the moved transform, at scale 1, upright.
+            Vector2 Local(float across, float down) => new Vector2(
+                body.CentreOffset.x + side * (across - 0.5f) * body.Size.x,
+                body.CentreOffset.y + (0.5f - down) * body.Size.y);
+            Vector2 Turned(Vector2 v, float s) => new Vector2((v.x * cos - v.y * sin) * s, (v.x * sin + v.y * cos) * s);
+
+            var pose = new LeanPose { Scale = scale, Tilt = tilt };
+            for (int pass = 0; pass < 4; pass++)
+            {
+                Vector2 head = Turned(Local(LeanHeadCentre.x, LeanHeadCentre.y), pose.Scale);
+                Vector2 cut = Turned(Local(cutAcross, LeanHeadCentre.y), pose.Scale);
+                pose.Rest = new Vector2(edge - cut.x, frame.Centre.y + headAboveMiddle * frame.Height - head.y);
+
+                // What shows: the part of the three boxes inside the frame.
+                float inMost = 0f, top = float.NegativeInfinity, bottom = float.PositiveInfinity, outMost = 0f;
+                foreach (Rect box in new[] { LeanHeadBox, LeanTrunkBox, LeanTailBox })
+                    for (int i = 0; i <= 16; i++)
+                        for (int j = 0; j <= 16; j++)
+                        {
+                            Vector2 w = pose.Rest + Turned(Local(Mathf.Lerp(box.xMin, box.xMax, i / 16f), Mathf.Lerp(box.yMin, box.yMax, j / 16f)), pose.Scale);
+                            float inside = side * (w.x - edge);   // > 0: in the frame
+                            outMost = Mathf.Max(outMost, -inside);
+                            if (inside <= 0f || w.y < frame.Bottom || w.y > frame.Top) continue;
+                            inMost = Mathf.Max(inMost, inside);
+                            top = Mathf.Max(top, w.y);
+                            bottom = Mathf.Min(bottom, w.y);
+                        }
+                pose.VisibleWidth = inMost;
+                pose.VisibleHeight = top > bottom ? top - bottom : 0f;
+                pose.Hidden = new Vector2(pose.Rest.x - side * (inMost + OffMargin), pose.Rest.y);
+
+                float over = Mathf.Max(maxW > 0f ? pose.VisibleWidth / maxW : 0f, maxH > 0f ? pose.VisibleHeight / maxH : 0f);
+                if (over <= 1f) break;
+                pose.Scale /= over * 1.01f;
+            }
+            return pose;
+        }
+
+        /// <summary>His outline as it is once the sprite is mirrored (a lean and a peek face into the frame).</summary>
+        public static Body Mirrored(Body body) =>
+            new Body { CentreOffset = new Vector2(-body.CentreOffset.x, body.CentreOffset.y), Size = body.Size };
+
         // ---- A rect moving between two slots ------------------------------------------
 
         /// <summary>
@@ -316,6 +560,11 @@ namespace MugsTech.Stage
         Park,           // off: out of reach of any camera move
         RiseToPeek,     // head and shoulders over the bottom edge
         PopUp,          // at Left / Right / Center, from below the frame
+        ToFull,         // still on his way out, in view: back to Left / Right / Center from where he is
+        ToPeek,         // …back into a peek
+        LeanIn,         // head and one shoulder in over a side edge
+        LeanOut,        // from a lean: back out through that edge
+        ToLean,         // …back into a lean
     }
 
     /// <summary>What the frame shows of Mugs at one moment.</summary>
@@ -323,6 +572,7 @@ namespace MugsTech.Stage
     {
         Full,      // at Left, Right or Center, in view
         Peek,      // only his head over the bottom edge
+        Lean,      // his head and one shoulder over a side edge (counted with the peek share)
         Off,       // gone
         Covered,   // at a full position, but behind something opaque edge to edge ({Black}, a big headline, a clipping)
     }
@@ -342,6 +592,8 @@ namespace MugsTech.Stage
         /// <summary>Times he went off (from a full position or a peek; the take opening without him counts once).</summary>
         public int OffCount { get; private set; }
         public int PeekCount { get; private set; }
+        /// <summary>Times he leaned in over a side edge (their seconds are in <see cref="PeekSeconds"/>).</summary>
+        public int LeanCount { get; private set; }
 
         MugsOnScreen last = MugsOnScreen.Full;
         bool any;
@@ -354,6 +606,7 @@ namespace MugsTech.Stage
                 // Covered is the same place with something in front: not a new exit or peek.
                 if (state == MugsOnScreen.Off && (!any || last != MugsOnScreen.Off)) OffCount++;
                 if (state == MugsOnScreen.Peek && (!any || last != MugsOnScreen.Peek)) PeekCount++;
+                if (state == MugsOnScreen.Lean && (!any || last != MugsOnScreen.Lean)) LeanCount++;
             }
             any = true;
             last = state;
@@ -362,6 +615,7 @@ namespace MugsTech.Stage
             {
                 case MugsOnScreen.Full: FullSeconds += dt; break;
                 case MugsOnScreen.Peek: PeekSeconds += dt; break;
+                case MugsOnScreen.Lean: PeekSeconds += dt; break;   // a lean is a small appearance, like a peek
                 case MugsOnScreen.Off: OffSeconds += dt; break;
                 default: CoveredSeconds += dt; break;
             }
@@ -378,7 +632,7 @@ namespace MugsTech.Stage
             CultureInfo inv = CultureInfo.InvariantCulture;
             string s = "[Stage] Mugs on screen " + (OnScreenShare * 100f).ToString("F1", inv) + " % of " +
                        Total.ToString("F1", inv) + " s (off " + OffCount + (OffCount == 1 ? " time" : " times");
-            if (PeekSeconds > 0f || PeekCount > 0)
+            if (PeekSeconds > 0f || PeekCount > 0 || LeanCount > 0)
                 s += ", peek " + (PeekShare * 100f).ToString("F1", inv) + " %";
             if (CoveredSeconds > 0f)
                 s += ", behind a full-frame cover " + (CoveredSeconds / Mathf.Max(Total, 1e-6f) * 100f).ToString("F1", inv) + " %";
@@ -433,14 +687,51 @@ namespace MugsTech.Stage
         }
     }
 
+    /// <summary>
+    /// What waited for Mugs to land this take — every "Held … for the
+    /// presenter to land" (a side card, an image, a clip). Pure counters;
+    /// reset when a take begins.
+    /// </summary>
+    public static class PresenterHolds
+    {
+        public static int Count { get; private set; }
+        public static float TotalSeconds { get; private set; }
+        public static float LongestSeconds { get; private set; }
+
+        public static void Reset()
+        {
+            Count = 0;
+            TotalSeconds = 0f;
+            LongestSeconds = 0f;
+        }
+
+        public static void Add(float seconds)
+        {
+            if (!(seconds > 0f)) return;
+            Count++;
+            TotalSeconds += seconds;
+            if (seconds > LongestSeconds) LongestSeconds = seconds;
+        }
+    }
+
     /// <summary>This take's stage figures, for the result JSON (stays after the scene).</summary>
     public sealed class StageReport
     {
         public float Seconds;
         public float OnScreenShare, PeekShare, OffShare, CoveredShare;
-        public int OffCount, PeekCount, EmptyStageWarnings, IgnoredZooms;
+        public int OffCount, PeekCount, LeanCount, EmptyStageWarnings, IgnoredZooms;
         public float LongestEmptySeconds;
         public bool OpenedWithoutMugs;
+        /// <summary>"glide" or "dash": the main menu's Side move for this take.</summary>
+        public string SideMove = "glide";
+        /// <summary>Cards and media held for him to land: how many, how long in all, the longest.</summary>
+        public int HoldCount;
+        public float HoldSeconds, LongestHoldSeconds;
+        /// <summary>Handovers ({Position:…,Over}): how many times he came up in front of what had the frame, and for how long he stood there.</summary>
+        public int HandoverCount;
+        public float HandoverSeconds;
+        /// <summary>Arrive on the word: arrivals from off stage that started early, and those that could not take their whole lead.</summary>
+        public int LedArrivals, ShortenedLeads;
 
         public static StageReport Last { get; set; }
     }

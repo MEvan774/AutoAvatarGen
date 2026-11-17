@@ -184,6 +184,93 @@ public class ContentZoneController : MonoBehaviour
         return contentZoneWide;
     }
 
+    // -----------------------------------------------------------------------
+    // The handover ({Position:…,Over}): Mugs comes up IN FRONT of the card that
+    // is up. The zone's rules follow his new position for everything that
+    // comes next — but that one card stays exactly as it is until it ends.
+    // -----------------------------------------------------------------------
+
+    private ContentCard handoverCard;
+
+    /// <summary>True while the card Mugs came up in front of is still there (fading out included).</summary>
+    public bool HasHandoverCard => handoverCard != null;
+
+    /// <summary>True once that card is on its way out.</summary>
+    public bool HandoverCardIsHiding => handoverCard != null && handoverCard.IsHiding;
+
+    /// <summary>The tag name of the card on screen ("Versus", "Headline", "Timeline", …), or null.</summary>
+    public string ActiveCardName =>
+        activeCard == null ? null
+        : activeCardType == ContentCardType.BigCenter ? "Headline"
+        : RunTagName(activeCardType);
+
+    /// <summary>
+    /// He arrives in front of the card that is up. From here on the zone
+    /// behaves as his position says (Center hides side cards, a full position
+    /// means side slots) for anything NEW — the card under him is not hidden
+    /// and not moved. (Nothing is touched when no card is up: he is over an
+    /// image or a clip.)
+    /// </summary>
+    public void BeginHandover(bool centred, bool wide)
+    {
+        handoverCard = activeCard;
+        isPaused = centred;
+        stageWide = wide;
+        Debug.Log(handoverCard != null
+            ? $"[Card] {ActiveCardName} card stays as it is — Mugs is in front of it"
+            : "[Card] Mugs is in front of the picture — no card is up");
+    }
+
+    /// <summary>He moved to another full position while in front of it: only Center's rule for new cards changes.</summary>
+    public void MoveHandover(bool centred) => isPaused = centred;
+
+    /// <summary>
+    /// He left again ({Position:Off} or a peek) and it carries on without
+    /// him: the stage is wide again, and the card is where it already was.
+    /// </summary>
+    public void LeaveHandover(bool wide)
+    {
+        handoverCard = null;
+        isPaused = false;
+        stageWide = wide;
+    }
+
+    /// <summary>The handover is over (what was under him has gone, or his next move follows the normal rules).</summary>
+    public void EndHandover() => handoverCard = null;
+
+    /// <summary>
+    /// Something new comes due while he is in front of this card: it closes
+    /// first, as it would for any new beat (a held card would otherwise keep
+    /// the newcomer waiting for its End).
+    /// </summary>
+    public void CloseHandoverCard()
+    {
+        if (handoverCard == null || activeCard != handoverCard || activeCard.IsHiding) return;
+        activeCardPersistent = false;
+        HideCurrentCard();
+    }
+
+    // An End, a mark, a strike or the next line of a line-by-line run acts on
+    // the card that is up; anything else is a new beat.
+    private bool OpensSomethingNew(ContentCardEvent evt)
+    {
+        if (evt.dismissesCard || evt.isMark || evt.strikesLogo) return false;
+        if (activeCard == null) return true;
+        if (evt.cardType == ContentCardType.Timeline && OpenTimeline != null) return false;
+        bool run = evt.cardType == ContentCardType.BigText || evt.cardType == ContentCardType.TimelineWide ||
+                   evt.cardType == ContentCardType.Clipping || evt.cardType == ContentCardType.BigMedia;
+        return !(run && evt.duration <= 0f && evt.cardType == activeCardType);
+    }
+
+    // The End (or the next node) of the side card he is standing in front of
+    // at Center must reach it — Center's "skip side cards" is for new ones.
+    private bool ActsOnHandoverCard(ContentCardEvent evt)
+    {
+        if (handoverCard == null || activeCard != handoverCard) return false;
+        if (evt.dismissesCard) return EndCloses(evt.cardType, activeCardType);
+        return !OpensSomethingNew(evt);
+    }
+
     /// <summary>True when a content card is currently visible.</summary>
     public bool IsCardActive => activeCard != null;
 
@@ -353,6 +440,7 @@ public class ContentZoneController : MonoBehaviour
         voiceAudio = audio;
         lastTriggeredIndex = -1;
         isPaused = false;
+        handoverCard = null;
         cardQueue.Clear();
         closeUpCutHeldTypes.Clear();
         heldCardIndex = -1;
@@ -404,6 +492,13 @@ public class ContentZoneController : MonoBehaviour
                         lastTriggeredIndex = i;
                         continue;
                     }
+
+                    // A new card that comes due while Mugs stands in front of
+                    // one ({Position:…,Over}) closes that one first — a new
+                    // beat; it then opens (or is skipped) by the rules below.
+                    if (handoverCard != null && activeCard == handoverCard && !activeCard.IsHiding &&
+                        OpensSomethingNew(timeline[i]) && mediaPresentationSystem != null)
+                        mediaPresentationSystem.HandoverNewBeat($"a {timeline[i].cardType} card");
 
                     // While paused (character centered) only fullscreen feature
                     // cards may appear; a side card would overlap the centered
@@ -535,6 +630,7 @@ public class ContentZoneController : MonoBehaviour
 
         ContentCardEvent evt = timeline[index];
         Debug.Log($"Held {evt.cardType} card {heldCardSeconds:F2}s for the presenter to land");
+        MugsTech.Stage.PresenterHolds.Add(heldCardSeconds);
         heldCardSeconds = 0f;
 
         if (evt.duration > 0f) return false; // timed — it has no End tag
@@ -1141,7 +1237,8 @@ public class ContentZoneController : MonoBehaviour
     // never hid it, and skipping the End would leave it up until the narration
     // ends.
     private bool SkippedWhileCentered(ContentCardEvent evt)
-        => isPaused && !evt.isMark && !IsFeatureCard(evt.cardType) && !ClosesHeldBigHeadline(evt);
+        => isPaused && !evt.isMark && !IsFeatureCard(evt.cardType) && !ClosesHeldBigHeadline(evt) &&
+           !ActsOnHandoverCard(evt);
 
     private bool ClosesHeldBigHeadline(ContentCardEvent evt)
     {

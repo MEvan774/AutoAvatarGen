@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using DG.Tweening;
 using MugsTech.Sound;
 using MugsTech.Stage;
@@ -41,6 +42,23 @@ public partial class MediaPresentationSystem
 
     private Vector3 presenterRestScale = Vector3.one;
     private bool presenterRestKnown;
+
+    // His size on the stage (1, or the peek's scale) — kept apart from the
+    // transform, whose scale also carries a leg's squash and stretch.
+    private float presenterUniform = 1f;
+
+    // True while a leg's pose (StageMoves) is on the transform: its scale and
+    // rotation are then not his own, and stageShapeRotation is what to go back to.
+    private bool stageShaped;
+    private Quaternion stageShapeRotation = Quaternion.identity;
+
+    // The leg that is running (null between moves). A {Position:…} that
+    // arrives meanwhile plans from it: where he is, how big, how he leans.
+    private StageLegRun stageRun;
+
+    // His outline as last measured in his own shape (a squash would distort it).
+    private StageMath.Body stageBody;
+    private bool stageBodyKnown;
     private Vector2 stageCameraCentre;
     private bool stageCameraKnown;
 
@@ -51,7 +69,7 @@ public partial class MediaPresentationSystem
     public bool IsPresenterOff => currentPosition == CharacterPosition.Off;
 
     /// <summary>True while only his head shows ({Position:PeekLeft/PeekRight}).</summary>
-    public bool IsPresenterPeeking => StageMath.IsPeek(currentPosition);
+    public bool IsPresenterPeeking => StageMath.IsSmall(currentPosition);
 
     /// <summary>
     /// True while he is travelling in any way — a glide between sides, a
@@ -86,11 +104,7 @@ public partial class MediaPresentationSystem
         return new StageMath.Frame { Centre = stageCameraCentre, HalfHeight = half, HalfWidth = half * aspect };
     }
 
-    float PresenterScale()
-    {
-        if (avatarParent == null) return 1f;
-        return Mathf.Abs(presenterRestScale.x) > 1e-5f ? avatarParent.localScale.x / presenterRestScale.x : 1f;
-    }
+    float PresenterScale() => avatarParent == null ? 1f : presenterUniform;
 
     // His drawn outline relative to the transform that is moved, at scale 1 —
     // the sprite's tight mesh, not its texture rectangle (the emotion sprites
@@ -100,45 +114,188 @@ public partial class MediaPresentationSystem
         if (avatarParent == null || characterRenderer == null || characterRenderer.sprite == null)
             return StageMath.DefaultBody;
 
+        // Measured in the moved transform's OWN space, so it is the same
+        // outline however he is turned (a lean), sized (a peek) or squashed.
         var corners = new Vector3[4];
-        Vector2 min, max;
-        if (ChapterTitleController.SpriteOutlineWorld(characterRenderer, corners))
+        if (!ChapterTitleController.SpriteOutlineWorld(characterRenderer, corners))
         {
-            min = new Vector2(float.MaxValue, float.MaxValue);
-            max = new Vector2(float.MinValue, float.MinValue);
-            foreach (Vector3 c in corners)
-            {
-                min = Vector2.Min(min, c);
-                max = Vector2.Max(max, c);
-            }
-        }
-        else
-        {
-            Bounds b = characterRenderer.bounds;
-            min = b.min;
-            max = b.max;
+            Bounds wb = characterRenderer.bounds;
+            corners[0] = new Vector3(wb.min.x, wb.min.y, wb.center.z);
+            corners[1] = new Vector3(wb.min.x, wb.max.y, wb.center.z);
+            corners[2] = new Vector3(wb.max.x, wb.max.y, wb.center.z);
+            corners[3] = new Vector3(wb.max.x, wb.min.y, wb.center.z);
         }
 
-        float s = Mathf.Max(1e-4f, Mathf.Abs(PresenterScale()));
-        Vector2 centre = (min + max) * 0.5f - (Vector2)avatarParent.position;
-        Vector2 size = max - min;
+        var min = new Vector2(float.MaxValue, float.MaxValue);
+        var max = new Vector2(float.MinValue, float.MinValue);
+        foreach (Vector3 c in corners)
+        {
+            Vector2 local = avatarParent.InverseTransformPoint(c);
+            min = Vector2.Min(min, local);
+            max = Vector2.Max(max, local);
+        }
+
+        // Local units → world units at his full size.
+        var rest = new Vector2(Mathf.Abs(presenterRestScale.x), Mathf.Abs(presenterRestScale.y));
+        Vector2 centre = Vector2.Scale((min + max) * 0.5f, rest);
+        Vector2 size = Vector2.Scale(max - min, rest);
         if (size.x < 0.05f || size.y < 0.05f) return StageMath.DefaultBody;
-        return new StageMath.Body { CentreOffset = centre / s, Size = size / s };
+        return new StageMath.Body { CentreOffset = centre, Size = size };
     }
 
     void SetPresenter(Vector2 at, float scale, bool peekSorting)
     {
         if (avatarParent == null) return;
         avatarParent.position = new Vector3(at.x, at.y, avatarParent.position.z);
+        presenterUniform = scale;
         avatarParent.localScale = presenterRestScale * scale;
-        if (avatarSystem != null) avatarSystem.SetPeekSorting(peekSorting);
+        SetPresenterLayer(peekSorting);
     }
+
+    // A leg was cut short: his own shape again, upright, on this frame.
+    void EndStageShape()
+    {
+        if (stageShaped && avatarParent != null)
+        {
+            avatarParent.localScale = presenterRestScale * presenterUniform;
+            avatarParent.rotation = stageShapeRotation;
+        }
+        stageShaped = false;
+    }
+
+    // ---- Arrive on the word -----------------------------------------------------------
+
+    // The stage's own change for a return that started early, kept for the tag's time.
+    struct PendingStageChange
+    {
+        public bool active;
+        public float at;          // the tag's time
+        public bool endsMedia;    // his return ends the {Image:}/{Video:} that is up
+    }
+    private PendingStageChange pendingStage;
+
+    // Set by the position tracker for the one marker it fires early: that tag's own time.
+    private float positionLedUntil = float.NaN;
+    private int stageLedArrivals, stageShortenedLeads;
+
+    // A led arrival lands BEFORE the stage changes for it: the wide card he
+    // rose in front of is still up, then closes or glides to its side. He
+    // keeps the peek's layer (in front of the card zones) until it has — on
+    // the first take he stood behind it for three frames after every landing.
+    private bool frontHeld;
+    private float frontHeldUntil = float.PositiveInfinity;   // voice time; +∞ until the stage has changed
+    // How far short of its planned lead an arrival may start and still count as on time.
+    const float LeadSlackSeconds = 0.05f;
+
+    // What the stage does for his return, on the tag's time: the picture
+    // ends, the zone follows his position (Center hides side cards, a wide
+    // card glides to its side). If his lead was cut short he is still rising:
+    // what comes due now waits for the rest of it.
+    void ApplyPendingStageChange()
+    {
+        if (!pendingStage.active) return;
+        pendingStage.active = false;
+
+        if (pendingStage.endsMedia)
+        {
+            DismissActiveMedia();
+            if (!isShowingMedia) ReleaseMediaHandover(hide: true);
+        }
+        if (contentZoneController != null && !handover)
+        {
+            if (currentPosition == CharacterPosition.Center) contentZoneController.PauseTimeline();
+            else contentZoneController.ResumeTimeline();
+            contentZoneController.SetStageWide(StageMath.IsWide(currentPosition), instant: false);
+        }
+        if (stageMoving && StageMath.IsFull(currentPosition)) presenterGliding = true;
+
+        // From here the card that was up closes (0.3 s) or glides aside (0.35 s).
+        if (frontHeld) frontHeldUntil = StageClock() + StageMath.CardGlideSeconds + 0.05f;
+    }
+
+    // Each frame: he goes back to his own layer once nothing is left in front of him.
+    void StepFrontHold()
+    {
+        if (!frontHeld) return;
+        bool cardUp = contentZoneController != null && contentZoneController.IsCardActive;
+        if (pendingStage.active || (cardUp && StageClock() < frontHeldUntil)) return;
+        frontHeld = false;
+        frontHeldUntil = float.PositiveInfinity;
+        if (stageRun == null && StageMath.IsFull(currentPosition)) SetPresenterLayer(false);
+    }
+
+    // Which arrivals start early, from the parsed (final) times. The
+    // positions on {Transition} lines are part of the chain: they decide
+    // where he is before the next standalone tag.
+    void PlanArrivalLeads(float takeSeconds)
+    {
+        if (positionMarkers == null || positionMarkers.Count == 0) return;
+
+        var cues = new List<PositionCue>();
+        var owner = new List<PositionMarkerData>();   // null for a transition line's position
+        foreach (PositionMarkerData m in positionMarkers)
+        {
+            cues.Add(new PositionCue { Time = m.triggerTime, Position = m.position, Cut = m.hardCutOverride ?? useHardCuts });
+            owner.Add(m);
+        }
+        if (transitionMarkers != null)
+            foreach (TransitionMarkerData tr in transitionMarkers)
+                if (tr.hasPosition)
+                {
+                    cues.Add(new PositionCue { Time = tr.triggerTime, Position = tr.position, Cut = true, OnTransition = true });
+                    owner.Add(null);
+                }
+        var order = new List<int>();
+        for (int i = 0; i < cues.Count; i++) order.Add(i);
+        order.Sort((a, b) => cues[a].Time != cues[b].Time ? cues[a].Time.CompareTo(cues[b].Time) : a.CompareTo(b));
+        var sorted = new List<PositionCue>();
+        foreach (int i in order) sorted.Add(cues[i]);
+
+        var blacks = new List<(float time, float seconds, bool held, bool isEnd)>();
+        if (blackPanelMarkers != null)
+            foreach (BlackPanelMarkerData b in blackPanelMarkers)
+                blacks.Add((b.triggerTime, b.duration, b.holdsOpen, b.endsPanel));
+
+        ArrivalLead[] leads = ArrivalLeads.Plan(sorted, ArrivalLeads.BlackStretches(blacks, takeSeconds));
+        for (int k = 0; k < leads.Length; k++)
+        {
+            PositionMarkerData m = owner[order[k]];
+            if (m == null) continue;
+            m.led = leads[k].Led;
+            m.startTime = leads[k].Start;
+            m.leadShortened = leads[k].Shortened;
+            if (m.led)
+                Debug.Log($"[Stage] {{Position:{m.position}}} at {m.triggerTime:F2}s: his move starts {leads[k].Seconds:F2} s early (at {m.startTime:F2}s) so he has landed on the word" +
+                          (m.leadShortened ? " — shortened: the move that took him off ends then" : ""));
+            else if (m.position != CharacterPosition.Off && sorted[k].Time > 0f && leads[k].Why != null &&
+                     leads[k].Why != "he is on screen, so he moves on the word" && leads[k].Why != "he is already there")
+                Debug.Log($"[Stage] {{Position:{m.position}}} at {m.triggerTime:F2}s starts on its tag ({leads[k].Why})");
+        }
+    }
+
+    /// <summary>The arrivals that start early, as (start of the move, the tag's time): HybridAvatarSystem puts his arrival face on the first.</summary>
+    public List<Vector2> LedArrivalWindows()
+    {
+        var windows = new List<Vector2>();
+        if (positionMarkers != null)
+            foreach (PositionMarkerData m in positionMarkers)
+                if (m.led) windows.Add(new Vector2(m.startTime, m.triggerTime));
+        return windows;
+    }
+
+    // His rotation with no lean on it (the marks all share it).
+    Quaternion UprightRotation() => centerLocation != null ? centerLocation.rotation : Quaternion.identity;
+
+    // His outline as it will be once he faces that way: the sprite is mirrored
+    // about the moved transform, and his outline is not centred on it.
+    StageMath.Body FacingBody(StageMath.Body body, bool mirrored) =>
+        characterRenderer != null && characterRenderer.flipX != mirrored ? StageMath.Mirrored(body) : body;
 
     // A peek faces into the frame.
     void SetPeekFacing(CharacterPosition peek)
     {
         if (characterRenderer != null)
-            characterRenderer.flipX = peek == CharacterPosition.PeekRight;
+            characterRenderer.flipX = peek == CharacterPosition.PeekRight || peek == CharacterPosition.LeanRight;
     }
 
     /// <summary>
@@ -159,6 +316,28 @@ public partial class MediaPresentationSystem
         ignoredExtremeIns = 0;
         stageIgnoredZooms = 0;
         StageReport.Last = null;
+        PresenterHolds.Reset();
+        pendingStage = default;
+        frontHeld = false;
+        frontHeldUntil = float.PositiveInfinity;
+        positionLedUntil = float.NaN;
+        stageLedArrivals = 0;
+        stageShortenedLeads = 0;
+        handover = false;
+        handoverTail = false;
+        handoverMedia = false;
+        handoverMediaFading = false;
+        handoverClosing = false;
+        handoverCount = 0;
+        handoverSeconds = 0f;
+        positionIsOver = false;
+        if (handoverDim != null) handoverDim.FadeTo(false, 0f);
+
+        // The main-menu Side move, for the whole take.
+        sideMoveDash = StagePrefs.SideMoveIsDash;
+        Debug.Log(sideMoveDash
+            ? $"[Stage] Side move: Dash ({SideMoveSeconds:F2} s between Left, Right and Center)"
+            : $"[Stage] Side move: Glide ({SideMoveSeconds:F2} s between Left, Right and Center)");
 
         if (avatarParent != null && !presenterRestKnown)
         {
@@ -201,6 +380,8 @@ public partial class MediaPresentationSystem
     /// </summary>
     bool StageChangeIsDue()
     {
+        // (A led arrival's own stage change, kept for its tag's time, counts too.)
+        if (pendingStage.active && voiceAudio != null && voiceAudio.time >= pendingStage.at) return true;
         int next = lastTriggeredPositionMarker + 1;
         if (positionMarkers == null || next >= positionMarkers.Count || voiceAudio == null) return false;
         PositionMarkerData m = positionMarkers[next];
@@ -218,20 +399,24 @@ public partial class MediaPresentationSystem
             Debug.Log("[Stage] {Zoom:ExtremeOut} — its ExtremeIn was ignored while Mugs was away; nothing to undo.");
             return true;
         }
-        if (!IsStageWide) return false;
+        // …and while he stands in front of a card or picture ({Position:…,Over})
+        // the camera would move him and not what is under him.
+        if (!IsStageWide && !handover) return false;
         if (type != ZoomType.In && type != ZoomType.Pullback && type != ZoomType.ExtremeIn) return false;
 
         stageIgnoredZooms++;
         if (type == ZoomType.ExtremeIn) ignoredExtremeIns++;
         Debug.LogWarning($"[Stage] t={StageClock():F2}s {{Zoom:{type}}} ignored — Mugs is " +
-                         (IsPresenterOff ? "off screen" : "only peeking") + ", so there is no face to frame.");
+                         (IsPresenterOff ? "off screen, so there is no face to frame."
+                          : IsStageWide ? "only peeking, so there is no face to frame."
+                          : $"in front of {handoverOver ?? "a card"}, and the camera would move him and not it — zoom once it has closed."));
         return true;
     }
 
     // -----------------------------------------------------------------------
     // A move that involves Off or a peek (MoveToPosition hands these over).
     // -----------------------------------------------------------------------
-    void MoveOnStage(CharacterPosition target, bool? cutOverride)
+    void MoveOnStage(CharacterPosition target, bool? cutOverride, bool over = false, float ledUntil = float.NaN)
     {
         CharacterPosition from = currentPosition;
         if (target == from)
@@ -241,13 +426,46 @@ public partial class MediaPresentationSystem
         }
 
         bool cut = cutOverride ?? useHardCuts;
-        bool wasWide = StageMath.IsWide(from), nowWide = StageMath.IsWide(target);
         float t = StageClock();
+
+        // A led arrival that is told to leave again before its tag's time: the
+        // stage never changed for it, so there is nothing to change back.
+        bool stageStillWide = false;
+        if (pendingStage.active)
+        {
+            if (StageMath.IsWide(target)) { pendingStage.active = false; stageStillWide = true; }
+            else ApplyPendingStageChange();
+        }
+        bool wasWide = stageStillWide || StageMath.IsWide(from), nowWide = StageMath.IsWide(target);
+
+        // "Arrive on the word": his travel starts now, ahead of the tag; what
+        // the stage does for his return (the picture ending, the wide card
+        // gliding to its side, Center hiding side cards) still happens on the
+        // tag's own time — ApplyPendingStageChange, from the position tracker.
+        bool led = !float.IsNaN(ledUntil) && !cut && from == CharacterPosition.Off && target != CharacterPosition.Off;
+
+        // ",Over": he comes up in front of what has the frame, and it stays as
+        // it is. With nothing there he moves as he would without the word.
+        string under = null;
+        bool handOver = false;
+        if (over)
+        {
+            handOver = StageMath.CanHandOver(from, WhatHasTheFrame(out under), handover);
+            if (!handOver)
+                Debug.LogWarning($"[Stage] t={t:F2}s {{Position:{target},Over}} — nothing has the frame for him to come up in front of; " +
+                                 "he moves as he would without \",Over\".");
+        }
+        // A move without ",Over" while he stands in front of something: to Off
+        // or a peek he leaves it there (it carries on); to a full position the
+        // normal rules take over.
+        bool leaves = handover && !handOver;
+        bool leavesItUp = leaves && nowWide;
 
         // The layout changing is a new beat for whatever {Image:}/{Video:} is up,
         // exactly as a change of side is. Off ↔ peek keeps the stage wide, so
-        // the media stays.
-        if (StageMath.MoveEndsMedia(from, target))
+        // the media stays — and so does what a handover is in front of.
+        bool endsMedia = StageMath.MoveEndsMedia(stageStillWide ? CharacterPosition.Off : from, target) && !handOver && !leavesItUp;
+        if (endsMedia && !led)
         {
             DismissActiveMedia();
             if (!isShowingMedia) ReleaseMediaHandover(hide: true);
@@ -257,7 +475,16 @@ public partial class MediaPresentationSystem
         if (nowWide && !wasWide)
             EndZoomRun($"{{Position:{target}}}", hiddenBehindCover: cut);
 
+        // What the move is made of — planned from where he IS: a move that was
+        // running is not finished first and not jumped out of.
+        List<StageLeg> legs = null;
+        CharacterPosition exitAs = from;
+        StageLegRun finishFirst = null;   // he was leaving: that leg carries on, then these legs
+        if (!cut && avatarParent != null) legs = PlanStageMove(from, target, out exitAs, out finishFirst);
+
         if (movementCoroutine != null) StopCoroutine(movementCoroutine);
+        bool interrupted = presenterGliding || stageMoving;
+        stageRun = null;
         presenterGliding = false;
         stageMoving = false;
 
@@ -268,10 +495,32 @@ public partial class MediaPresentationSystem
         // to its new slot (or snaps there on a cut / under a transition cover).
         if (contentZoneController != null)
         {
-            if (target == CharacterPosition.Center) contentZoneController.PauseTimeline();
-            else contentZoneController.ResumeTimeline();
-            contentZoneController.SetStageWide(nowWide, instant: cut);
+            if (handOver)
+                contentZoneController.BeginHandover(centred: target == CharacterPosition.Center, wide: nowWide);
+            else if (leavesItUp)
+                contentZoneController.LeaveHandover(wide: true);
+            else if (!led)
+            {
+                if (leaves) contentZoneController.EndHandover();
+                if (target == CharacterPosition.Center) contentZoneController.PauseTimeline();
+                else contentZoneController.ResumeTimeline();
+                contentZoneController.SetStageWide(nowWide, instant: cut);
+            }
         }
+        if (led && !handOver)
+        {
+            pendingStage = new PendingStageChange { active = true, at = ledUntil, endsMedia = endsMedia };
+            if (StageMath.IsFull(target)) { frontHeld = true; frontHeldUntil = float.PositiveInfinity; }
+        }
+        else if (!led) { frontHeld = false; frontHeldUntil = float.PositiveInfinity; }
+
+        // The handover itself, before he moves: his layer is set as his legs begin.
+        if (handOver)
+            BeginHandover(target, under, legs != null && legs.Count > 0 ? StageMath.LegSeconds(legs[0]) : 0f, cut);
+        else if (leavesItUp)
+            LeaveHandover();
+        else if (leaves)
+            FinishHandover("his next move follows the normal rules", atOnce: cut);
 
         string how;
         if (avatarParent == null)
@@ -280,25 +529,135 @@ public partial class MediaPresentationSystem
         }
         else if (cut)
         {
+            EndStageShape();
             PlacePresenter(target, from);
             how = "cut";
         }
         else
         {
-            presenterGliding = StageMath.CardsWaitFor(from, target); // cards wait for an ARRIVAL, never for him leaving
+            // Cards wait for an ARRIVAL, never for him leaving — and nothing waits
+            // for a handover, or for an arrival that started early (he has landed
+            // by the tag's time; a shortened lead holds only for what is left).
+            presenterGliding = !handOver && !led && StageMath.CardsWaitFor(from, target);
             stageMoving = true;
-            movementCoroutine = StartCoroutine(StageTravel(from, target));
+            movementCoroutine = StartCoroutine(StageTravel(legs, target, exitAs, finishFirst));
             SoundLayer.Fire(target == CharacterPosition.Off ? SfxKind.StageOut : SfxKind.StageIn);
-            how = target == CharacterPosition.Off ? "slides out"
+            StageLeg first = legs.Count > 0 ? legs[0] : StageLeg.Park;
+            how = first == StageLeg.ToFull ? "comes back from where he was"
+                : first == StageLeg.ToPeek ? "comes back up from where he was"
+                : first == StageLeg.ToLean ? "comes back in from where he was"
+                : StageMath.IsLean(target) ? "leans in"
+                : target == CharacterPosition.Off ? (finishFirst != null ? "he was leaving already" : interrupted ? "leaves from where he was" : "slides out")
                 : StageMath.IsPeek(target) ? "head comes up"
                 : "pops up";
+            if (finishFirst != null && target != CharacterPosition.Off) how += " once he has finished leaving";
+        }
+        if (handOver) how += " over " + under;
+        if (led)
+        {
+            float early = ledUntil - t, full = legs != null && legs.Count > 0 ? StageMath.LegSeconds(legs[0]) : 0f;
+            stageLedArrivals++;
+            // (The voice clock moves in ~21 ms steps against 33 ms frames, so a
+            // start within a frame or so of the planned one is a full lead.)
+            bool shortened = early < full - LeadSlackSeconds;
+            if (shortened) stageShortenedLeads++;
+            how += $", started {early:F2} s early" + (shortened ? $" — {full - early:F2} s short of his {full:F2} s move, so he lands that late" : "");
+            t = ledUntil;   // the log gives the tag's time
         }
 
         Debug.Log(target == CharacterPosition.Off
             ? $"[Stage] t={t:F2}s Mugs off ({how}) — the stage is wide"
+            : StageMath.IsLean(target)
+                ? $"[Stage] t={t:F2}s Mugs leans in from the {(target == CharacterPosition.LeanRight ? "right" : "left")} ({how}) — the stage is wide"
             : StageMath.IsPeek(target)
                 ? $"[Stage] t={t:F2}s Mugs peeks {(target == CharacterPosition.PeekRight ? "right" : "left")} ({how}) — the stage is wide"
                 : $"[Stage] t={t:F2}s Mugs back at {target} ({how})");
+    }
+
+    // The legs of a stage move from where he is now, and the edge he leaves
+    // through (exitAs: Left / Right = that side, anything else = down).
+    // At rest that is StageMath.PlanTravel and his position's own edge. With a
+    // move still running:
+    //   - he is on his way OUT (StageMath.PlanWhileLeaving): back to the place
+    //     he is leaving, still in view → he comes back from where he is;
+    //     anywhere else → that leg carries on untouched (finishFirst) and the
+    //     arrival follows it;
+    //   - he is popping up → he goes back down the way he came;
+    //   - he is between his marks → he leaves through the nearest edge.
+    List<StageLeg> PlanStageMove(CharacterPosition from, CharacterPosition target,
+                                 out CharacterPosition exitAs, out StageLegRun finishFirst)
+    {
+        StageMath.Frame frame = StageFrame();
+        StageMath.Body body = StageBody();
+        Vector2 here = avatarParent.position;
+        bool inView = StageMath.InView(here, body, frame, presenterUniform);
+
+        if (PlanWhileLeaving(target, inView, here, frame, out List<StageLeg> legs, out exitAs, out finishFirst))
+            return legs;
+
+        exitAs = from;
+        if (StageMath.IsFull(from) && (presenterGliding || stageMoving))
+            exitAs = stageRun != null && stageRun.Leg == StageLeg.PopUp
+                ? CharacterPosition.Center
+                : StageMath.ExitFrom(here.x, frame);
+
+        return StageMath.PlanTravel(from, target, inView);
+    }
+
+    // True when a leg that takes him out is running: the plan for a move that
+    // arrives now (see StageMath.PlanWhileLeaving), the edge that leg takes him
+    // through, and the leg itself when it has to be finished first.
+    bool PlanWhileLeaving(CharacterPosition target, bool inView, Vector2 here, StageMath.Frame frame,
+                          out List<StageLeg> legs, out CharacterPosition exitAs, out StageLegRun finishFirst)
+    {
+        legs = null;
+        exitAs = target;
+        finishFirst = null;
+        StageLegRun run = stageMoving ? stageRun : null;
+        if (run == null || !StageMath.IsLeaving(run.Leg)) return false;
+
+        // What he is leaving: the peek or the lean; for a slide-out, the mark he is nearest to.
+        CharacterPosition leaving = run.Leg == StageLeg.SlideOut ? StageMath.ExitFrom(here.x, frame) : run.ExitAs;
+        legs = StageMath.PlanWhileLeaving(leaving, target, inView, out bool finish);
+        exitAs = run.ExitAs;
+        if (finish) finishFirst = run;
+        return true;
+    }
+
+    // A Left / Right / Center move that arrives while he is still on his way
+    // in from Off, a peek or a lean (MoveToPosition asks; never true for an
+    // old script). While he is still dropping out of the peek (or pulling out
+    // of the lean) that leg is finished and he pops up at the new mark. Once
+    // his pop-up is running it is turned towards the new mark from where he
+    // is — or, if he hasn't come into view yet, he simply pops up there.
+    bool RedirectStageArrival(CharacterPosition target)
+    {
+        if (!stageMoving || avatarParent == null || GetTransformForPosition(target) == null) return false;
+
+        List<StageLeg> legs = PlanStageRedirect(target, out CharacterPosition exitAs, out StageLegRun finishFirst);
+
+        if (movementCoroutine != null) StopCoroutine(movementCoroutine);
+        stageRun = null;
+        presenterGliding = true;
+        stageMoving = true;
+        movementCoroutine = StartCoroutine(StageTravel(legs, target, exitAs, finishFirst));
+        Debug.Log($"[Stage] t={StageClock():F2}s Mugs turns to {target} " +
+                  (finishFirst != null ? "(he finishes leaving, then pops up there)"
+                   : legs.Count > 0 && legs[0] == StageLeg.ToFull ? "from where he was (his arrival was still running)"
+                   : "(pops up there instead)"));
+        return true;
+    }
+
+    // What that redirect is made of, from where he is now.
+    List<StageLeg> PlanStageRedirect(CharacterPosition target, out CharacterPosition exitAs, out StageLegRun finishFirst)
+    {
+        StageMath.Frame frame = StageFrame();
+        Vector2 here = avatarParent.position;
+        bool inView = StageMath.InView(here, StageBody(), frame, presenterUniform);
+        if (PlanWhileLeaving(target, inView, here, frame, out List<StageLeg> legs, out exitAs, out finishFirst))
+            return legs;
+        exitAs = target;
+        return StageMath.PlanTravel(CharacterPosition.Off, target, inView);
     }
 
     // The pose a position ends in, set on this frame (a cut, or under a transition's cover).
@@ -312,11 +671,24 @@ public partial class MediaPresentationSystem
             Vector2 gone = StageMath.Park(from,
                 StageMath.SlideOutTarget(from, avatarParent.position, body, frame, PresenterScale()));
             SetPresenter(gone, 1f, peekSorting: false);
+            avatarParent.rotation = UprightRotation();   // (he may have been leaning)
         }
         else if (StageMath.IsPeek(target))
         {
-            StageMath.PeekPose pose = StageMath.Peek(target == CharacterPosition.PeekRight, body, frame);
+            bool right = target == CharacterPosition.PeekRight;
+            StageMath.PeekPose pose = StageMath.Peek(right, body, frame);
             SetPresenter(pose.Rest, pose.Scale, peekSorting: true);
+            avatarParent.rotation = UprightRotation();
+            SetPeekFacing(target);
+        }
+        else if (StageMath.IsLean(target))
+        {
+            // His head and one shoulder over the side edge, tilted into the
+            // frame, facing its centre — so his back (the tail) is outside.
+            bool right = target == CharacterPosition.LeanRight;
+            StageMath.LeanPose pose = StageMath.Lean(right, FacingBody(body, right), frame);
+            SetPresenter(pose.Rest, pose.Scale, peekSorting: true);
+            avatarParent.rotation = UprightRotation() * Quaternion.Euler(0f, 0f, pose.Tilt);
             SetPeekFacing(target);
         }
         else
@@ -341,64 +713,105 @@ public partial class MediaPresentationSystem
     {
         if (!stageMoving) return;
         if (movementCoroutine != null) { StopCoroutine(movementCoroutine); movementCoroutine = null; }
+        stageRun = null;
+        EndStageShape();
         stageMoving = false;
         presenterGliding = false;
         if (avatarParent != null && StageMath.IsFull(currentPosition))
             PlacePresenter(currentPosition, currentPosition);
     }
 
-    IEnumerator StageTravel(CharacterPosition from, CharacterPosition target)
+    // His outline at scale 1, measured while he has his own shape (a leg's
+    // squash or lean would distort it — then the last good one is used).
+    StageMath.Body StageBody()
+    {
+        if (!stageShaped || !stageBodyKnown)
+        {
+            stageBody = PresenterBody();
+            stageBodyKnown = true;
+        }
+        return stageBody;
+    }
+
+    // One leg of a stage move, set up from where he is.
+    sealed class StageLegRun
+    {
+        public StageLeg Leg;
+        public Vector2 A, B;                    // the moved transform: where the leg starts and ends
+        public float SizeA = 1f, SizeB = 1f;    // his size on the stage at each end (1, or a peek's scale)
+        public bool EdgeIsFrame;                // the line that holds still: the frame's bottom edge (a peek) or his feet
+        public float Edge;                      // the frame's bottom, or his feet below the transform at size 1
+        public bool Sideways;                   // a slide-out through a side edge (he leans)
+        public float Lean;                      // +1: leaning into the travel turns him counter-clockwise (to the left)
+        public Quaternion Upright = Quaternion.identity;   // his rotation without any lean
+        public bool EdgeIsSide;                 // a lean: the line that holds still is the frame's SIDE edge (Edge = its x)
+        public float TiltA, TiltB;              // the tilt he RESTS at, at each end (a lean's 35°; 0 anywhere else)
+        public Vector2 Carried = Vector2.one;   // the squash / stretch he had when the leg began…
+        public float CarriedTilt;               // …and the lean: both eased away (StageMoves.CarryLeft)
+        public System.Action AtHalf;            // a change of facing, made halfway
+        public bool HalfDone;
+        public bool EndsAtFull;                 // lands at Left / Right / Center: rest sorting, sway base
+        public Transform Rest;
+        public CharacterPosition ExitAs;        // the edge a leaving leg takes him through (Park needs it)
+        public float T;                         // how far into the leg its NEXT frame is
+        public int PosedFrame = -1;             // the frame it was last posed on
+    }
+
+    // Leaves where he is, then arrives. Every leg starts from the transform
+    // as it is: his place, his size, and whatever squash and lean a cut-short
+    // move left on him. finishFirst: the leg that was taking him out when this
+    // move arrived — it carries on from the frame it had reached, as if nothing
+    // had happened, and the legs follow it. Time.deltaTime, like MoveAvatar.
+    IEnumerator StageTravel(List<StageLeg> legs, CharacterPosition target, CharacterPosition exitAs,
+                            StageLegRun finishFirst = null)
     {
         StageMath.Frame frame = StageFrame();
-        StageMath.Body body = PresenterBody();
+        StageMath.Body body = StageBody();
 
-        foreach (StageLeg leg in StageMath.PlanTravel(from, target))
+        for (int i = finishFirst != null ? -1 : 0; i < legs.Count; i++)
         {
-            Vector2 a = avatarParent.position;
-            switch (leg)
+            StageLegRun run;
+            float t = 0f;
+            if (i < 0)
             {
-                case StageLeg.SlideOut:
-                    yield return StageLegMove(a, StageMath.SlideOutTarget(from, a, body, frame, PresenterScale()),
-                                              StageMath.SlideOutSeconds, StageMath.SlideOutEase);
-                    break;
-
-                case StageLeg.DropFromPeek:
+                run = finishFirst;
+                t = run.T;
+                // (Already posed on this frame by the move it belonged to: its next frame is the next one.)
+                if (run.PosedFrame == Time.frameCount) { stageRun = run; yield return null; }
+            }
+            else
+            {
+                StageLeg leg = legs[i];
+                if (leg == StageLeg.Park)
                 {
-                    StageMath.PeekPose was = StageMath.Peek(from == CharacterPosition.PeekRight, body, frame);
-                    yield return StageLegMove(a, new Vector2(a.x, was.Hidden.y), StageMath.PeekDropSeconds, StageMath.DropEase);
-                    break;
+                    EndStageShape();
+                    SetPresenter(StageMath.Park(exitAs, avatarParent.position), 1f, peekSorting: false);
+                    avatarParent.rotation = UprightRotation();   // (a lean leaves tilted)
+                    continue;
                 }
 
-                case StageLeg.Park:
-                    SetPresenter(StageMath.Park(from, a), 1f, peekSorting: false);
-                    break;
+                run = BeginStageLeg(leg, target, exitAs, frame, body);
+                if (run == null) continue;
+            }
+            stageRun = run;
 
-                case StageLeg.RiseToPeek:
-                {
-                    StageMath.PeekPose pose = StageMath.Peek(target == CharacterPosition.PeekRight, body, frame);
-                    SetPresenter(pose.Hidden, pose.Scale, peekSorting: true);
-                    SetPeekFacing(target);
-                    yield return StageLegMove(pose.Hidden, pose.Rest, StageMath.PeekRiseSeconds, StageMath.PopEase);
-                    break;
-                }
+            float seconds = StageMath.LegSeconds(run.Leg);
+            while (t < seconds)
+            {
+                PoseStageLeg(run, t);
+                run.PosedFrame = Time.frameCount;
+                t += Time.deltaTime;
+                run.T = t;
+                yield return null;
+            }
+            PoseStageLeg(run, seconds);
+            stageShaped = false;
+            stageRun = null;
 
-                case StageLeg.PopUp:
-                {
-                    Transform rest = GetTransformForPosition(target);
-                    if (rest == null) break;
-                    Vector2 r = rest.position;
-                    Vector2 below = StageMath.BelowFrame(r, body, frame);
-                    // In front of the card zones while he rises: a wide card that is
-                    // closing (or gliding to its side) on this beat fades BEHIND him —
-                    // on the first real take he came up behind a translucent Stat.
-                    SetPresenter(below, 1f, peekSorting: true);
-                    avatarParent.rotation = rest.rotation;
-                    UpdateFacing(target);
-                    yield return StageLegMove(below, r, StageMath.PopUpSeconds, StageMath.PopEase);
-                    SetPresenter(r, 1f, peekSorting: false);
-                    if (avatarSystem != null) avatarSystem.SetSwayBase(rest.position, rest.rotation);
-                    break;
-                }
+            if (run.EndsAtFull)
+            {
+                SetPresenter(run.B, 1f, peekSorting: frontHeld);   // (a led arrival stays in front of the card that is still up)
+                if (avatarSystem != null) avatarSystem.SetSwayBase(run.Rest.position, run.Rest.rotation);
             }
         }
 
@@ -406,18 +819,225 @@ public partial class MediaPresentationSystem
         presenterGliding = false;
     }
 
-    IEnumerator StageLegMove(Vector2 a, Vector2 b, float seconds, System.Func<float, float> ease)
+    // Sets a leg up from the transform as it is now. Legs that start out of
+    // sight (a pop-up, a peek's rise) place him at their hidden start first;
+    // every other leg starts exactly where and how he is.
+    StageLegRun BeginStageLeg(StageLeg leg, CharacterPosition target, CharacterPosition exitAs,
+                              StageMath.Frame frame, StageMath.Body body)
     {
-        float z = avatarParent.position.z;
-        float t = 0f;
-        while (t < seconds)
+        Vector2 here = avatarParent.position;
+        Quaternion upright = stageShaped ? stageShapeRotation : avatarParent.rotation;
+        var run = new StageLegRun
         {
-            Vector2 p = Vector2.LerpUnclamped(a, b, ease(t / seconds));
-            avatarParent.position = new Vector3(p.x, p.y, z);
-            t += Time.deltaTime;
-            yield return null;
+            Leg = leg, A = here, B = here, SizeA = presenterUniform, SizeB = presenterUniform,
+            Edge = body.CentreOffset.y - body.Size.y * 0.5f,   // his feet: the line a squash holds still
+            Upright = upright,
+            ExitAs = exitAs,
+        };
+
+        switch (leg)
+        {
+            case StageLeg.SlideOut:
+                // Through a side edge (he leans into it), or down.
+                run.Sideways = exitAs == CharacterPosition.Left || exitAs == CharacterPosition.Right;
+                run.Lean = exitAs == CharacterPosition.Left ? 1f : -1f;
+                run.B = StageMath.SlideOutTarget(exitAs, here, body, frame, presenterUniform);
+                CarryShape(run);
+                break;
+
+            case StageLeg.DropFromPeek:
+                run.EdgeIsFrame = true;
+                run.Edge = frame.Bottom;
+                run.B = StageMath.BelowFrame(here, body, frame, presenterUniform);
+                CarryShape(run);
+                break;
+
+            case StageLeg.RiseToPeek:
+            {
+                StageMath.PeekPose pose = StageMath.Peek(target == CharacterPosition.PeekRight, body, frame);
+                run.Upright = UprightRotation();
+                SetPresenter(pose.Hidden, pose.Scale, peekSorting: true);
+                avatarParent.rotation = run.Upright;
+                SetPeekFacing(target);
+                run.A = pose.Hidden;
+                run.B = pose.Rest;
+                run.SizeA = run.SizeB = pose.Scale;
+                run.EdgeIsFrame = true;
+                run.Edge = frame.Bottom;
+                break;
+            }
+
+            case StageLeg.PopUp:
+            {
+                Transform rest = GetTransformForPosition(target);
+                if (rest == null) return null;
+                Vector2 r = rest.position;
+                Vector2 below = StageMath.BelowFrame(r, body, frame);
+                // In front of the card zones while he rises: a wide card that is
+                // closing (or gliding to its side) on this beat fades BEHIND him —
+                // on the first real take he came up behind a translucent Stat.
+                SetPresenter(below, 1f, peekSorting: true);
+                avatarParent.rotation = rest.rotation;
+                UpdateFacing(target);
+                run.A = below;
+                run.B = r;
+                run.SizeA = run.SizeB = 1f;
+                run.Upright = rest.rotation;
+                run.EndsAtFull = true;
+                run.Rest = rest;
+                break;
+            }
+
+            case StageLeg.ToFull:
+            {
+                // From where he is — sliding out of this mark, or popping up
+                // at another — to his mark (never out of a peek or a lean: he
+                // leaves those first). He keeps the peek's sorting order until
+                // he lands.
+                Transform rest = GetTransformForPosition(target);
+                if (rest == null) return null;
+                SetPresenterLayer(true);
+                run.B = rest.position;
+                run.SizeB = 1f;
+                run.Upright = rest.rotation;
+                run.AtHalf = () => UpdateFacing(target);
+                run.EndsAtFull = true;
+                run.Rest = rest;
+                CarryShape(run);
+                TiltFromHereTo(run, 0f);
+                break;
+            }
+
+            case StageLeg.ToPeek:
+            {
+                // Back up into the peek he was dropping out of, from where he is.
+                StageMath.PeekPose pose = StageMath.Peek(target == CharacterPosition.PeekRight, body, frame);
+                SetPresenterLayer(true);
+                run.B = pose.Rest;
+                run.SizeB = pose.Scale;
+                run.EdgeIsFrame = true;
+                run.Edge = frame.Bottom;
+                run.AtHalf = () => SetPeekFacing(target);
+                CarryShape(run);
+                TiltFromHereTo(run, 0f);
+                break;
+            }
+
+            case StageLeg.LeanIn:
+            {
+                // His head and one shoulder come in over the side edge, already tilted.
+                bool right = target == CharacterPosition.LeanRight;
+                StageMath.LeanPose pose = StageMath.Lean(right, FacingBody(body, right), frame);
+                run.Upright = UprightRotation();
+                SetPresenter(pose.Hidden, pose.Scale, peekSorting: true);
+                avatarParent.rotation = run.Upright * Quaternion.Euler(0f, 0f, pose.Tilt);
+                SetPeekFacing(target);
+                run.A = pose.Hidden;
+                run.B = pose.Rest;
+                run.SizeA = run.SizeB = pose.Scale;
+                run.TiltA = run.TiltB = pose.Tilt;
+                run.EdgeIsSide = true;
+                run.Edge = right ? frame.Right : frame.Left;
+                break;
+            }
+
+            case StageLeg.LeanOut:
+            {
+                // Back out through the edge he leans over, as he is.
+                bool right = exitAs == CharacterPosition.LeanRight || exitAs == CharacterPosition.Right;
+                run.Upright = UprightRotation();
+                run.B = StageMath.SlideOutTarget(right ? CharacterPosition.Right : CharacterPosition.Left,
+                                                 here, body, frame, presenterUniform);
+                run.EdgeIsSide = true;
+                run.Edge = right ? frame.Right : frame.Left;
+                CarryShape(run);
+                TiltFromHereTo(run, run.CarriedTilt);   // he keeps the lean's tilt all the way out
+                break;
+            }
+
+            case StageLeg.ToLean:
+            {
+                // Back into the lean he was pulling out of, from where he is.
+                bool right = target == CharacterPosition.LeanRight;
+                StageMath.LeanPose pose = StageMath.Lean(right, FacingBody(body, right), frame);
+                SetPresenterLayer(true);
+                run.Upright = UprightRotation();
+                run.B = pose.Rest;
+                run.SizeB = pose.Scale;
+                run.EdgeIsSide = true;
+                run.Edge = right ? frame.Right : frame.Left;
+                run.AtHalf = () => SetPeekFacing(target);
+                CarryShape(run);
+                TiltFromHereTo(run, pose.Tilt);
+                break;
+            }
+
+            default:
+                return null;
         }
-        avatarParent.position = new Vector3(b.x, b.y, z);
+
+        stageShapeRotation = run.Upright;
+        stageShaped = true;
+        return run;
+    }
+
+    // What is on him as the leg begins — the squash, stretch and lean of a
+    // move that was cut short — so the leg's first frame is the frame he is on.
+    void CarryShape(StageLegRun run)
+    {
+        Vector3 own = presenterRestScale * presenterUniform, now = avatarParent.localScale;
+        run.Carried = new Vector2(Mathf.Abs(own.x) > 1e-5f ? now.x / own.x : 1f,
+                                  Mathf.Abs(own.y) > 1e-5f ? now.y / own.y : 1f);
+        run.CarriedTilt = Mathf.DeltaAngle(run.Upright.eulerAngles.z, avatarParent.eulerAngles.z);
+    }
+
+    // The tilt he has now becomes the leg's own, turning into the tilt he
+    // rests at where the leg ends (instead of being eased away as a leftover).
+    static void TiltFromHereTo(StageLegRun run, float restTilt)
+    {
+        run.TiltA = run.CarriedTilt;
+        run.TiltB = restTilt;
+        run.CarriedTilt = 0f;
+    }
+
+    // One frame of a leg: StageMoves' pose for that time (how far along, how
+    // stretched, how far leaning) — and, at the leg's end, exactly its end
+    // with his own shape.
+    void PoseStageLeg(StageLegRun run, float t)
+    {
+        float seconds = StageMath.LegSeconds(run.Leg);
+        ApplyStagePose(run, t >= seconds ? StageMoves.Rest : StageMoves.For(run.Leg, t, run.Sideways),
+                       t >= seconds ? 0f : StageMoves.CarryLeft(t));
+    }
+
+    // Puts one pose of a leg on the moved transform. His shape and lean ride
+    // on the same transform as his place, so the Hop / Grow / Shrink and the
+    // idle sway on the rig below it carry on underneath; the drop shadow is a
+    // child of the sprite and follows. carry: how much of the shape he started
+    // the leg with is still on him (1 → 0).
+    void ApplyStagePose(StageLegRun run, StageMoves.Pose pose, float carry)
+    {
+        Vector2 p = Vector2.LerpUnclamped(run.A, run.B, pose.Travel);
+        float size = Mathf.Lerp(run.SizeA, run.SizeB, pose.Travel);
+        float tilt = pose.Tilt * run.Lean;
+        float restTilt = Mathf.Lerp(run.TiltA, run.TiltB, pose.Travel);
+        // The line that holds still while his shape changes: the frame's side
+        // edge where a lean crosses it, its bottom edge under a peek, else his feet.
+        p = run.EdgeIsSide ? StageMoves.HoldSideEdge(p, run.Edge, restTilt, pose.ScaleY)
+          : StageMoves.HoldEdge(p, run.EdgeIsFrame ? run.Edge : p.y + run.Edge * size, pose.ScaleY, tilt);
+
+        presenterUniform = size;
+        avatarParent.position = new Vector3(p.x, p.y, avatarParent.position.z);
+        Vector3 own = presenterRestScale * size;
+        avatarParent.localScale = new Vector3(own.x * pose.ScaleX * Mathf.Lerp(1f, run.Carried.x, carry),
+                                              own.y * pose.ScaleY * Mathf.Lerp(1f, run.Carried.y, carry), own.z);
+        avatarParent.rotation = run.Upright * Quaternion.Euler(0f, 0f, restTilt + tilt + run.CarriedTilt * carry);
+
+        if (!run.HalfDone && pose.Travel >= 0.5f)
+        {
+            run.HalfDone = true;
+            run.AtHalf?.Invoke();
+        }
     }
 
     // A {Black} is a hard cut to nothing: the devices that sit on top of the
@@ -453,6 +1073,8 @@ public partial class MediaPresentationSystem
 
     void Update()
     {
+        StepHandover();
+        StepFrontHold();
         StepStageMeter();
 
         // A held-over image whose successor never came (blocked, missing) must not stay up.
@@ -490,6 +1112,7 @@ public partial class MediaPresentationSystem
         stageLastVoiceTime = t;
 
         stageMeter.Add(dt, StageState());
+        if (handover) handoverSeconds += dt;
         string warning = emptyStage.Step(t, dt, StageIsEmpty());
         if (warning != null) Debug.LogWarning(warning);
     }
@@ -497,7 +1120,10 @@ public partial class MediaPresentationSystem
     MugsOnScreen StageState()
     {
         if (currentPosition == CharacterPosition.Off) return MugsOnScreen.Off;
+        if (StageMath.IsLean(currentPosition)) return MugsOnScreen.Lean;
         if (StageMath.IsPeek(currentPosition)) return MugsOnScreen.Peek;
+        // In front of a card he is on screen even where that card would cover him. Black still does.
+        if (handover) return IsBlackShowing ? MugsOnScreen.Covered : MugsOnScreen.Full;
         bool covered = IsBlackShowing ||
                        (contentZoneController != null && contentZoneController.ActiveCardCoversPresenter);
         return covered ? MugsOnScreen.Covered : MugsOnScreen.Full;
@@ -534,10 +1160,19 @@ public partial class MediaPresentationSystem
             CoveredShare = stageMeter.CoveredSeconds / total,
             OffCount = stageMeter.OffCount,
             PeekCount = stageMeter.PeekCount,
+            LeanCount = stageMeter.LeanCount,
             EmptyStageWarnings = emptyStage != null ? emptyStage.Warnings : 0,
             LongestEmptySeconds = emptyStage != null ? emptyStage.LongestSeconds : 0f,
             IgnoredZooms = stageIgnoredZooms,
             OpenedWithoutMugs = openedWithoutPresenter,
+            SideMove = sideMoveDash ? "dash" : "glide",
+            HoldCount = PresenterHolds.Count,
+            HoldSeconds = PresenterHolds.TotalSeconds,
+            LongestHoldSeconds = PresenterHolds.LongestSeconds,
+            HandoverCount = handoverCount,
+            HandoverSeconds = handoverSeconds,
+            LedArrivals = stageLedArrivals,
+            ShortenedLeads = stageShortenedLeads,
         };
     }
 
@@ -571,6 +1206,7 @@ public partial class MediaPresentationSystem
         RectTransform rt = mediaDisplay.rectTransform;
         Texture tex = mediaDisplay.texture;
         bool isImage = marker.mediaType == MediaType.IMAGE;
+        mediaShownIsImage = isImage;
         float timed = marker.holdsOpen || !isImage ? 0f
                     : marker.displayDuration > 0f ? marker.displayDuration : DefaultMediaSeconds;
 

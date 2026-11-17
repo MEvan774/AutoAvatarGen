@@ -520,10 +520,31 @@ public class AutomationRunner : MonoBehaviour
               .Append(", \"coveredShare\": ").Append(F(onStage.CoveredShare))
               .Append(", \"offCount\": ").Append(onStage.OffCount)
               .Append(", \"peekCount\": ").Append(onStage.PeekCount)
+              .Append(", \"leanCount\": ").Append(onStage.LeanCount)   // {Position:LeanLeft/LeanRight}; their time is in mugsPeekShare
               .Append(", \"openedWithoutMugs\": ").Append(onStage.OpenedWithoutMugs ? "true" : "false")
               .Append(", \"emptyStageWarnings\": ").Append(onStage.EmptyStageWarnings)
               .Append(", \"longestEmptySeconds\": ").Append(F(onStage.LongestEmptySeconds))
               .Append(", \"ignoredZooms\": ").Append(onStage.IgnoredZooms)
+              // {Position:…,Over}: how often he came up in front of what had
+              // the frame, and for how many seconds he stood there.
+              .Append(", \"handovers\": ").Append(onStage.HandoverCount)
+              .Append(", \"overSeconds\": ").Append(F(onStage.HandoverSeconds))
+              // Arrive on the word: arrivals from off stage whose move started
+              // before the tag, and those that could not take their whole lead.
+              .Append(", \"ledArrivals\": ").Append(onStage.LedArrivals)
+              .Append(", \"shortenedLeads\": ").Append(onStage.ShortenedLeads)
+              .Append("},\n");
+        // The side move (main menu: "glide", the default, or "dash") and what
+        // waited for Mugs to land because of it: how many cards, images and
+        // clips were held, for how long in all, and the longest.
+        sb.Append("  \"sideMove\": ").Append(onStage != null ? JsonStr(onStage.SideMove) : "null").Append(",\n");
+        if (onStage == null)
+            sb.Append("  \"presenterHolds\": null,\n");
+        else
+            sb.Append("  \"presenterHolds\": {")
+              .Append("\"count\": ").Append(onStage.HoldCount)
+              .Append(", \"totalSeconds\": ").Append(F(onStage.HoldSeconds))
+              .Append(", \"longestSeconds\": ").Append(F(onStage.LongestHoldSeconds))
               .Append("},\n");
         // The thumbnail echo ({Echo:…}; MugsTech.Echo.EchoOverlay): what it said,
         // whether it showed from the first frame, its size, what ended it, and

@@ -265,7 +265,8 @@ public partial class MediaPresentationSystem : MonoBehaviour
     /// The longest anything waits for the presenter to land, so a stuck or
     /// interrupted move can never hold a card or media forever.
     /// </summary>
-    public float PresenterLandCap => transitionDuration + 0.25f;
+    public float PresenterLandCap =>
+        Mathf.Max(SideMoveSeconds, MugsTech.Stage.StageMath.LongestArrivalSeconds) + 0.25f;
 
     bool SmoothMoveIsDue()
     {
@@ -358,6 +359,12 @@ public partial class MediaPresentationSystem : MonoBehaviour
         if (contentZoneController != null)
             next = Mathf.Min(next, contentZoneController.NextCardTime(now));
         if (pop != null) next = Mathf.Min(next, pop.NextDue(now));   // a {Pop:} stops the picture
+        // An arrival from off stage that starts early: he is placed against
+        // the frame at rest, so the drift is home by the START of his move.
+        if (positionMarkers != null)
+            for (int i = lastTriggeredPositionMarker + 1; i < positionMarkers.Count; i++)
+                if (positionMarkers[i].led && positionMarkers[i].startTime > now && positionMarkers[i].startTime < next)
+                    next = positionMarkers[i].startTime;
         return next;
     }
 
@@ -387,7 +394,9 @@ public partial class MediaPresentationSystem : MonoBehaviour
         {
             PositionMarkerData m = positionMarkers[i];
             bool glides = m.position != at && !(m.hardCutOverride ?? useHardCuts);
-            if (glides && m.triggerTime > now) return m.triggerTime;
+            // An arrival that starts early takes the captions off from its START.
+            float moves = m.led ? m.startTime : m.triggerTime;
+            if (glides && moves > now) return moves;
             at = m.position;
         }
         return float.PositiveInfinity;
@@ -407,7 +416,7 @@ public partial class MediaPresentationSystem : MonoBehaviour
         {
             if (closeUpCutWindow <= 0f || zoomMarkers == null ||
                 voiceAudio == null || !voiceAudio.isPlaying) return false;
-            if (IsStageWide) return false;   // an ExtremeIn is ignored while he is off — nothing is cut for it
+            if (IsStageWide || handover) return false;   // an ExtremeIn is ignored while he is off (or over a card) — nothing is cut for it
 
             float now = voiceAudio.time;
             for (int i = lastTriggeredZoomMarker + 1; i < zoomMarkers.Count; i++)
@@ -996,6 +1005,10 @@ public partial class MediaPresentationSystem : MonoBehaviour
         scriptAfterZoom = blackResult.Item1;
         blackPanelMarkers = blackResult.Item2;
 
+        // Arrive on the word: which arrivals start early, and when (reads the
+        // final times of the positions, the transitions and the blacks).
+        PlanArrivalLeads(audio.length);
+
         // Parse content card tags (strips {Headline:...}, {Quote:...}, etc.)
         var cardResult = ContentZoneTagParser.ParseContentTags(scriptAfterZoom, audio.length);
         string scriptAfterCards = cardResult.Item1;
@@ -1113,14 +1126,30 @@ public partial class MediaPresentationSystem : MonoBehaviour
         {
             float currentTime = voiceAudio.time;
 
+            // The stage's own change of a led arrival, on the tag's time.
+            if (pendingStage.active && currentTime >= pendingStage.at) ApplyPendingStageChange();
+
             for (int i = lastTriggeredPositionMarker + 1; i < positionMarkers.Count; i++)
             {
-                if (currentTime >= positionMarkers[i].triggerTime)
-                {
-                    var marker = positionMarkers[i];
-                    Debug.Log($"Triggering position: {marker.position} at {currentTime:F2}s");
+                var marker = positionMarkers[i];
+                bool due = currentTime >= marker.triggerTime;
 
-                    MoveToPosition(marker.position, marker.hardCutOverride);
+                // Arrive on the word: his move starts early (to the nearest
+                // frame), once the move that took him off has really ended.
+                bool early = !due && marker.led && currentTime >= marker.startTime - 0.5f * Time.deltaTime;
+                if (early && !(currentPosition == CharacterPosition.Off && !stageMoving))
+                    break;   // not yet: retried next frame, and on the tag at the latest
+
+                if (due || early)
+                {
+                    Debug.Log($"Triggering position: {marker.position} at {currentTime:F2}s" +
+                              (early ? $" (its tag is at {marker.triggerTime:F2}s: he starts early to land on it)" : ""));
+
+                    if (marker.led && !early) stageShortenedLeads++;   // the lead could not be taken at all
+                    positionLedUntil = early ? marker.triggerTime : float.NaN;
+                    if (marker.over) MoveToPositionOver(marker.position, marker.hardCutOverride);
+                    else MoveToPosition(marker.position, marker.hardCutOverride);
+                    positionLedUntil = float.NaN;
                     lastTriggeredPositionMarker = i;
                 }
                 else
@@ -1131,6 +1160,7 @@ public partial class MediaPresentationSystem : MonoBehaviour
 
             yield return null;
         }
+        ApplyPendingStageChange();
     }
 
     /// <summary>
@@ -1142,16 +1172,48 @@ public partial class MediaPresentationSystem : MonoBehaviour
         // Off and the peeks — and coming back from them — are the stage's moves
         // (MediaPresentationSystem.Stage.cs). Left / Right / Center between
         // themselves run exactly as they always have, below.
+        bool over = positionIsOver;
+        positionIsOver = false;
+        float ledUntil = positionLedUntil;
+        positionLedUntil = float.NaN;
         if (!MugsTech.Stage.StageMath.IsFull(targetPosition) || !MugsTech.Stage.StageMath.IsFull(currentPosition))
         {
-            MoveOnStage(targetPosition, cutOverride);
+            MoveOnStage(targetPosition, cutOverride, over, ledUntil);
             return;
         }
 
-        // Still popping up from Off or a peek (currentPosition is already full)?
-        // Finish that return on the spot, so nothing below starts from a peek's
-        // scale or leaves the stage "moving". Never true for an old script.
-        FinishStageTravelNow();
+        // A led arrival whose own stage change is still to come: it comes now,
+        // before this move's rules apply.
+        ApplyPendingStageChange();
+
+        // ",Over" between Left, Right and Center: he is already on stage. (While
+        // he stands in front of something he simply stays in front of it.)
+        if (over && !handover)
+            Debug.LogWarning($"[Stage] {{Position:{targetPosition},Over}} — he is already on stage at {currentPosition}; " +
+                             "he moves as he would without \",Over\".");
+
+        // Still arriving from Off or a peek (currentPosition is already full)?
+        // Never true for an old script. A repeat of the mark he is arriving at
+        // changes nothing. A cut finishes the arrival on the spot, so nothing
+        // below starts from a peek's scale or leaves the stage "moving". A
+        // smooth move to another mark turns the arrival towards it from where
+        // he is (RedirectStageArrival, in the smooth branch below).
+        bool redirect = stageMoving && !(cutOverride ?? useHardCuts);
+        if (redirect && targetPosition == currentPosition)
+        {
+            Debug.Log($"[Stage] {{Position:{targetPosition}}} — he is already on his way there; nothing to do.");
+            return;
+        }
+        if (!redirect) FinishStageTravelNow();
+
+        // A dash that is still on its way to this very mark carries on (a
+        // repeat of the tag must not start its lean-away again mid-flight).
+        if (sideMoveDash && presenterGliding && !stageMoving && targetPosition == currentPosition &&
+            !(cutOverride ?? useHardCuts))
+        {
+            Debug.Log($"[Stage] {{Position:{targetPosition}}} — he is already dashing there; nothing to do.");
+            return;
+        }
 
         Transform target = GetTransformForPosition(targetPosition);
         if (target == null) return;
@@ -1159,14 +1221,16 @@ public partial class MediaPresentationSystem : MonoBehaviour
         // The presenter genuinely changing sides ends any clip on screen — that
         // beat is over. A {Position:} that repeats the current side is a no-op
         // and must NOT dismiss, or a redundant tag would cut the clip short.
-        if (targetPosition != currentPosition)
+        // (Not what he is standing in front of in a handover — that stays.)
+        if (targetPosition != currentPosition && !handover)
             DismissActiveMedia();
 
         // Per-tag sound effect ({Position:Left/Right/Center}).
         TagSfxPlayer.Instance.Play(targetPosition);
 
-        // Stop any in-progress movement
-        if (movementCoroutine != null)
+        // Stop any in-progress movement (an arrival being redirected is
+        // stopped by the redirect, which first reads where it had got to)
+        if (movementCoroutine != null && !redirect)
             StopCoroutine(movementCoroutine);
         presenterGliding = false;
 
@@ -1174,7 +1238,8 @@ public partial class MediaPresentationSystem : MonoBehaviour
 
         if (doHardCut)
         {
-            // Instant snap
+            // Instant snap (a dash that was cut short leaves no squash or lean behind)
+            EndStageShape();
             if (avatarParent != null)
             {
                 avatarParent.position = target.position;
@@ -1185,8 +1250,14 @@ public partial class MediaPresentationSystem : MonoBehaviour
             }
             UpdateFacing(targetPosition);
         }
+        else if (redirect && RedirectStageArrival(targetPosition))
+        {
+            // The stage's own leg, from where he is to the new mark.
+        }
         else
         {
+            if (redirect) FinishStageTravelNow();   // (no presenter object to redirect)
+
             // Smooth eased movement; facing flips midway through the glide
             // (inside MoveAvatar), not here, so the presenter visibly turns
             // around mid-travel instead of popping at departure.
@@ -1197,15 +1268,19 @@ public partial class MediaPresentationSystem : MonoBehaviour
             // nowhere — nothing should wait on it. Set before StartCoroutine,
             // which runs MoveAvatar up to its first yield (and maybe its end).
             presenterGliding = targetPosition != currentPosition;
-            movementCoroutine = StartCoroutine(MoveAvatar(current, target, targetPosition));
+            movementCoroutine = StartCoroutine(SideMove(current, target, targetPosition));
         }
 
         currentPosition = targetPosition;
 
-        // Pause/resume content cards based on character position
+        // Pause/resume content cards based on character position (in a
+        // handover only the rule for NEW cards changes: the one he is in front
+        // of stays as it is)
         if (contentZoneController != null)
         {
-            if (targetPosition == CharacterPosition.Center)
+            if (handover)
+                contentZoneController.MoveHandover(centred: targetPosition == CharacterPosition.Center);
+            else if (targetPosition == CharacterPosition.Center)
                 contentZoneController.PauseTimeline();
             else
                 contentZoneController.ResumeTimeline();
@@ -1977,6 +2052,11 @@ public partial class MediaPresentationSystem : MonoBehaviour
                 // Skip media if a content card is currently active
                 if (contentZoneController != null && contentZoneController.IsCardActive)
                 {
+                    // In a handover a new picture is a new beat: the card he
+                    // stands in front of closes first (a held one would keep
+                    // the picture waiting for its End).
+                    if (handover && NextMediaWouldShow())
+                        HandoverNewBeat("an image or clip");
                     yield return null;
                     continue;
                 }
@@ -2139,7 +2219,10 @@ public partial class MediaPresentationSystem : MonoBehaviour
         }
 
         if (waited > 0f)
+        {
             Debug.Log($"Held {what} {waited:F2}s for the presenter to land");
+            MugsTech.Stage.PresenterHolds.Add(waited);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -2329,6 +2412,12 @@ public partial class MediaPresentationSystem : MonoBehaviour
                 }
 
                 handOver = closeUpCutCount == cutCount && NextMediaCutsIn();
+
+                // {Position:…,Over}: an image that ends while Mugs stands in
+                // front of it fades away behind him (while its texture is
+                // still alive) instead of going on a cut.
+                if (!handOver && closeUpCutCount == cutCount && MediaFadesBehindPresenter)
+                    yield return FadeMediaBehindPresenter();
             }
             else
             {
@@ -2884,12 +2973,19 @@ public partial class MediaPresentationSystem : MonoBehaviour
     //         (optional ,T=X.XXX appended by the ElevenLabs pre-processor)
     // -----------------------------------------------------------------------
 
+    // {Position:Side} / {Position:Side,Cut|Smooth} / {Position:Side,Over} (+ ",T=…").
+    // Groups: 1 side, 2 Cut|Smooth, 3 Over, 4 a word after Over (not a form —
+    // ignored with a warning), 5 the baked time. Any other 2nd word is not a
+    // position tag, exactly as before ",Over" existed.
+    public static readonly Regex PositionTagRegex = new Regex(
+        @"\{Position:(\w+)(?:,(Cut|Smooth)|,(Over)(?:,(\w+))?)?(?:,T=(\d+(?:\.\d+)?))?\}");
+
     (string, List<PositionMarkerData>) ParsePositionMarkers(string script, float audioDuration)
     {
         List<PositionMarkerData> markerList = new List<PositionMarkerData>();
         string clean = script;
 
-        Regex regex = new Regex(@"\{Position:(\w+)(?:,(Cut|Smooth))?(?:,T=(\d+(?:\.\d+)?))?\}");
+        Regex regex = PositionTagRegex;
         MatchCollection matches = regex.Matches(script);
 
         string scriptWithoutMarkers = regex.Replace(script, "");
@@ -2897,7 +2993,7 @@ public partial class MediaPresentationSystem : MonoBehaviour
 
         foreach (Match match in matches)
         {
-            float markerTime = TryParseTimestamp(match.Groups[3]);
+            float markerTime = TryParseTimestamp(match.Groups[5]);
             if (markerTime < 0f)
             {
                 string textBeforeMarker = script.Substring(0, match.Index);
@@ -2911,23 +3007,22 @@ public partial class MediaPresentationSystem : MonoBehaviour
             if (!MugsTech.Stage.StageMath.TryParsePosition(posStr, out pos))
                 Debug.LogWarning($"Unknown position: {posStr}, defaulting to Center");
 
-            // Parse optional cut/smooth override
-            bool? cutOverride = null;
-            if (match.Groups[2].Success)
-            {
-                string transStr = match.Groups[2].Value.ToLower();
-                if (transStr == "cut") cutOverride = true;
-                else if (transStr == "smooth") cutOverride = false;
-            }
+            // The optional 2nd word: Cut / Smooth, or Over (he comes up in
+            // front of what has the frame — MediaPresentationSystem.Handover.cs).
+            MugsTech.Stage.StageMath.ReadPositionWords(match.Groups[2].Value, match.Groups[3].Value, match.Groups[4].Value,
+                                                      out bool? cutOverride, out bool over, out string wordWarning);
+            if (wordWarning != null)
+                Debug.LogWarning($"[Stage] {{Position:{posStr},Over,{match.Groups[4].Value}}}: {wordWarning}");
 
             markerList.Add(new PositionMarkerData
             {
                 triggerTime = markerTime,
                 position = pos,
-                hardCutOverride = cutOverride
+                hardCutOverride = cutOverride,
+                over = over
             });
 
-            Debug.Log($"Position marker '{pos}'{(cutOverride.HasValue ? (cutOverride.Value ? " (hard cut)" : " (smooth)") : "")} will trigger at {markerTime:F2}s");
+            Debug.Log($"Position marker '{pos}'{(cutOverride.HasValue ? (cutOverride.Value ? " (hard cut)" : " (smooth)") : "")}{(over ? " (over what has the frame)" : "")} will trigger at {markerTime:F2}s");
 
             clean = clean.Replace(match.Value, "");
         }
@@ -3065,7 +3160,7 @@ public partial class MediaPresentationSystem : MonoBehaviour
     // Co-located {Position:...} on a transition line (only the position value is used — the
     // change is always a snap under cover, so any Cut/Smooth qualifier is ignored).
     static readonly Regex BundlePositionRegex = new Regex(
-        @"\{Position:(\w+)(?:,(?:Cut|Smooth))?(?:,T=(\d+(?:\.\d+)?))?\}",
+        @"\{Position:(\w+)(?:,(?:Cut|Smooth)|,(Over)(?:,\w+)?)?(?:,T=(\d+(?:\.\d+)?))?\}",
         RegexOptions.IgnoreCase);
     // Co-located emotion tag — a bare {Word}[,T=X] (colon tags are excluded by the
     // pattern), matching HybridAvatarSystem's own emotion regex.
@@ -3123,6 +3218,9 @@ public partial class MediaPresentationSystem : MonoBehaviour
                 {
                     data.hasPosition = true;
                     data.position = ParsePositionValue(pos.Groups[1].Value);
+                    if (pos.Groups[2].Success)
+                        Debug.LogWarning($"[Stage] {{Position:{pos.Groups[1].Value},Over}} on a {{Transition}} line: \",Over\" is ignored — " +
+                                         "the transition clears the frame, so there is nothing for him to come up in front of.");
                     work = work.Remove(pos.Index, pos.Length);
                 }
 
@@ -3340,6 +3438,9 @@ public partial class MediaPresentationSystem : MonoBehaviour
         // before anything on the line runs, so a {Zoom:In} on this line opens
         // the new section at step 1.
         EndZoomRun("{Transition}", hiddenBehindCover: true);
+
+        // What he stood in front of ({Position:…,Over}) goes with the old scene.
+        FinishHandover("a transition clears the frame", atOnce: true);
 
         // A {Name:} label or a {Pop:} run that was up goes with the old scene
         // (one written on the transition's own line belongs to the new one).
@@ -3640,7 +3741,9 @@ public enum CharacterPosition
     // centred and larger, {Image:}/{Video:} fill the frame. See MugsTech.Stage.
     Off,       // {Position:Off} — out of frame
     PeekLeft,  // {Position:PeekLeft} — only his head over the bottom edge, lower left
-    PeekRight  // {Position:PeekRight} — the same, lower right
+    PeekRight, // {Position:PeekRight} — the same, lower right
+    LeanLeft,  // {Position:LeanLeft} — his head and one shoulder, leaning in over the left edge
+    LeanRight  // {Position:LeanRight} — the same, over the right edge
 }
 
 /// <summary>
@@ -3653,6 +3756,14 @@ public class PositionMarkerData
     public float triggerTime;
     public CharacterPosition position;
     public bool? hardCutOverride; // null = use global, true = force cut, false = force smooth
+    public bool over;             // {Position:…,Over}: he comes up in front of what has the frame
+
+    // "Arrive on the word" (MugsTech.Stage.ArrivalLeads): an arrival from off
+    // stage starts its move at startTime, before triggerTime, so he has landed
+    // on the tag. triggerTime itself is never changed.
+    public bool led;
+    public float startTime;
+    public bool leadShortened;
 }
 
 // Existing types (unchanged)
