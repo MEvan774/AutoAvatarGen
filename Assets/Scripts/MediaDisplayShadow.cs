@@ -19,7 +19,10 @@ using UnityEngine.UI;
 /// The shadow is a plain rectangle the size of the texture, so it only reads as
 /// a shadow when the texture fills that rectangle. Logos and X post screenshots
 /// are PNGs with transparent margins, where it shows through as a dark box
-/// around the artwork — those get no shadow (see HasTransparentEdge).
+/// around the artwork — those get no shadow (see HasTransparentEdge). The one
+/// exception: a post shown WHOLE at full frame, where the display has been
+/// sized to the post itself and shows only that part of the image
+/// (<see cref="CutoutShownWhole"/>).
 /// </summary>
 public class MediaDisplayShadow : MonoBehaviour
 {
@@ -38,6 +41,13 @@ public class MediaDisplayShadow : MonoBehaviour
     // the edge is sampled once per texture rather than every LateUpdate.
     private Texture lastTexture;
     private bool lastTextureCastsShadow;
+
+    /// <summary>
+    /// The texture the media display is showing trimmed to its own artwork —
+    /// its rectangle IS the artwork's, so it casts the shadow although the
+    /// image has see-through margins. Null when there is none.
+    /// </summary>
+    public static Texture CutoutShownWhole;
 
     /// <summary>
     /// True when the image doesn't fill its own rectangle: some of its outer edge
@@ -113,7 +123,8 @@ public class MediaDisplayShadow : MonoBehaviour
             lastTextureCastsShadow = !HasTransparentEdge(texture);
         }
 
-        bool visible = target.gameObject.activeInHierarchy && texture != null && lastTextureCastsShadow;
+        bool visible = target.gameObject.activeInHierarchy && texture != null &&
+                       (lastTextureCastsShadow || texture == CutoutShownWhole);
         if (img.enabled != visible) img.enabled = visible;
         if (!visible) return;
 

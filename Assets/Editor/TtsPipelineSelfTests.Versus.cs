@@ -25,6 +25,7 @@ public static partial class TtsPipelineSelfTests
     {
         Versus_TagParsing(log);
         Versus_StampUnstampRoundTrip(log);
+        Versus_Signs(log);
         Versus_Geometry(log);
         Versus_StampCurve(log);
 
@@ -33,6 +34,7 @@ public static partial class TtsPipelineSelfTests
         try
         {
             Versus_CardLayout(log);
+            Versus_SignsOnTheBadge(log);
             Versus_EntranceFrameByFrame(log);
             Versus_HeldAndTimedClose(log);
         }
@@ -119,6 +121,131 @@ public static partial class TtsPipelineSelfTests
                 "the stamped Versus tags parse at playback");
             log.AreEqual(1, events.FindAll(e => e.cardType == ContentCardType.Versus && e.dismissesCard).Count,
                 "…and so does the stamped End");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // The sign between the panels: ≠ (no keyword), Vs, Equals, Greater, Less,
+    // Plus, Or, Arrow, Approx, Times — one optional last word on the tag
+    // -----------------------------------------------------------------------
+
+    static void Versus_Signs(Log log)
+    {
+        var want = new (VersusTypography.VersusSign sign, string keyword, string glyph)[]
+        {
+            (VersusTypography.VersusSign.NotEqual, "", "≠"), (VersusTypography.VersusSign.Vs, "Vs", "VS"),
+            (VersusTypography.VersusSign.Equal, "Equals", "="), (VersusTypography.VersusSign.Greater, "Greater", ">"),
+            (VersusTypography.VersusSign.Less, "Less", "<"), (VersusTypography.VersusSign.Plus, "Plus", "+"),
+            (VersusTypography.VersusSign.Or, "Or", "OR"), (VersusTypography.VersusSign.Arrow, "Arrow", "→"),
+            (VersusTypography.VersusSign.Approx, "Approx", "≈"), (VersusTypography.VersusSign.Times, "Times", "×"),
+        };
+        var all = new List<VersusTypography.VersusSign>(VersusTypography.AllSigns());
+        log.AreEqual(want.Length, all.Count, "sign: ten signs in all");
+        log.AreEqual(want.Length, Enum.GetValues(typeof(VersusTypography.VersusSign)).Length, "sign: …one row for every value of the enum");
+
+        var keywords = new List<string>();
+        var glyphs = new HashSet<string>();
+        foreach (var (sign, keyword, glyph) in want)
+        {
+            log.AreEqual(glyph, VersusTypography.GlyphFor(sign), $"sign: {sign} shows {glyph}");
+            log.AreEqual(keyword, VersusTypography.KeywordFor(sign), $"sign: {sign} is written {(keyword == "" ? "with no keyword" : "," + keyword)}");
+            log.IsTrue(VersusTypography.TryParseSign(keyword, out VersusTypography.VersusSign parsed) && parsed == sign, $"sign: …and that reads back as {sign}");
+            log.IsTrue(glyphs.Add(glyph), $"sign: {glyph} is used once");
+            log.IsTrue(VersusTypography.IsWord(sign) == (glyph == "VS" || glyph == "OR"), $"sign: {glyph} is sized as {(glyph.Length > 1 ? "letters" : "a symbol")}");
+            if (keyword != "") keywords.Add(keyword);
+
+            // Through the registration sites: written, stamped, and back.
+            string tail = keyword == "" ? "" : "," + keyword;
+            string written = "{Versus:\"Old price\",\"$39\",\"New price\",\"$45\",5" + tail + "}";
+            string held = "{Versus:\"Old price\",\"$39\",\"New price\",\"$45\",Start" + tail + "}";
+            string stamped = "{Versus:\"Old price\",\"$39\",\"New price\",\"$45\",T=12.500,D=5" + tail + "}";
+            log.IsTrue(TtsScriptProcessor.IsRecognisedMarker(written) && TtsScriptProcessor.IsRecognisedMarker(held), $"sign: the TTS processor recognises {written}");
+            foreach (string form in new[] { written, held, stamped })
+            {
+                var (clean, events) = ContentZoneTagParser.ParseContentTags(form + " words", 30f);
+                ContentCardEvent card = events.Find(e => e.cardType == ContentCardType.Versus && !e.dismissesCard);
+                log.IsTrue(card != null && card.versusSign == sign && !clean.Contains("{Versus"), $"sign: {form} is a Versus with {glyph}");
+                log.IsTrue(card == null || card.versusVs == (sign == VersusTypography.VersusSign.Vs), $"sign: …(versusVs is true for ,Vs only: {form})");
+            }
+        }
+        log.AreEqual(string.Join("|", keywords), VersusTypography.SignKeywordPattern, "sign: the keyword pattern lists every keyword, in order");
+        log.IsTrue(!VersusTypography.TryParseSign("vs", out _) && !VersusTypography.TryParseSign("Minus", out _) && !VersusTypography.TryParseSign("NotEqual", out _),
+            "sign: keywords are spelled exactly (≠ has none: it is the card's own meaning)");
+
+        // A word that is no sign: malformed — stripped, warned, skipped, and not a recognised marker.
+        string bad = "{Versus:\"a\",\"b\",\"c\",\"d\",5,Minus}";
+        List<string> warnings = WarningsFrom(() =>
+        {
+            var (clean, events) = ContentZoneTagParser.ParseContentTags(bad + " words", 30f);
+            log.IsTrue(!events.Exists(e => e.cardType == ContentCardType.Versus) && !clean.Contains("{Versus"), "sign: ,Minus is no sign — the tag is stripped and skipped");
+        });
+        log.IsTrue(warnings.Exists(w => w.Contains("Greater") && w.Contains("Times")), "sign: …with a warning that lists the keywords");
+        log.IsTrue(!TtsScriptProcessor.IsRecognisedMarker(bad), "sign: …and the tag check does not recognise it");
+        log.IsTrue(!TtsScriptProcessor.IsRecognisedMarker("{Versus:\"a\",\"b\",\"c\",\"d\",5,Vs,Or}"), "sign: one sign per card");
+
+        // Stamp → Unstamp gives every sign back as written; the stamped form parses at playback.
+        string script = "## SIGNS\n";
+        foreach (string keyword in keywords)
+            script += $"Word one. {{Versus:\"Left\",\"A\",\"Right\",\"B\",4,{keyword}}} Word two.\n" +
+                      $"Word three. {{Versus:\"Left\",\"A\",\"Right\",\"B\",Start,{keyword}}} Word four. {{Versus:End}}\n";
+        foreach (var section in TagGeneration(script, keepCues: false))
+        {
+            foreach (string keyword in keywords)
+                log.IsTrue(section.TimedScript.Contains($",D=4,{keyword}}}") && section.TimedScript.Contains($",D=0,{keyword}}}"),
+                    $"sign: stamping keeps ,{keyword} after the D= slot (timed and held)");
+            var times = new List<float>();
+            string raw = TagOnlyRetimer.Unstamp(section.TimedScript, times);
+            string original = null;
+            foreach (var seg in TtsScriptProcessor.SplitIntoSegments(script))
+                if (seg.Name == section.Name) original = seg.Raw;
+            log.AreEqual(original, raw, "sign: Unstamp(Stamp(x)) gives back every sign as written");
+            var (_, events) = ContentZoneTagParser.ParseContentTags(section.TimedScript, 120f);
+            var cards = events.FindAll(e => e.cardType == ContentCardType.Versus && !e.dismissesCard);
+            log.AreEqual(keywords.Count * 2, cards.Count, "sign: every stamped tag parses at playback");
+            for (int i = 0; i < cards.Count && i < keywords.Count * 2; i++)
+                log.AreEqual(keywords[i / 2], VersusTypography.KeywordFor(cards[i].versusSign), $"sign: …card {i} with its own sign");
+        }
+    }
+
+    // On the real card: every sign is in the card font, on its badge, centred, large.
+    static void Versus_SignsOnTheBadge(Log log)
+    {
+        var fields = new[] { "Old price", "$39", "New price", "$45" };
+        foreach (VersusTypography.VersusSign sign in VersusTypography.AllSigns())
+        {
+            var card = BuildCard<VersusCard>(out GameObject root);
+            try
+            {
+                var zone = (RectTransform)card.transform.parent;
+                zone.sizeDelta = new Vector2(1920f, 1080f);
+                card.Initialize(new ContentCardEvent { cardType = ContentCardType.Versus, fields = fields, versusSign = sign, primaryText = fields[1] }, null);
+                card.Show();
+                for (float t = 0f; t < VersusTypography.EntranceSeconds + 0.5f; t += 1f / 30f) card.Advance(1f / 30f);
+
+                string glyph = VersusTypography.GlyphFor(sign);
+                var rt = (RectTransform)card.transform;
+                log.AreEqual(glyph, card.Glyph.text, $"sign {glyph}: on the badge");
+                bool inFont = true;
+                foreach (char c in glyph)
+                    if (!card.Glyph.font.HasCharacter(c, true, true)) inFont = false;
+                log.IsTrue(inFont, $"sign {glyph}: the card font (or a fallback) has it — it is not drawn as a missing-glyph box");
+                card.Glyph.ForceMeshUpdate(true, true);
+                log.AreEqual(glyph.Length, card.Glyph.textInfo.characterCount, $"sign {glyph}: drawn as {glyph.Length} character(s)");
+                log.IsTrue(card.Glyph.textInfo.characterCount == 0 || card.Glyph.textInfo.characterInfo[0].character == glyph[0],
+                    $"sign {glyph}: …the one that was asked for, not a replacement");
+
+                Rect badge = RectInCard(card.Badge, rt);
+                Rect ink = CardTypography.InkInCard(card.Glyph, rt);
+                float big = Mathf.Max(ink.width, ink.height);
+                log.IsTrue(Inside(ink, badge, 0.5f), $"sign {glyph}: its ink is inside the badge ({Fmt(ink)} in {Fmt(badge)})");
+                log.IsTrue(Vector2.Distance(ink.center, badge.center) <= 2f, $"sign {glyph}: centred on it (off by {Vector2.Distance(ink.center, badge.center):F1} px)");
+                log.IsTrue(big >= badge.width * 0.30f && big <= badge.width * 0.66f, $"sign {glyph}: large, with room around it ({ink.width:F0}×{ink.height:F0} px on a {badge.width:F0} px badge)");
+                for (int i = 0; i < 2; i++)
+                    foreach (TMP_Text t in new TMP_Text[] { card.Label(i), card.Text(i) })
+                        log.IsTrue(!CardTypography.InkInCard(t, rt).Overlaps(badge), $"sign {glyph}: the badge covers none of {t.name} {i}");
+                Debug.Log($"[Versus] self-test sign {glyph}: ink {ink.width:F0}×{ink.height:F0} px, font size {card.Glyph.fontSize:F0}");
+            }
+            finally { UnityEngine.Object.DestroyImmediate(root); }
         }
     }
 

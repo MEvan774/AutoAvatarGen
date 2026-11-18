@@ -135,7 +135,7 @@ _ALL_MARKERS = re.compile(
        r'|\{Logo:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                       # logo cards (+optional side)
        r'|\{BRoll:[^,}]+,(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'                      # broll cards (+optional side)
        r'|\{Compare:"[^"]*","[^"]*","[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}'  # compare cards: value A, label A, value B, label B, source (+optional side); lockstep with TtsScriptProcessor.cs
-       r'|\{Versus:"[^"]*","[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*Vs)?\}'  # versus cards: left label, left text, right label, right text (+optional ,Vs); lockstep with TtsScriptProcessor.cs
+       r'|\{Versus:"[^"]*","[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Vs|Equals|Greater|Less|Plus|Or|Arrow|Approx|Times))?\}'  # versus cards: left label, left text, right label, right text (+optional ,Vs); lockstep with TtsScriptProcessor.cs
        r'|\{Document:"[^"]*","[^"]*","[^"]*",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Allegation|Filing|Ruling|Report))?(?:,\s*(?:Left|Right))?\}'  # document cards: passage, phrase, source (+optional stamp, +optional side); lockstep with TtsScriptProcessor.cs
        r'|\{Timeline:"[^"]*","[^"]*"(?:,\s*(?:Left|Right|Wide))?\}'  # timeline nodes: date, event (+optional side — or ,Wide for the full-screen horizontal one — on the first); no duration; lockstep with TtsScriptProcessor.cs
        r'|\{Timeline:Span,"[^"]*"\}'                         # the wide timeline's closing bracket and label
@@ -697,7 +697,7 @@ def _stamp_marker(marker: str, t: float) -> str:
     # is the held pair form ({Quote:...,Start}…{Quote:End}) and stamps D=0 —
     # the same persistent marker the duration-less BigText flow uses.
     # Lockstep with TtsScriptProcessor.cs.
-    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map|Name|Graph):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Allegation|Filing|Ruling|Report|Bars|Line|Share|Cropped|Photo=[^,}"]+)){0,2})$',
+    m_card = re.match(r'^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map|Name|Graph):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Equals|Greater|Less|Plus|Or|Arrow|Approx|Times|Allegation|Filing|Ruling|Report|Bars|Line|Share|Cropped|Photo=[^,}"]+)){0,2})$',
                       inner, re.DOTALL)
     if m_card:
         suffix = m_card.group(4)

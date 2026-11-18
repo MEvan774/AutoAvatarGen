@@ -42,6 +42,22 @@ namespace MugsTech.Stage
         public const float ToPeekSeconds = 0.40f;
         /// <summary>The longest a (non-led) arrival at a full position takes: out of a peek or a lean, then the pop-up.</summary>
         public const float LongestArrivalSeconds = PeekDropSeconds + PopUpSeconds;
+        /// <summary>
+        /// {Position:Off,Cut} written with a picture or clip that fills the
+        /// frame: he is not removed on the tag — he would vanish and leave the
+        /// stage bare while it eases in — but once it has landed over him.
+        /// A tag this close to his counts as "written with" it…
+        /// </summary>
+        public const float CoverBeatSeconds = 0.12f;
+        /// <summary>…and if it has not landed after this long (a missing file, a slow clip) he goes anyway.</summary>
+        public const float CoveredExitMaxSeconds = 1.5f;
+        /// <summary>
+        /// The media display's sorting order while it covers him. At rest he is
+        /// drawn IN FRONT of the media canvas (same layer and order, and he is
+        /// nearer the camera), so for that one entrance the display is lifted:
+        /// above his own order (0), below every stage layer (cards 30000 up).
+        /// </summary>
+        public const int CoverSortingOrder = 100;
         /// <summary>An open card glides between its side slot and the wide slot.</summary>
         public const float CardGlideSeconds = 0.35f;
 

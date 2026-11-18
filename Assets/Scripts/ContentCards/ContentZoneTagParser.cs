@@ -45,7 +45,7 @@ public static class ContentZoneTagParser
         @"|\{Compare:[^}\n]*\}" +
         // {Versus:"left label","left text","right label","right text",duration|Start[,Vs]}
         // — and, after it, any other {Versus:…} (malformed: stripped, warned, skipped).
-        @"|\{Versus:""[^""]*""(?:,""[^""]*""){3}(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*Vs)?\}" +
+        @"|\{Versus:""[^""]*""(?:,""[^""]*""){3}(?:,T=\d+(?:\.\d+)?)?,(?:(?:D=)?\d+(?:\.\d+)?|Start)(?:,\s*(?:Vs|Equals|Greater|Less|Plus|Or|Arrow|Approx|Times))?\}" +
         @"|\{Versus:[^}\n]*\}" +
         // {Document:"passage","phrase","source",duration|Start[,Allegation|,Filing|,Ruling|,Report][,Left|,Right]}
         // — and, after it, any other {Document:…} (malformed: stripped, warned, skipped).
@@ -114,7 +114,8 @@ public static class ContentZoneTagParser
     // {Versus:"left label","left text","right label","right text",duration|Start[,Vs]}
     // — a fullscreen feature card, so no side.
     private static readonly Regex VersusRegex = new Regex(
-        @"\{Versus:""([^""]+)"",""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(Vs))?\}");
+        @"\{Versus:""([^""]+)"",""([^""]+)"",""([^""]+)"",""([^""]+)""(?:,T=(\d+(?:\.\d+)?))?,(?:D=)?(\d+(?:\.\d+)?|Start)(?:,\s*(" +
+        VersusTypography.SignKeywordPattern + @"))?\}");
 
     // Any {Versus:…} at all — the ones VersusRegex doesn't take are malformed.
     private static readonly Regex VersusAnyRegex = new Regex(@"\{Versus:(?!End\b)[^}\n]*\}");
@@ -419,17 +420,19 @@ public static class ContentZoneTagParser
                 secondaryText = fields[3],
                 fields = fields,
                 duration = ParseDuration(match.Groups[6].Value),
-                versusVs = match.Groups[7].Success,
+                versusSign = VersusTypography.TryParseSign(match.Groups[7].Value, out VersusTypography.VersusSign sign)
+                    ? sign : VersusTypography.VersusSign.NotEqual,
             });
-            Debug.Log($"  Versus at {time:F2}s: \"{fields[1]}\" vs \"{fields[3]}\"" + (match.Groups[7].Success ? " (VS)" : ""));
+            Debug.Log($"  Versus at {time:F2}s: \"{fields[1]}\" {VersusTypography.GlyphFor(sign)} \"{fields[3]}\"");
         }
 
         foreach (Match match in VersusAnyRegex.Matches(script))
         {
             if (taken.Contains(match.Index)) continue;
             Debug.LogWarning($"[Card] Versus {Quote(match.Value)} isn't valid — it needs four non-empty quoted fields " +
-                             "(left label, left text, right label, right text), then a duration or Start, then an " +
-                             "optional ,Vs (it is fullscreen, so no ,Left/,Right). Skipped.");
+                             "(left label, left text, right label, right text), then a duration or Start, then one " +
+                             "optional sign keyword: " + VersusTypography.SignKeywordPattern.Replace("|", ", ") +
+                             " (it is fullscreen, so no ,Left/,Right). Skipped.");
         }
     }
 

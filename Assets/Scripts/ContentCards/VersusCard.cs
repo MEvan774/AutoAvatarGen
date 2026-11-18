@@ -46,7 +46,7 @@ public class VersusCard : ContentCard
     private TextMeshProUGUI glyph;
 
     private string[] fields = { "", "", "", "" };
-    private bool vsGlyph;
+    private VersusTypography.VersusSign sign;
 
     private BigTextTypography.DimEnvelope dimEnvelope;
     private float clock;                 // scaled time, like DOTween
@@ -149,13 +149,13 @@ public class VersusCard : ContentCard
         fields = data.fields != null && data.fields.Length == 4
             ? data.fields
             : new[] { "", data.primaryText ?? "", "", data.secondaryText ?? "" };
-        vsGlyph = data.versusVs;
+        sign = data.versusSign;
 
         labels[0].text = fields[0];
         texts[0].text = fields[1];
         labels[1].text = fields[2];
         texts[1].text = fields[3];
-        glyph.text = vsGlyph ? VersusTypography.VsGlyph : VersusTypography.NotEqualGlyph;
+        glyph.text = VersusTypography.GlyphFor(sign);
 
         LayoutCard(log: true);
         PoseEntrance(); // off-screen, glyph hidden — until Show
@@ -312,7 +312,7 @@ public class VersusCard : ContentCard
         float size = 100f;
         if (ink.width > 0f && ink.height > 0f)
         {
-            if (vsGlyph)
+            if (VersusTypography.IsWord(sign))
             {
                 float cap = CardTypography.CapHeight(glyph.font, 100f);
                 size = 100f * Mathf.Min(d * VersusTypography.VsCapFraction / cap,

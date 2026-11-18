@@ -51,6 +51,74 @@ public static class VersusTypography
     public const string NotEqualGlyph = "≠";
     public const string VsGlyph = "VS";
 
+    // ---- The sign between the panels -------------------------------------------------
+    /// <summary>
+    /// What the badge says about the two panels. ≠ is the card's own meaning
+    /// (the claim against the record) and needs no keyword; every other sign
+    /// is one optional last word on the tag. The creator asked for = &gt; &lt;
+    /// + and OR on 2026-11-18; →, ≈ and × were offered with them.
+    /// </summary>
+    public enum VersusSign { NotEqual, Vs, Equal, Greater, Less, Plus, Or, Arrow, Approx, Times }
+
+    /// <summary>
+    /// The keywords, as a regex alternation — written out again, in the same
+    /// order, in the card parser, in TtsScriptProcessor (KnownMarkers and
+    /// StampMarker) and in elevenlabs_tts_processor.py (_ALL_MARKERS and
+    /// _stamp_marker). Add a sign in all of them or it breaks silently.
+    /// </summary>
+    public const string SignKeywordPattern = "Vs|Equals|Greater|Less|Plus|Or|Arrow|Approx|Times";
+
+    private static readonly (VersusSign sign, string keyword, string glyph, bool word, string means)[] Signs =
+    {
+        (VersusSign.NotEqual, "",        "≠",  false, "the claim against the record"),
+        (VersusSign.Vs,       "Vs",      "VS", true,  "a match-up"),
+        (VersusSign.Equal,    "Equals",  "=",  false, "the same thing"),
+        (VersusSign.Greater,  "Greater", ">",  false, "the left is more / beats the right"),
+        (VersusSign.Less,     "Less",    "<",  false, "the left is less / loses to the right"),
+        (VersusSign.Plus,     "Plus",    "+",  false, "the two together"),
+        (VersusSign.Or,       "Or",      "OR", true,  "one or the other"),
+        (VersusSign.Arrow,    "Arrow",   "→",  false, "the left becomes / leads to the right"),
+        (VersusSign.Approx,   "Approx",  "≈",  false, "about the same"),
+        (VersusSign.Times,    "Times",   "×",  false, "a pairing, a collaboration"),
+    };
+
+    /// <summary>What the badge shows for a sign.</summary>
+    public static string GlyphFor(VersusSign sign)
+    {
+        foreach (var s in Signs) if (s.sign == sign) return s.glyph;
+        return NotEqualGlyph;
+    }
+
+    /// <summary>The tag's last word for a sign ("" for ≠, which has none).</summary>
+    public static string KeywordFor(VersusSign sign)
+    {
+        foreach (var s in Signs) if (s.sign == sign) return s.keyword;
+        return "";
+    }
+
+    /// <summary>A sign that is letters (VS, OR) is sized by its capitals; a symbol by its own ink.</summary>
+    public static bool IsWord(VersusSign sign)
+    {
+        foreach (var s in Signs) if (s.sign == sign) return s.word;
+        return false;
+    }
+
+    /// <summary>The sign a keyword names — exact spelling, as every tag keyword. No keyword (null or "") is ≠.</summary>
+    public static bool TryParseSign(string keyword, out VersusSign sign)
+    {
+        sign = VersusSign.NotEqual;
+        if (string.IsNullOrEmpty(keyword)) return true;
+        foreach (var s in Signs)
+            if (s.keyword.Length > 0 && s.keyword == keyword) { sign = s.sign; return true; }
+        return false;
+    }
+
+    /// <summary>Every sign, in the order of <see cref="SignKeywordPattern"/> (≠ first).</summary>
+    public static System.Collections.Generic.IEnumerable<VersusSign> AllSigns()
+    {
+        foreach (var s in Signs) yield return s.sign;
+    }
+
     // ---- Entrance ---------------------------------------------------------------------
     public const float PanelSlideSeconds = 0.45f;
     /// <summary>The right panel starts this long after the left.</summary>

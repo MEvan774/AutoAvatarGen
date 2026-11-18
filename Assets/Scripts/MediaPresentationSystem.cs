@@ -2642,7 +2642,10 @@ public partial class MediaPresentationSystem : MonoBehaviour
 
         Texture2D tex = LoadTextureFromDisk(diskPath);
         if (tex != null)
+        {
             preloadedImages[mediaName] = tex;
+            NotePreloadedShot(mediaName, tex);   // (an X post's own bounds, measured before the take)
+        }
     }
 
     void PreloadCardImages(List<ContentCardEvent> events)
@@ -3446,8 +3449,14 @@ public partial class MediaPresentationSystem : MonoBehaviour
         // (one written on the transition's own line belongs to the new one).
         CloseStageOverlays("a transition", m.triggerTime);
 
+        // (A cut to Off that was waiting for its picture goes now, under the cover.)
+        FinishCoveredExit("a transition covers the frame");
         if (m.hasPosition)
-            MoveToPosition(m.position, cutOverride: true); // SNAP — never smooth, inside cover
+        {
+            underTransitionCover = true;
+            try { MoveToPosition(m.position, cutOverride: true); } // SNAP — never smooth, inside cover
+            finally { underTransitionCover = false; }
+        }
 
         if (!string.IsNullOrEmpty(m.emotion) && avatarSystem != null)
             avatarSystem.SetEmotionImmediate(m.emotion);

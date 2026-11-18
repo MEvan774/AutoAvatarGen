@@ -318,6 +318,8 @@ public partial class MediaPresentationSystem
         StageReport.Last = null;
         PresenterHolds.Reset();
         pendingStage = default;
+        coveredExit = default;
+        coveredExitCount = 0;
         frontHeld = false;
         frontHeldUntil = float.PositiveInfinity;
         positionLedUntil = float.NaN;
@@ -418,6 +420,10 @@ public partial class MediaPresentationSystem
     // -----------------------------------------------------------------------
     void MoveOnStage(CharacterPosition target, bool? cutOverride, bool over = false, float ledUntil = float.NaN)
     {
+        // A cut to Off that was waiting for its picture to cover him: he goes
+        // now — whatever comes next starts from a stage he has really left.
+        FinishCoveredExit("another {Position:…} came first");
+
         CharacterPosition from = currentPosition;
         if (target == from)
         {
@@ -471,9 +477,14 @@ public partial class MediaPresentationSystem
             if (!isShowingMedia) ReleaseMediaHandover(hide: true);
         }
 
-        // No face left to lean in on.
+        // {Position:Off,Cut} written with a picture or clip that fills the
+        // frame: he stays until it has landed over him (StepCoveredExit).
+        string coveredBy = null;
+        bool coveredCut = cut && target == CharacterPosition.Off && avatarParent != null && CoverIsComing(from, t, out coveredBy);
+
+        // No face left to lean in on. (A cut he is still seen through glides: nothing hides a snap.)
         if (nowWide && !wasWide)
-            EndZoomRun($"{{Position:{target}}}", hiddenBehindCover: cut);
+            EndZoomRun($"{{Position:{target}}}", hiddenBehindCover: cut && !coveredCut);
 
         // What the move is made of — planned from where he IS: a move that was
         // running is not finished first and not jumped out of.
@@ -527,6 +538,13 @@ public partial class MediaPresentationSystem
         {
             how = "no presenter object";
         }
+        else if (coveredCut)
+        {
+            // He is "off" from now on — the stage is wide, the picture takes the
+            // frame — but he is left standing where he is until it covers him.
+            coveredExit = new CoveredExit { active = true, from = from, until = t + StageMath.CoveredExitMaxSeconds, by = coveredBy };
+            how = $"cut once {coveredBy} has landed over him";
+        }
         else if (cut)
         {
             EndStageShape();
@@ -572,6 +590,101 @@ public partial class MediaPresentationSystem
             : StageMath.IsPeek(target)
                 ? $"[Stage] t={t:F2}s Mugs peeks {(target == CharacterPosition.PeekRight ? "right" : "left")} ({how}) — the stage is wide"
                 : $"[Stage] t={t:F2}s Mugs back at {target} ({how})");
+    }
+
+    // -----------------------------------------------------------------------
+    // {Position:Off,Cut} under a picture that fills the frame
+    // -----------------------------------------------------------------------
+    // Cut on the tag, he vanished two frames before the clip had even started
+    // to ease in — the creator saw him blink out of an empty stage (0:36 of
+    // the 2026-11-18 take). So when an image or clip that FILLS the frame is
+    // written on the same beat, the cut waits: he is left where he stands
+    // (behind the media's layer) until its entry has landed, and is removed
+    // then, unseen. Only from Left / Right / Center at his own sorting order —
+    // a peek, a lean or a handover is drawn in front of the media, and under a
+    // {Transition}'s cover nobody sees him go anyway.
+
+    private struct CoveredExit
+    {
+        public bool active;
+        public CharacterPosition from;
+        public float until;     // voice time: if nothing has covered him by then, he goes anyway
+        public string by;
+    }
+    private CoveredExit coveredExit;
+    private bool underTransitionCover;
+    private int coveredExitCount;
+    private Canvas mediaCoverCanvas;        // on the media display, added the first time it has to cover him
+    private bool mediaLiftedOverPresenter;
+
+    // He stands in front of the media canvas, so a picture that is to COVER
+    // him is lifted over him for as long as it is up: its display gets a
+    // nested canvas with its own sorting order. (Added on first use only — a
+    // script without {Position:Off,Cut} never gets the component.)
+    void LiftMediaOverPresenter(bool lift)
+    {
+        if (mediaDisplay == null || (!lift && mediaCoverCanvas == null)) { mediaLiftedOverPresenter = false; return; }
+        if (mediaCoverCanvas == null)
+        {
+            mediaCoverCanvas = mediaDisplay.GetComponent<Canvas>();
+            if (mediaCoverCanvas == null) mediaCoverCanvas = mediaDisplay.gameObject.AddComponent<Canvas>();
+        }
+        mediaCoverCanvas.overrideSorting = lift;
+        if (lift) mediaCoverCanvas.sortingOrder = StageMath.CoverSortingOrder;
+        mediaLiftedOverPresenter = lift;
+    }
+
+    /// <summary>True while a {Position:Off,Cut} is waiting for its picture to land over him.</summary>
+    public bool IsCoveredExitPending => coveredExit.active;
+
+    // An image or clip that fills the frame is written on this beat.
+    bool CoverIsComing(CharacterPosition from, float t, out string by)
+    {
+        by = null;
+        if (underTransitionCover || handover || !StageMath.IsFull(from) || PresenterOrderNow != null) return false;
+        if (mediaMarkers == null) return false;
+        foreach (MediaMarkerData m in mediaMarkers)
+        {
+            if (m.endsMedia || Mathf.Abs(m.triggerTime - t) > StageMath.CoverBeatSeconds) continue;
+            if (!MediaFillsTheFrame(m)) continue;
+            by = $"{{{(m.mediaType == MediaType.IMAGE ? "Image" : "Video")}:{m.mediaName}}}";
+            return true;
+        }
+        return false;
+    }
+
+    // At full frame: a clip, a photo, an article and a ,Scroll page cover the
+    // frame; an X post floats on the backdrop and covers nothing.
+    bool MediaFillsTheFrame(MediaMarkerData m) =>
+        m.mediaType == MediaType.VIDEO || m.scroll || ShotKindOf(m.mediaName) != MediaMotionMath.ShotKind.Post;
+
+    // Each frame: he goes once the media stands on the frame, fully faded in.
+    void StepCoveredExit()
+    {
+        if (!coveredExit.active) return;
+        bool landed = isShowingMedia && mediaIsFullFrame && mediaDisplay != null && mediaDisplay.gameObject.activeInHierarchy &&
+                      mediaLiftedOverPresenter &&
+                      (mediaEntrySequence == null || !mediaEntrySequence.IsActive() || mediaEntrySequence.IsComplete()) &&
+                      (mediaDisplayGroup == null || mediaDisplayGroup.alpha >= 0.999f);
+        if (landed) FinishCoveredExit(null);
+        else if (StageClock() >= coveredExit.until) FinishCoveredExit("nothing covered him in time");
+    }
+
+    // Removes him now. why: null = the media has landed over him (the plan).
+    void FinishCoveredExit(string why)
+    {
+        if (!coveredExit.active) return;
+        CoveredExit exit = coveredExit;
+        coveredExit = default;
+        if (avatarParent == null) return;
+        EndStageShape();
+        PlacePresenter(CharacterPosition.Off, exit.from);
+        if (why == null)
+        {
+            coveredExitCount++;
+            Debug.Log($"[Stage] t={StageClock():F2}s {exit.by} has landed — Mugs is gone behind it");
+        }
+        else Debug.Log($"[Stage] t={StageClock():F2}s Mugs off now ({why})");
     }
 
     // The legs of a stage move from where he is now, and the edge he leaves
@@ -1045,6 +1158,7 @@ public partial class MediaPresentationSystem
     // phrase. (The older full-screen cards stay under the black, as before.)
     void StageOnBlack()
     {
+        FinishCoveredExit("a {Black} covers the frame");
         if (contentZoneController != null) contentZoneController.ClearClippingForBlack();
         CloseStageOverlays("{Black}");
     }
@@ -1075,6 +1189,7 @@ public partial class MediaPresentationSystem
     {
         StepHandover();
         StepFrontHold();
+        StepCoveredExit();
         StepStageMeter();
 
         // A held-over image whose successor never came (blocked, missing) must not stay up.
@@ -1180,7 +1295,7 @@ public partial class MediaPresentationSystem
     // Media on the wide stage: full frame, runs that cut, the push-in, ,Scroll
     // -----------------------------------------------------------------------
 
-    private enum MediaMotion { None, PushIn, Scroll }
+    private enum MediaMotion { None, PushIn, Scroll, PostPush, PostScroll, ArticleScroll }
 
     private bool mediaIsFullFrame;
     private MediaMotion mediaMotion;
@@ -1189,6 +1304,58 @@ public partial class MediaPresentationSystem
     private float mediaMotionDuration;   // > 0: timed; 0: held
     private float mediaVisibleShare = 1f;
     private Vector2 mediaFocus = MediaMotionMath.CentreFocus;
+    private float mediaPushMax = MediaMotionMath.PushInMax;
+
+    // A screenshot at full frame (MediaMotionMath, "Screenshots at full
+    // frame"): an article_… capture keeps its top; an x_post_… is shown whole,
+    // or scrolls when it is too tall to read whole.
+    private MediaMotionMath.PostLayout mediaPost;
+    private float mediaPageTravel;                      // an article's scroll, in frame heights
+    private bool mediaPostScaled;                       // the display's scale is the post's push: put it back
+    private Vector3 mediaDisplayOwnScale = Vector3.one;
+    // The post itself inside each post image (the part that isn't see-through),
+    // measured once — before the take for every image the script names.
+    private readonly Dictionary<string, RectInt> postBounds =
+        new Dictionary<string, RectInt>(System.StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>What kind of picture a media name is: its name says it, or the posts folder it is found in.</summary>
+    MediaMotionMath.ShotKind ShotKindOf(string mediaName)
+    {
+        MediaMotionMath.ShotKind kind = MediaMotionMath.KindFor(mediaName);
+        if (kind != MediaMotionMath.ShotKind.Photo || string.IsNullOrWhiteSpace(mediaName)) return kind;
+        string path = null;
+        try { path = ResolveImagePath(mediaName); } catch (System.ArgumentException) { }
+        if (path == null) return kind;
+        return MediaMotionMath.KindFor(mediaName, System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(path)), twitterPostsSubfolder);
+    }
+
+    // Called for every image decoded before the take: a post's bounds are
+    // measured here, so nothing reads 7 million pixels while the recorder runs.
+    void NotePreloadedShot(string mediaName, Texture2D tex)
+    {
+        if (tex != null && ShotKindOf(mediaName) == MediaMotionMath.ShotKind.Post)
+            PostBoundsOf(mediaName, tex);
+    }
+
+    RectInt PostBoundsOf(string mediaName, Texture2D tex)
+    {
+        if (tex == null) return new RectInt(0, 0, 0, 0);
+        if (postBounds.TryGetValue(mediaName, out RectInt known) && known.width > 0) return known;
+        // (A Resources import isn't readable: its whole rectangle, then.)
+        RectInt bounds = tex.isReadable
+            ? MediaMotionMath.OpaqueBounds(tex.GetPixels32(), tex.width, tex.height)
+            : new RectInt(0, 0, tex.width, tex.height);
+        postBounds[mediaName] = bounds;
+        return bounds;
+    }
+
+    // The display's own scale back, after a post's push.
+    void EndPostScale()
+    {
+        if (!mediaPostScaled) return;
+        mediaPostScaled = false;
+        if (mediaDisplay != null) mediaDisplay.rectTransform.localScale = mediaDisplayOwnScale;
+    }
 
     // A run: the full-frame media that just ended stays on the slot until the
     // one that replaces it has a texture to show, so the change is a cut with
@@ -1215,6 +1382,9 @@ public partial class MediaPresentationSystem
         mediaMotionDuration = timed;
         mediaCoverUv = new Rect(0f, 0f, 1f, 1f);
         mediaFocus = MediaMotionMath.FocusFor(marker.mediaName);
+        mediaPushMax = MediaMotionMath.PushInMax;
+        EndPostScale();
+        MediaDisplayShadow.CutoutShownWhole = null;
 
         if (IsStageWide)
         {
@@ -1255,16 +1425,73 @@ public partial class MediaPresentationSystem
             }
         }
 
-        if (mediaMotion != MediaMotion.Scroll && mediaIsFullFrame)
+        // A screenshot is text: it is never cropped the way a photo is. (An
+        // explicit ,Scroll is the author's own framing and stays as written.)
+        MediaMotionMath.ShotKind kind = isImage && mediaIsFullFrame && mediaMotion != MediaMotion.Scroll
+            ? ShotKindOf(marker.mediaName) : MediaMotionMath.ShotKind.Photo;
+        string shown = null;
+
+        if (kind == MediaMotionMath.ShotKind.Post)
         {
-            mediaCoverUv = MediaMotionMath.CoverUv((float)tex.width / Mathf.Max(1, tex.height), slotW / slotH);
-            if (isImage && StagePrefs.PushIn) mediaMotion = MediaMotion.PushIn;
+            // The post itself, whole and centred on the backdrop — or, too tall
+            // to read whole, at a readable width in a column the frame's height.
+            mediaPost = MediaMotionMath.LayoutPost(slotW, slotH, tex.width, tex.height,
+                                                   PostBoundsOf(marker.mediaName, tex as Texture2D));
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = mediaPost.SlotSize;
+            mediaCoverUv = mediaPost.Uv;
+            if (mediaPost.Scrolls)
+            {
+                mediaMotion = MediaMotion.PostScroll;
+                float needs = MediaMotionMath.PostSecondsNeeded(mediaPost.TravelFrames);
+                shown = $"a tall post: readable, scrolling {mediaPost.TravelFrames * slotH:F0} px";
+                if (timed > 0f && timed < needs - 0.05f)
+                    Debug.LogWarning($"[Media] {{Image:{marker.mediaName},{timed:0.##}}}: the post is too tall to show whole, so it scrolls — " +
+                                     $"{mediaPost.TravelFrames * slotH:F0} px in {timed:0.##} s is too fast to read. " +
+                                     $"Give it at least {Mathf.Ceil(needs):F0} s, or hold it with ,Start … {{Image:End}}.");
+            }
+            else
+            {
+                if (StagePrefs.PushIn) mediaMotion = MediaMotion.PostPush;
+                MediaDisplayShadow.CutoutShownWhole = tex;   // the display is the post's own rectangle: it casts the cards' shadow
+                shown = $"a post, whole: {mediaPost.SlotSize.x / slotW:P0} of the frame's width";
+            }
+        }
+        else if (mediaMotion != MediaMotion.Scroll && mediaIsFullFrame)
+        {
+            float aspect = (float)tex.width / Mathf.Max(1, tex.height);
+            if (kind == MediaMotionMath.ShotKind.Article)
+            {
+                // Fills the frame like a photo, but starts on its TOP — masthead
+                // and headline — and then scrolls down slowly to show the rest.
+                mediaCoverUv = MediaMotionMath.CoverUvKeepTop(aspect, slotW / slotH);
+                mediaVisibleShare = MediaMotionMath.VisibleShare(slotW, slotH, tex.width, tex.height);
+                mediaPageTravel = MediaMotionMath.PageTravelFrames(mediaVisibleShare);
+                if (mediaPageTravel > 0f)
+                {
+                    mediaMotion = MediaMotion.ArticleScroll;
+                    shown = $"an article: from its top, scrolling {mediaPageTravel * slotH:F0} px in {MediaMotionMath.ArticleScrollSeconds(mediaPageTravel):F1} s";
+                }
+                else
+                {
+                    // Not taller than the frame: nothing to scroll to. A slight push-in that holds the top edge.
+                    mediaFocus = MediaMotionMath.ArticleFrameFocus;
+                    mediaPushMax = MediaMotionMath.ArticlePushInMax;
+                    shown = "an article: its top kept";
+                }
+            }
+            else mediaCoverUv = MediaMotionMath.CoverUv(aspect, slotW / slotH);
+            if (mediaMotion == MediaMotion.None && isImage && StagePrefs.PushIn) mediaMotion = MediaMotion.PushIn;
         }
         ApplyMediaMotion();
 
         bool cut = mediaHandoverPending && mediaIsFullFrame;
         ReleaseMediaHandover(hide: false);
         mediaDisplay.gameObject.SetActive(true);
+        // {Position:Off,Cut} is waiting for this picture: it comes in OVER him.
+        LiftMediaOverPresenter(coveredExit.active && mediaIsFullFrame && kind != MediaMotionMath.ShotKind.Post);
 
         string what = $"{{{(isImage ? "Image" : "Video")}:{marker.mediaName}}}";
         if (cut)
@@ -1273,13 +1500,14 @@ public partial class MediaPresentationSystem
             if (mediaEntrySequence != null && mediaEntrySequence.IsActive()) mediaEntrySequence.Kill();
             mediaEntrySequence = null;
             if (mediaDisplayGroup != null) mediaDisplayGroup.alpha = 1f;
-            Debug.Log($"[Media] t={StageClock():F2}s {what} cut in (full frame, a media run)");
+            Debug.Log($"[Media] t={StageClock():F2}s {what} cut in (full frame, a media run" + (shown != null ? "; " + shown : "") + ")");
         }
         else if (mediaIsFullFrame)
         {
             PlayMediaEntryFullFrame(onRight ? EntryDirection.FromRight : EntryDirection.FromLeft);
             Debug.Log($"[Media] t={StageClock():F2}s {what} shown full frame" +
-                      (mediaMotion == MediaMotion.Scroll ? " (scrolling)" : mediaMotion == MediaMotion.PushIn ? " (push-in)" : ""));
+                      (shown != null ? $" ({shown})"
+                       : mediaMotion == MediaMotion.Scroll ? " (scrolling)" : mediaMotion == MediaMotion.PushIn ? " (push-in)" : ""));
         }
         else
         {
@@ -1333,7 +1561,25 @@ public partial class MediaPresentationSystem
         {
             case MediaMotion.PushIn:
                 mediaDisplay.uvRect = MediaMotionMath.PushUv(mediaCoverUv,
-                    MediaMotionMath.PushScaleAt(mediaMotionClock, mediaMotionDuration, MediaMotionMath.PushInMax), mediaFocus);
+                    MediaMotionMath.PushScaleAt(mediaMotionClock, mediaMotionDuration, mediaPushMax), mediaFocus);
+                break;
+            case MediaMotion.PostPush:
+            {
+                // The whole card grows a little: it has room around it, so nothing is cropped.
+                RectTransform rt = mediaDisplay.rectTransform;
+                if (!mediaPostScaled) { mediaDisplayOwnScale = rt.localScale; mediaPostScaled = true; }
+                mediaDisplay.uvRect = mediaCoverUv;
+                rt.localScale = mediaDisplayOwnScale *
+                    MediaMotionMath.PushScaleAt(mediaMotionClock, mediaMotionDuration, MediaMotionMath.PostPushInMax);
+                break;
+            }
+            case MediaMotion.PostScroll:
+                mediaDisplay.uvRect = MediaMotionMath.PostScrollUv(mediaPost,
+                    MediaMotionMath.PostScrollProgress(mediaMotionClock, mediaMotionDuration, mediaPost.TravelFrames));
+                break;
+            case MediaMotion.ArticleScroll:
+                mediaDisplay.uvRect = MediaMotionMath.ScrollUv(mediaVisibleShare,
+                    MediaMotionMath.ArticleScrollProgress(mediaMotionClock, mediaPageTravel));
                 break;
             case MediaMotion.Scroll:
                 mediaDisplay.uvRect = MediaMotionMath.ScrollUv(mediaVisibleShare,
@@ -1398,8 +1644,11 @@ public partial class MediaPresentationSystem
         mediaHandoverPending = false;
         mediaIsFullFrame = false;
         mediaMotion = MediaMotion.None;
+        MediaDisplayShadow.CutoutShownWhole = null;
         if (mediaDisplay == null) return;
 
+        EndPostScale();
+        LiftMediaOverPresenter(false);
         ApplyMediaSide(false);
         if (mediaDisplayBaseSize.x > 0f && mediaDisplayBaseSize.y > 0f)
             mediaDisplay.rectTransform.sizeDelta = mediaDisplayBaseSize;

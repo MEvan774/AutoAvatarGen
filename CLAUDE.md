@@ -211,6 +211,42 @@ before any card or media parser sees the script).
   card). The side layout never goes through that fit. `{Image}`/`{Video}` fill the frame by `uvRect` (cover, push-in,
   scroll — the slot never moves, so an image can't show its edge). A wide ↔
   side change ends the media like a change of side; Off ↔ peek keeps it.
+- **A full-frame screenshot is never cropped like a photo** (`MediaMotionMath`,
+  *"Screenshots at full frame"*; the creator picked both looks from mock-ups of
+  their own files on 2026-11-18). The file's NAME decides (`KindFor` /
+  `ShotKindOf`), no keyword: `article_…` still fills the frame but STARTS ON
+  ITS TOP (`CoverUvKeepTop` — the centred crop cut the masthead off every 4:3
+  capture), rests there 1.2 s and then scrolls down at the page's calm rate
+  until its bottom is in (`ArticleScroll` / `ArticleScrollProgress`: a
+  trapezoid of speed, the same timed or held — the creator asked for the
+  scroll after the first take, where a quarter of each capture never showed;
+  one that isn't taller than the frame keeps its top and pushes in 2 %, not
+  8 %: at 4 % a logo 2 % from the page's edge was clipped); `x_post_…`, or anything found in
+  `TwitterPosts/`, is a see-through cut-out and is shown WHOLE (`LayoutPost`):
+  the display is re-sized to the post's own bounds (`OpaqueBounds`, measured
+  in `PreloadImage` — before the take, never while the recorder runs) and
+  centred, and that is the one case a see-through image casts the display's
+  shadow (`MediaDisplayShadow.CutoutShownWhole`). A post too tall to read
+  whole sits at half the frame's width in a column the frame's height and its
+  window travels down (`PostScroll`; a timed one too fast to read is warned
+  about with the seconds it needs). The post's 3 % push is the display's
+  `localScale` — `EndPostScale` puts it back; nothing else scales that rect.
+  Full frame only: the side slot, `{BigImage}` and an explicit `,Scroll` are
+  the old paths. `mediaIsFullFrame` stays true for a post (it has the frame:
+  the handover, the run's cut and the empty-stage watch all read it).
+- **`{Position:Off,Cut}` waits for a picture that will cover him**
+  (`CoverIsComing` / `StepCoveredExit`, `MediaPresentationSystem.Stage.cs`).
+  Cut on the tag he vanished two frames before the clip had started to ease
+  in — the creator saw him blink out of an empty stage. With an image or clip
+  that FILLS the frame (not an X post) written within `CoverBeatSeconds` of
+  the tag, `currentPosition` is Off at once (the stage is wide, the media
+  goes full frame) but the transform is left where it is until the media's
+  entry has landed (`mediaEntrySequence` done, alpha 1), then `PlacePresenter`
+  — or after `CoveredExitMaxSeconds`, a `{Black}`, a transition, or any other
+  `{Position:…}` (`FinishCoveredExit` runs first in `MoveOnStage`). Only from
+  Left / Right / Center at his own sorting order (a peek, a lean and a
+  handover are drawn in FRONT of the media), never under a transition's cover
+  (`underTransitionCover`). A smooth `{Position:Off}` still slides out.
 - **Cards wait for an arrival, never for him leaving** (`StageMath.CardsWaitFor`),
   and `ShowMedia` waits ≤3 frames while `StageChangeIsDue()` — the media
   tracker runs before the position tracker, so media written under a
@@ -234,6 +270,15 @@ before any card or media parser sees the script).
   label like `ChatGPT=400M` would otherwise be shifted onto the take's clock.
   `SegmentSequencer._TPattern` is that same pattern (the join's indices rely
   on it); it matches the identical 5,746 stamps in the 272 real timed files.
+- **The Versus sign is one keyword list in six places.** ≠ is the default;
+  `Vs|Equals|Greater|Less|Plus|Or|Arrow|Approx|Times` is spelled out in
+  `VersusTypography.SignKeywordPattern` (the card parser's two regexes use it
+  or repeat it), in `TtsScriptProcessor` (`KnownMarkers` and `StampMarker`'s
+  keyword list) and in `elevenlabs_tts_processor.py` (`_ALL_MARKERS` and
+  `_stamp_marker`). A sign added to one and not the others is a tag that is
+  recognised but not stamped, or stamped but not parsed. `Versus_Signs` holds
+  the C# sites together and `Versus_SignsOnTheBadge` checks each glyph is in
+  the card font; the Python side is checked by running `_stamp_marker`.
 - **A new tag still needs all of**: runtime parser, `KnownMarkers`,
   `_ALL_MARKERS`, both `StampMarker`s, `TagOnlyRetimer.UnstampDuration` when
   it has a `D=` slot, the guide — `Tier4_*` in the self-tests is the template.

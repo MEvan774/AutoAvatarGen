@@ -104,9 +104,16 @@ public class ContentCardEvent
     // Map: region, countries, caption, source).
     public string[] fields;
 
-    // Versus only: the ",Vs" keyword — the glyph between the panels reads VS
-    // instead of ≠.
-    public bool versusVs;
+    // Versus only: the sign on the badge between the panels — ≠ unless the tag
+    // ends in a keyword (",Vs", ",Equals", ",Greater", … VersusTypography).
+    public VersusTypography.VersusSign versusSign;
+
+    // (The first keyword, kept for the code that only knew VS / ≠.)
+    public bool versusVs
+    {
+        get => versusSign == VersusTypography.VersusSign.Vs;
+        set => versusSign = value ? VersusTypography.VersusSign.Vs : VersusTypography.VersusSign.NotEqual;
+    }
 
     // Document only: the stamp keyword (None = no stamp).
     public DocumentStamp documentStamp;

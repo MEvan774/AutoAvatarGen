@@ -104,7 +104,7 @@ namespace MugsTech.Tts
             // {Compare:"value A","label A","value B","label B","source",duration|Start[,Left|,Right]}
             @"|\{Compare:""[^""]*"",""[^""]*"",""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Left|Right))?\}" +
             // {Versus:"left label","left text","right label","right text",duration|Start[,Vs]}
-            @"|\{Versus:""[^""]*"",""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*Vs)?\}" +
+            @"|\{Versus:""[^""]*"",""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Vs|Equals|Greater|Less|Plus|Or|Arrow|Approx|Times))?\}" +
             // {Document:"passage","phrase","source",duration|Start[,Allegation|,Filing|,Ruling|,Report][,Left|,Right]}
             @"|\{Document:""[^""]*"",""[^""]*"",""[^""]*"",(?:\d+(?:\.\d+)?|Start)(?:,\s*(?:Allegation|Filing|Ruling|Report))?(?:,\s*(?:Left|Right))?\}" +
             // {Timeline:"date","event"[,Left|,Right]} — one node, no duration
@@ -621,7 +621,7 @@ namespace MugsTech.Tts
             // ({Quote:...,Start}…{Quote:End}) and stamps D=0 — the same
             // persistent marker the duration-less BigText flow uses.
             Match mCard = Regex.Match(innerCurly,
-                @"^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map|Name|Graph):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Allegation|Filing|Ruling|Report|Bars|Line|Share|Cropped|Photo=[^,}""]+)){0,2})$",
+                @"^(Headline|Excerpt|Quote|Stat|Compare|Versus|Document|Map|Name|Graph):(.*),(\d+(?:\.\d+)?|Start)((?:,\s*(?:bigCenter|Win|Loss|NoArrow|Left|Right|Vs|Equals|Greater|Less|Plus|Or|Arrow|Approx|Times|Allegation|Filing|Ruling|Report|Bars|Line|Share|Cropped|Photo=[^,}""]+)){0,2})$",
                 RegexOptions.Singleline);
             if (mCard.Success)
             {

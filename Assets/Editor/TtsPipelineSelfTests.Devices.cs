@@ -28,6 +28,7 @@ public static partial class TtsPipelineSelfTests
     static void RunDeviceGroup(Log log)
     {
         Media_CoverAndPushIn(log);
+        Media_ScreenshotsAtFullFrame(log);
         Media_Scroll(log);
         Logos_Grid(log);
         Logos_Timing(log);
@@ -45,6 +46,7 @@ public static partial class TtsPipelineSelfTests
         try
         {
             Media_ScrollKeyword_Engine(log);
+            Media_ScreenshotsOnTheDisplay_Engine(log);
             Logos_RunOnTheCard_Engine(log);
             Logos_ControllerRules_Engine(log);
             Name_Label_Engine(log);
@@ -129,6 +131,184 @@ public static partial class TtsPipelineSelfTests
                    MediaMotionMath.FocusFor("jensen-huang") == MediaMotionMath.CentreFocus,
             "push-in: an article_ capture is aimed at its headline third, anything else at its centre");
         log.Near(0.6f, MediaMotionMath.MinRunImageSeconds, 1e-5f, "runs: an image replaced within 0.6 s is flagged as too short to read");
+    }
+
+    // =======================================================================
+    // Screenshots at full frame: an article keeps its top, an X post is shown
+    // whole or scrolls (the creator's picks from mock-ups, 2026-11-18)
+    // =======================================================================
+
+    // A see-through image of w × h with an opaque card at (x, y from the TOP), cw × ch.
+    static Color32[] CutoutPixels(int w, int h, int x, int y, int cw, int ch)
+    {
+        var px = new Color32[w * h];
+        var card = new Color32(255, 255, 255, 255);
+        for (int row = y; row < y + ch; row++)
+        {
+            int r = (h - 1 - row) * w;   // Unity's rows count from the bottom
+            for (int col = x; col < x + cw; col++) px[r + col] = card;
+        }
+        return px;
+    }
+
+    static void Media_ScreenshotsAtFullFrame(Log log)
+    {
+        const float W = 1920f, H = 1080f, frame = W / H;
+
+        // What an image is: its name says it.
+        log.AreEqual(MediaMotionMath.ShotKind.Article, MediaMotionMath.KindFor("article_macrumors_crackgate"), "shots: article_… is an article capture");
+        log.AreEqual(MediaMotionMath.ShotKind.Article, MediaMotionMath.KindFor("Article_AP_freezers"), "shots: …whatever its case");
+        log.AreEqual(MediaMotionMath.ShotKind.Post, MediaMotionMath.KindFor("x_post_markgurman"), "shots: x_post_… is an X post");
+        log.AreEqual(MediaMotionMath.ShotKind.Post, MediaMotionMath.KindFor("gurman_reply", "TwitterPosts", "TwitterPosts"), "shots: so is anything found in the posts folder");
+        log.AreEqual(MediaMotionMath.ShotKind.Photo, MediaMotionMath.KindFor("AppleBuilding", "Images", "TwitterPosts"), "shots: a photo is a photo");
+        log.AreEqual(MediaMotionMath.ShotKind.Photo, MediaMotionMath.KindFor("my_article_notes"), "shots: the prefix, not the word anywhere in the name");
+        log.AreEqual(MediaMotionMath.ShotKind.Photo, MediaMotionMath.KindFor(null), "shots: no name is a photo");
+
+        // An article: fills the frame, all of the crop off the bottom.
+        foreach (float aspect in new[] { 4f / 3f, 1440f / 1080f, 1f, 0.6f })
+        {
+            Rect centred = MediaMotionMath.CoverUv(aspect, frame), top = MediaMotionMath.CoverUvKeepTop(aspect, frame);
+            log.Near(1f, top.yMax, 1e-6f, $"shots: an article of aspect {aspect:F2} keeps its top edge");
+            log.IsTrue(Mathf.Approximately(top.width, centred.width) && Mathf.Approximately(top.height, centred.height) && Mathf.Approximately(top.x, centred.x),
+                $"shots: …it fills the frame exactly as before, only the window is moved up (aspect {aspect:F2})");
+            log.IsTrue(centred.yMax < 1f - 1e-3f, $"shots: (the centred crop cut {(1f - centred.yMax) * 100f:F1} % off the top — the masthead)");
+            // The push-in never lets go of the top edge, at any scale on the way.
+            for (float scale = 1f; scale <= MediaMotionMath.ArticlePushInMax + 1e-4f; scale += 0.005f)
+            {
+                Rect uv = MediaMotionMath.PushUv(top, scale, MediaMotionMath.ArticleFrameFocus);
+                if (Mathf.Abs(uv.yMax - 1f) > 1e-5f || Mathf.Abs(uv.center.x - 0.5f) > 1e-5f)
+                { log.IsTrue(false, $"shots: pushed in to {scale:F3} the article lost its top or drifted sideways (aspect {aspect:F2})"); break; }
+            }
+        }
+        Rect pushed = MediaMotionMath.PushUv(MediaMotionMath.CoverUvKeepTop(4f / 3f, frame), MediaMotionMath.ArticlePushInMax, MediaMotionMath.ArticleFrameFocus);
+        log.Near(1f, pushed.yMax, 1e-6f, "shots: fully pushed in, a 4:3 article still shows its very top");
+        log.IsTrue(pushed.xMin < 0.011f && pushed.xMax > 0.989f, $"shots: …and loses about 1 % at each side ({pushed.xMin * 100f:F1} %) — a masthead 1.7 % from the page's edge stays whole");
+        log.IsTrue(MediaMotionMath.ArticlePushInMax < MediaMotionMath.PushInMax, "shots: an article pushes in less than a photo");
+        // …and then it scrolls down slowly, showing the rest (the creator's ask after the first take).
+        float travel = MediaMotionMath.PageTravelFrames(MediaMotionMath.VisibleShare(W, H, 1440f, 1080f));
+        log.Near(1f / 3f, travel, 1e-4f, "shots: a 4:3 article has a third of a frame hidden below it (360 px)");
+        log.Near(0f, MediaMotionMath.PageTravelFrames(MediaMotionMath.VisibleShare(W, H, 1920f, 1080f)), 1e-6f, "shots: a 16:9 capture has nothing to scroll to");
+        log.Near(0f, MediaMotionMath.PageTravelFrames(MediaMotionMath.VisibleShare(W, H, 2400f, 1000f)), 1e-6f, "shots: …nor has a wider one");
+        foreach (float d in new[] { travel, 2.5f, 0.02f })
+        {
+            float total = MediaMotionMath.ArticleScrollSeconds(d);
+            log.Near(0f, MediaMotionMath.ArticleScrollProgress(MediaMotionMath.ArticleTopHoldSeconds, d), 1e-6f,
+                $"shots: an article rests on its top for {MediaMotionMath.ArticleTopHoldSeconds:F1} s (travel {d * H:F0} px)");
+            log.IsTrue(MediaMotionMath.ArticleScrollProgress(MediaMotionMath.ArticleTopHoldSeconds + 0.1f, d) * d * H < 1.5f,
+                $"shots: …and starts down gently (under 1.5 px in the first tenth of a second; travel {d * H:F0} px)");
+            log.Near(1f, MediaMotionMath.ArticleScrollProgress(total, d), 1e-4f, $"shots: …it is at its bottom after {total:F1} s");
+            log.Near(1f, MediaMotionMath.ArticleScrollProgress(total + 30f, d), 1e-6f, "shots: …and rests there");
+            bool down = true, calm = true;
+            float before = 0f, fastest = 0f;
+            for (float t = 0f; t <= total + 0.5f; t += 1f / 120f)
+            {
+                float now = MediaMotionMath.ArticleScrollProgress(t, d);
+                if (now < before - 1e-6f || now > 1f + 1e-6f) down = false;
+                float speed = (now - before) * d * 120f;                 // frame heights a second
+                fastest = Mathf.Max(fastest, speed);
+                if (speed > MediaMotionMath.HeldScrollPerSecond * 1.01f) calm = false;
+                before = now;
+            }
+            log.IsTrue(down, $"shots: it only ever moves down the page (travel {d * H:F0} px)");
+            log.IsTrue(calm, $"shots: …never faster than the page's calm rate — {fastest * H:F0} px a second at most (travel {d * H:F0} px)");
+        }
+        log.Near(MediaMotionMath.ArticleTopHoldSeconds + MediaMotionMath.ArticleScrollRampSeconds + travel / MediaMotionMath.HeldScrollPerSecond,
+                 MediaMotionMath.ArticleScrollSeconds(travel), 1e-3f, "shots: a 4:3 article takes about 7.6 s to show all of itself");
+        log.Near(0f, MediaMotionMath.ArticleScrollProgress(100f, 0f), 1e-6f, "shots: with nothing to scroll to it stays put");
+        log.IsTrue(MediaMotionMath.ArticleScrollSeconds(0.02f) < MediaMotionMath.ArticleTopHoldSeconds + 2f * MediaMotionMath.ArticleScrollRampSeconds,
+            "shots: a page with a few pixels to show eases there and back without reaching full speed");
+
+        Rect panorama = MediaMotionMath.CoverUvKeepTop(3f, frame);
+        log.IsTrue(Mathf.Approximately(panorama.height, 1f) && Mathf.Abs(panorama.center.x - 0.5f) < 1e-5f, "shots: a capture wider than the frame is cropped at the sides, as any image is");
+        log.IsTrue(MediaMotionMath.FocusFor("article_x") == MediaMotionMath.ArticleFocus, "shots: the side slot and {BigImage} still aim an article at its headline third, as before");
+
+        // The post's own bounds inside its see-through image.
+        Color32[] px = CutoutPixels(242, 120, 38, 19, 165, 82);
+        RectInt bounds = MediaMotionMath.OpaqueBounds(px, 242, 120, 1);
+        log.IsTrue(bounds.x == 38 && bounds.y == 19 && bounds.width == 165 && bounds.height == 82, $"shots: the bounds are the opaque card, x and y from the top-left ({bounds})");
+        RectInt coarse = MediaMotionMath.OpaqueBounds(px, 242, 120, 2);
+        log.IsTrue(coarse.x <= 38 && coarse.y <= 19 && coarse.xMax >= 38 + 165 && coarse.yMax >= 19 + 82 &&
+                   coarse.width <= 165 + 2 && coarse.height <= 82 + 2, $"shots: read every 2nd pixel they are the same within a pixel, never smaller ({coarse})");
+        px[(120 - 1 - 5) * 242 + 7] = new Color32(0, 0, 0, MediaMotionMath.PostAlphaFloor);
+        log.IsTrue(MediaMotionMath.OpaqueBounds(px, 242, 120, 1).x == 38, "shots: a nearly see-through pixel (a shadow's edge) is not part of the post");
+        var opaque = new Color32[40 * 30];
+        for (int i = 0; i < opaque.Length; i++) opaque[i] = new Color32(9, 9, 9, 255);
+        RectInt all = MediaMotionMath.OpaqueBounds(opaque, 40, 30);
+        log.IsTrue(all.x == 0 && all.y == 0 && all.width == 40 && all.height == 30, "shots: an image with nothing see-through is its whole rectangle");
+        RectInt none = MediaMotionMath.OpaqueBounds(new Color32[40 * 30], 40, 30);
+        log.IsTrue(none.width == 40 && none.height == 30, "shots: so is an empty one (nothing to trim to)");
+        log.IsTrue(MediaMotionMath.OpaqueBounds(null, 40, 30).width == 40, "shots: …and one that can't be read");
+
+        // The creator's three real posts: 2418 wide, the card 1650 wide, 384 px see-through at the sides, 192 above and below.
+        var posts = new (string name, int h, bool scrolls)[] { ("wide", 1203, false), ("medium", 1701, false), ("tall", 3099, true) };
+        foreach (var (name, h, scrolls) in posts)
+        {
+            var card = new RectInt(384, 192, 1650, h - 384);
+            MediaMotionMath.PostLayout post = MediaMotionMath.LayoutPost(W, H, 2418, h, card);
+            log.IsTrue(post.Scrolls == scrolls, $"shots: the {name} post {(scrolls ? "scrolls" : "is shown whole")}");
+            log.Near(card.x / 2418f, post.Uv.xMin, 1e-5f, $"shots: the {name} post's see-through sides are not shown (left)");
+            log.Near(card.xMax / 2418f, post.Uv.xMax, 1e-5f, $"shots: …(right)");
+            log.IsTrue(post.Uv.yMin >= -1e-5f && post.Uv.yMax <= 1f + 1e-5f, $"shots: the {name} post's window is inside its image");
+            if (!scrolls)
+            {
+                log.IsTrue(post.SlotSize.x <= MediaMotionMath.PostMaxWidth * W + 0.5f && post.SlotSize.y <= MediaMotionMath.PostMaxHeight * H + 0.5f,
+                    $"shots: the {name} post fits inside 88 % × 86 % of the frame ({post.SlotSize.x:F0} × {post.SlotSize.y:F0})");
+                log.IsTrue(Mathf.Abs(post.SlotSize.x - MediaMotionMath.PostMaxWidth * W) < 0.5f || Mathf.Abs(post.SlotSize.y - MediaMotionMath.PostMaxHeight * H) < 0.5f,
+                    $"shots: …as large as that allows");
+                log.Near((float)card.width / card.height, post.SlotSize.x / post.SlotSize.y, 1e-3f, $"shots: the {name} post keeps its shape");
+                log.Near(1f - card.yMax / (float)h, post.Uv.yMin, 1e-5f, $"shots: the {name} post is shown from its own bottom edge…");
+                log.Near(1f - card.y / (float)h, post.Uv.yMax, 1e-5f, "shots: …to its own top edge: all of it, nothing else");
+                log.IsTrue(post.SlotSize.x >= MediaMotionMath.PostReadableWidth * W * MediaMotionMath.PostScrollBelow, $"shots: …and readable ({post.SlotSize.x / W:P0} of the frame's width)");
+                log.IsTrue(post.UvTravel == 0f && post.TravelFrames == 0f, $"shots: the {name} post doesn't move");
+            }
+            else
+            {
+                log.Near(MediaMotionMath.PostReadableWidth * W, post.SlotSize.x, 0.5f, "shots: a tall post is half the frame wide — readable");
+                log.Near(H, post.SlotSize.y, 1e-3f, "shots: …in a column the height of the frame (it runs off the top and bottom, it is never cut in mid-air)");
+                log.Near(H / post.Scale / h, post.Uv.height, 1e-5f, "shots: …never stretched: the window is one frame of it");
+                // Start: the post's top, a margin below the frame's top. End: its bottom, a margin above the frame's bottom.
+                float topGap = (card.y - (1f - post.Uv.yMax) * h) * post.Scale;
+                Rect end = MediaMotionMath.PostScrollUv(post, 1f);
+                float bottomGap = ((1f - end.yMin) * h - card.yMax) * post.Scale;
+                log.Near(MediaMotionMath.PostMargin * H, topGap, 1f, $"shots: it starts with its top {topGap:F0} px under the frame's top");
+                log.Near(MediaMotionMath.PostMargin * H, bottomGap, 1f, $"shots: …and ends with its bottom {bottomGap:F0} px above the frame's bottom");
+                log.Near(post.UvTravel * h * post.Scale / H, post.TravelFrames, 1e-4f, "shots: the travel in frame heights is the travel on screen");
+                log.IsTrue(post.TravelFrames > 0.3f && post.TravelFrames < 1.5f, $"shots: it travels {post.TravelFrames * H:F0} px");
+                bool down = true, inside = true;
+                float before = float.PositiveInfinity;
+                for (int i = 0; i <= 20; i++)
+                {
+                    Rect uv = MediaMotionMath.PostScrollUv(post, i / 20f);
+                    if (uv.y > before + 1e-6f) down = false;
+                    before = uv.y;
+                    if (uv.yMin < -1e-5f || uv.yMax > 1f + 1e-5f) inside = false;
+                }
+                log.IsTrue(down && inside, "shots: the window only moves down the post, and never leaves the image");
+
+                float needs = MediaMotionMath.PostSecondsNeeded(post.TravelFrames);
+                log.IsTrue(needs > 4f && needs < 6f, $"shots: timed, it needs about {needs:F1} s to be readable (shorter is warned about)");
+                log.Near(0f, MediaMotionMath.PostScrollProgress(0f, 6f, post.TravelFrames), 1e-6f, "shots: a timed post starts at its top");
+                log.Near(1f, MediaMotionMath.PostScrollProgress(6f, 6f, post.TravelFrames), 1e-6f, "shots: …and reaches its bottom exactly as its time is up");
+                log.IsTrue(MediaMotionMath.PostScrollProgress(0.6f, 6f, post.TravelFrames) < 0.03f, "shots: …slow off the mark (2.8 % after a tenth of its time)");
+                float held = MediaMotionMath.PostScrollProgress(1f, 0f, post.TravelFrames) * post.TravelFrames * H;
+                log.Near(MediaMotionMath.HeldScrollPerSecond * H, held, 0.5f, $"shots: held, it moves {held:F0} px a second — the page's calm rate");
+                log.Near(1f, MediaMotionMath.PostScrollProgress(600f, 0f, post.TravelFrames), 1e-6f, "shots: …and rests at its bottom");
+            }
+        }
+
+        // The rule between the two: whole unless that is clearly smaller than readable.
+        var justFits = MediaMotionMath.LayoutPost(W, H, 2418, 2000, new RectInt(384, 192, 1650, 1616));
+        log.IsTrue(!justFits.Scrolls && justFits.SlotSize.x >= 0.45f * W, $"shots: a post that is whole at {justFits.SlotSize.x / W:P0} of the width stays whole (no scroll for a few pixels)");
+        var small = MediaMotionMath.LayoutPost(W, H, 700, 420, new RectInt(50, 40, 600, 340));
+        log.Near(MediaMotionMath.PostMaxUpscale, small.Scale, 1e-5f, "shots: a small capture is blown up by a quarter at most");
+        log.IsTrue(!small.Scrolls && Mathf.Abs(small.SlotSize.x - 750f) < 0.5f, "shots: …so it sits smaller on the frame rather than blurred");
+        var noMargin = MediaMotionMath.LayoutPost(W, H, 1650, 2715, new RectInt(0, 0, 1650, 2715));
+        log.IsTrue(noMargin.Scrolls && Mathf.Abs(noMargin.Uv.yMax - 1f) < 1e-5f && MediaMotionMath.PostScrollUv(noMargin, 1f).yMin > -1e-5f,
+            "shots: a tall post with nothing see-through around it scrolls from its very top to its very bottom");
+        var unknown = MediaMotionMath.LayoutPost(W, H, 2418, 1203, new RectInt(0, 0, 0, 0));
+        log.IsTrue(!unknown.Scrolls && unknown.Uv.width == 1f && unknown.Uv.height == 1f, "shots: with no bounds measured the whole image is the post");
+        log.Near(1f, MediaMotionMath.PushScaleAt(0f, 5f, MediaMotionMath.PostPushInMax), 1e-6f, "shots: a whole post starts at its own size");
+        log.Near(1.03f, MediaMotionMath.PushScaleAt(5f, 5f, MediaMotionMath.PostPushInMax), 1e-5f, "shots: …and has grown 3 % as it leaves (the card, not a crop)");
     }
 
     static void Media_Scroll(Log log)
@@ -1090,6 +1270,224 @@ public static partial class TtsPipelineSelfTests
             log.IsTrue(!pop.IsShowing && !pop.IsRunning && pop.DimAlpha < 1e-3f, "pop: a transition ends the run on its frame");
         }
         finally { UnityEngine.Object.DestroyImmediate(pop.gameObject); UnityEngine.Object.DestroyImmediate(root); }
+    }
+
+    // On the real display: a RawImage on a 1920 × 1080 canvas, the stage wide.
+    static void Media_ScreenshotsOnTheDisplay_Engine(Log log)
+    {
+        StageRig rig = BuildStageRig();
+        var canvasGo = new GameObject("MediaFrame", typeof(RectTransform));   // (a plain 1920 × 1080 rect: a root Canvas would size itself to the screen)
+        canvasGo.transform.SetParent(rig.Root.transform, false);
+        var canvasRt = (RectTransform)canvasGo.transform;
+        canvasRt.sizeDelta = new Vector2(1920f, 1080f);
+        var displayGo = new GameObject("MediaDisplay", typeof(RectTransform), typeof(UnityEngine.UI.RawImage));
+        displayGo.transform.SetParent(canvasRt, false);
+        var display = displayGo.GetComponent<UnityEngine.UI.RawImage>();
+        var displayRt = display.rectTransform;
+        // The authored side slot.
+        displayRt.anchorMin = displayRt.anchorMax = new Vector2(0.25f, 0.5f);
+        displayRt.sizeDelta = new Vector2(800f, 640f);
+        var made = new List<Texture2D>();
+        Texture2D Tex(int w, int h, RectInt? card)
+        {
+            var t = new Texture2D(w, h, TextureFormat.RGBA32, false);
+            if (card.HasValue) t.SetPixels32(CutoutPixels(w, h, card.Value.x, card.Value.y, card.Value.width, card.Value.height));
+            else { var px = new Color32[w * h]; for (int i = 0; i < px.Length; i++) px[i] = new Color32(200, 200, 200, 255); t.SetPixels32(px); }
+            t.Apply(false);
+            made.Add(t);
+            return t;
+        }
+        bool savedPush = StagePrefs.PushIn;
+        try
+        {
+            StagePrefs.PushIn = true;
+            rig.Mps.mediaDisplay = display;
+            rig.Set("mediaDisplayBaseSize", displayRt.sizeDelta);
+            rig.Set("mediaDisplayBaseAnchorMin", displayRt.anchorMin);
+            rig.Set("mediaDisplayBaseAnchorMax", displayRt.anchorMax);
+            rig.Set("mediaDisplayBasePivot", displayRt.pivot);
+            rig.Set("mediaDisplayBaseAnchoredPos", displayRt.anchoredPosition);
+            rig.Call("MoveToPosition", CharacterPosition.Off, (bool?)true);   // the stage is wide
+
+            void Show(string name, Texture2D tex, float seconds, bool held = false, bool scroll = false)
+            {
+                display.texture = tex;
+                rig.Set("mediaHandoverPending", true);   // (a run's cut: no entry tween to wait for)
+                rig.Call("ShowDisplayOnStage", new MediaMarkerData { mediaType = MediaType.IMAGE, mediaName = name, displayDuration = seconds, holdsOpen = held, scroll = scroll }, false);
+            }
+
+            // An article: the frame, starting on its top; it rests there, then scrolls down slowly to its bottom.
+            Show("article_selftest_capture", Tex(720, 540, null), 0f, held: true);
+            log.IsTrue(displayRt.rect.width > 1919f && displayRt.rect.height > 1079f && rig.Get<bool>("mediaIsFullFrame"), "shots rig: an article fills the frame");
+            log.Near(1f, display.uvRect.yMax, 1e-5f, "shots rig: …starting on its top edge");
+            log.Near(0.75f, display.uvRect.height, 1e-4f, "shots rig: …a 4:3 capture shows three quarters of itself at a time");
+            log.IsTrue(Mathf.Approximately(display.uvRect.width, 1f) && Mathf.Approximately(display.uvRect.x, 0f), "shots rig: …its whole width, never cropped at the sides");
+            rig.Call("StepMediaMotion", 1f);
+            log.Near(1f, display.uvRect.yMax, 1e-5f, "shots rig: after a second it is still on its top (time to read the masthead)");
+            rig.Call("StepMediaMotion", 3f);
+            float partWay = display.uvRect.yMax;
+            log.IsTrue(partWay < 0.99f && partWay > 0.80f, $"shots rig: after 4 s it has scrolled part of the way down (top of the window at {partWay:F3})");
+            log.Near((4f - MediaMotionMath.ArticleTopHoldSeconds - MediaMotionMath.ArticleScrollRampSeconds * 0.5f) * MediaMotionMath.HeldScrollPerSecond * 1080f,
+                     (1f - partWay) * 540f * (1920f / 720f), 2f, "shots rig: …at 65 px a second on screen");
+            rig.Call("StepMediaMotion", 60f);
+            log.Near(0f, display.uvRect.yMin, 1e-5f, "shots rig: it ends on its very bottom");
+            log.IsTrue(Mathf.Approximately(display.uvRect.width, 1f) && Mathf.Approximately(display.uvRect.height, 0.75f), "shots rig: …still its whole width (it scrolls, it does not push in)");
+            log.IsTrue(MediaDisplayShadow.CutoutShownWhole == null, "shots rig: (no cut-out shadow for an article)");
+            // Timed, it moves at the same calm rate — it never hurries to reach the bottom.
+            Show("article_selftest_capture", made[made.Count - 1], 4f);
+            rig.Call("StepMediaMotion", 4f);
+            log.Near(partWay, display.uvRect.yMax, 1e-4f, "shots rig: a timed article is as far down after 4 s as a held one");
+
+            // An article that isn't taller than the frame has nothing to scroll to: top kept, a slight push-in.
+            Show("article_selftest_wide", Tex(960, 540, null), 4f);
+            rig.Call("StepMediaMotion", 4f);
+            log.Near(1f, display.uvRect.yMax, 1e-5f, "shots rig: a 16:9 article keeps its top edge to the end");
+            log.Near(1f / MediaMotionMath.ArticlePushInMax, display.uvRect.width, 1e-4f, "shots rig: …pushed in 2 %, not a photo's 8 %");
+
+            // A photo is exactly as it was: centred crop, 8 %.
+            Show("selftest_photo", Tex(720, 540, null), 4f);
+            log.Near(0.5f, display.uvRect.center.y, 1e-5f, "shots rig: a photo is still cropped from its centre");
+            rig.Call("StepMediaMotion", 4f);
+            log.Near(1f / MediaMotionMath.PushInMax, display.uvRect.width, 1e-4f, "shots rig: …and still pushes in 8 %");
+
+            // A post that fits: whole, centred, its own rectangle, with the cards' shadow.
+            Texture2D wide = Tex(1209, 602, new RectInt(192, 96, 825, 410));
+            Show("x_post_selftest_wide", wide, 5f);
+            MediaMotionMath.PostLayout want = MediaMotionMath.LayoutPost(1920f, 1080f, 1209, 602, new RectInt(192, 96, 825, 410));
+            log.IsTrue(!want.Scrolls, "shots rig: (the wide post is shown whole)");
+            // (the bounds are read every 2nd pixel: a pixel either way, times the scale)
+            log.IsTrue(Mathf.Abs(displayRt.rect.width - want.SlotSize.x) < 4f && Mathf.Abs(displayRt.rect.height - want.SlotSize.y) < 4f,
+                $"shots rig: a post's display is the post's own rectangle ({displayRt.rect.width:F0} × {displayRt.rect.height:F0})");
+            log.IsTrue(displayRt.anchorMin == new Vector2(0.5f, 0.5f) && displayRt.anchoredPosition == Vector2.zero, "shots rig: …centred on the frame");
+            log.IsTrue(Mathf.Abs(display.uvRect.xMin - 192f / 1209f) < 2e-3f && Mathf.Abs(display.uvRect.xMax - 1017f / 1209f) < 2e-3f, "shots rig: …showing the card and none of its see-through margin");
+            log.IsTrue(MediaDisplayShadow.CutoutShownWhole == wide, "shots rig: …and it casts the cards' shadow");
+            log.IsTrue(rig.Get<bool>("mediaIsFullFrame"), "shots rig: it still counts as having the frame (nothing else opens beside it)");
+            rig.Call("StepMediaMotion", 5f);
+            log.Near(MediaMotionMath.PostPushInMax, displayRt.localScale.x, 1e-4f, "shots rig: it has grown 3 % as it leaves");
+            log.IsTrue(Mathf.Abs(display.uvRect.xMin - 192f / 1209f) < 2e-3f, "shots rig: …the card itself, never a crop of it");
+
+            // A tall post: readable width, a column the height of the frame, the window travelling down.
+            Show("x_post_selftest_tall", Tex(1209, 1550, new RectInt(192, 96, 825, 1358)), 0f, held: true);
+            log.Near(1f, displayRt.localScale.x, 1e-6f, "shots rig: the next image starts at the display's own scale");
+            log.IsTrue(Mathf.Abs(displayRt.rect.width - 960f) < 2f && Mathf.Abs(displayRt.rect.height - 1080f) < 1f, $"shots rig: a tall post is half the frame wide and the frame high ({displayRt.rect.width:F0} × {displayRt.rect.height:F0})");
+            log.IsTrue(MediaDisplayShadow.CutoutShownWhole == null, "shots rig: (a column is not the post's rectangle: no shadow box)");
+            float top0 = display.uvRect.y;
+            rig.Call("StepMediaMotion", 2f);
+            float top2 = display.uvRect.y;
+            log.IsTrue(top2 < top0 - 1e-4f, "shots rig: held, it scrolls down");
+            log.Near(MediaMotionMath.HeldScrollPerSecond * 2f * 1080f, (top0 - top2) * 1550f * (960f / 825f), 2f, "shots rig: …65 px a second on screen");
+            rig.Call("StepMediaMotion", 600f);
+            float rest = display.uvRect.y;
+            rig.Call("StepMediaMotion", 5f);
+            log.Near(rest, display.uvRect.y, 1e-6f, "shots rig: …and rests at its bottom");
+
+            // Timed too short to read: warned, with the seconds it needs.
+            List<string> warnings = WarningsFrom(() => Show("x_post_selftest_tall", made[made.Count - 1], 2f));
+            log.IsTrue(warnings.Exists(w => w.Contains("too fast to read") && w.Contains("at least")), "shots rig: a tall post given 2 s is warned about, with the time it needs");
+            warnings = WarningsFrom(() => Show("x_post_selftest_tall", made[made.Count - 1], 8f));
+            log.AreEqual(0, warnings.Count, "shots rig: given 8 s it is not");
+
+            // An explicit ,Scroll is the author's own framing: the page's scroll, as before.
+            Show("x_post_selftest_tall", made[made.Count - 1], 6f, scroll: true);
+            log.IsTrue(displayRt.rect.width > 1919f && Mathf.Approximately(display.uvRect.width, 1f), "shots rig: {Image:x_post_…,6,Scroll} is still the full-width page scroll");
+
+            // {Position:Off,Cut} written with a picture that fills the frame: he stays until it has landed over him.
+            {
+                rig.Call("ResetMediaSlot");
+                rig.Set("isShowingMedia", false);
+                var clip = new MediaMarkerData { mediaType = MediaType.VIDEO, mediaName = "selftest_clip", triggerTime = 0.05f };
+                var photo = new MediaMarkerData { mediaType = MediaType.IMAGE, mediaName = "selftest_photo", triggerTime = 0.05f, holdsOpen = true };
+                var post = new MediaMarkerData { mediaType = MediaType.IMAGE, mediaName = "x_post_selftest_wide", triggerTime = 0.05f, holdsOpen = true };
+                var later = new MediaMarkerData { mediaType = MediaType.VIDEO, mediaName = "selftest_clip", triggerTime = 3f };
+                var end = new MediaMarkerData { mediaType = MediaType.VIDEO, mediaName = "End", triggerTime = 0.05f, endsMedia = true };
+                void AtCenter()
+                {
+                    rig.Set("currentPosition", CharacterPosition.Off);
+                    rig.Call("MoveToPosition", CharacterPosition.Center, (bool?)true);
+                }
+                bool AtHisMark() => ((Vector2)rig.Presenter.position - (Vector2)rig.Center.position).magnitude < 1e-4f;
+
+                foreach (var (marker, what) in new[] { (clip, "a clip"), (photo, "a photo") })
+                {
+                    AtCenter();
+                    rig.Set("mediaMarkers", new List<MediaMarkerData> { marker });
+                    rig.Call("MoveToPosition", CharacterPosition.Off, (bool?)true);
+                    log.IsTrue(rig.Mps.IsPresenterOff && rig.Mps.IsStageWide, $"cover: {{Position:Off,Cut}} with {what} — the stage is wide at once (the picture takes the frame)");
+                    log.IsTrue(rig.Mps.IsCoveredExitPending && AtHisMark(), $"cover: …but he is still standing at his mark ({what} has not landed yet)");
+                    rig.Call("StepCoveredExit");
+                    log.IsTrue(rig.Mps.IsCoveredExitPending && AtHisMark(), $"cover: …and stays while nothing is on the frame ({what})");
+                    // The media appears — lifted over him, because at rest he is drawn in front of the media canvas — and its entry lands.
+                    Show("selftest_photo", Tex(96, 54, null), 0f, held: true);
+                    Canvas lift = display.GetComponent<Canvas>();
+                    log.IsTrue(lift != null && rig.Get<bool>("mediaLiftedOverPresenter") && lift.sortingOrder == StageMath.CoverSortingOrder,
+                        $"cover: {what} comes in on a sorting order above his own ({StageMath.CoverSortingOrder}) — it covers him, he is not drawn over it");
+                    log.IsTrue(StageMath.CoverSortingOrder > 0 && StageMath.CoverSortingOrder < StageMath.PeekSortingOrder, "cover: …still under the cards, a peek and everything else on the stage");
+                    rig.Set("isShowingMedia", true);
+                    rig.Call("StepCoveredExit");
+                    log.IsTrue(!rig.Mps.IsCoveredExitPending && OutsideFrame(rig.Presenter.position), $"cover: once {what} stands on the frame he is gone, behind it");
+                    rig.Call("ResetMediaSlot");
+                    rig.Set("isShowingMedia", false);
+                    log.IsTrue(!rig.Get<bool>("mediaLiftedOverPresenter"), "cover: when that picture has gone the display is back on the canvas's own order");
+                }
+
+                // Not when nothing will cover him: an X post floats on the backdrop, a later clip is another beat, an End is no picture.
+                foreach (var (list, what) in new[] { (new List<MediaMarkerData> { post }, "an X post"), (new List<MediaMarkerData> { later }, "a clip three seconds later"),
+                                                     (new List<MediaMarkerData> { end }, "a {Video:End}"), (new List<MediaMarkerData>(), "nothing") })
+                {
+                    AtCenter();
+                    rig.Set("mediaMarkers", list);
+                    rig.Call("MoveToPosition", CharacterPosition.Off, (bool?)true);
+                    log.IsTrue(!rig.Mps.IsCoveredExitPending && OutsideFrame(rig.Presenter.position), $"cover: with {what} on the beat the cut is on the tag, as before");
+                }
+                // Not from a peek (he is drawn in front of the media), and not under a transition's cover.
+                rig.Set("mediaMarkers", new List<MediaMarkerData> { clip });
+                rig.Set("currentPosition", CharacterPosition.Off);
+                rig.Call("MoveToPosition", CharacterPosition.PeekRight, (bool?)true);
+                rig.Call("MoveToPosition", CharacterPosition.Off, (bool?)true);
+                log.IsTrue(!rig.Mps.IsCoveredExitPending && OutsideFrame(rig.Presenter.position), "cover: from a peek the cut is on the tag (a peek is in front of the picture)");
+                AtCenter();
+                rig.Set("underTransitionCover", true);
+                rig.Call("MoveToPosition", CharacterPosition.Off, (bool?)true);
+                rig.Set("underTransitionCover", false);
+                log.IsTrue(!rig.Mps.IsCoveredExitPending && OutsideFrame(rig.Presenter.position), "cover: on a {Transition} line the cut is under its cover, as before");
+                // A smooth {Position:Off} is not a cut: he slides out as always.
+                AtCenter();
+                rig.Call("MoveToPosition", CharacterPosition.Off, (bool?)false);
+                log.IsTrue(!rig.Mps.IsCoveredExitPending && rig.Get<bool>("stageMoving"), "cover: a smooth {Position:Off} still slides him out");
+                rig.Call("FinishStageTravelNow");
+
+                // Told to come back before the picture landed: he is put off first, then the move is planned from there.
+                AtCenter();
+                rig.Call("MoveToPosition", CharacterPosition.Off, (bool?)true);
+                log.IsTrue(rig.Mps.IsCoveredExitPending, "cover: (waiting again)");
+                rig.Call("MoveToPosition", CharacterPosition.Left, (bool?)true);
+                log.IsTrue(!rig.Mps.IsCoveredExitPending && ((Vector2)rig.Presenter.position - (Vector2)rig.Left.position).magnitude < 1e-4f,
+                    "cover: another {Position:…} before it landed ends the wait — he is where that tag puts him");
+                rig.Set("mediaMarkers", new List<MediaMarkerData>());
+                rig.Set("currentPosition", CharacterPosition.Left);
+                rig.Call("MoveToPosition", CharacterPosition.Off, (bool?)true);   // (the stage wide again for what follows)
+            }
+
+            // A picture that nothing is waiting for is not lifted.
+            Show("selftest_photo", Tex(96, 54, null), 3f);
+            log.IsTrue(!rig.Get<bool>("mediaLiftedOverPresenter"), "cover: an image with no cut waiting for it keeps the canvas's own order");
+
+            // When the media has gone: the display's own scale, the authored slot, no cut-out left behind.
+            Show("x_post_selftest_wide", wide, 5f);
+            rig.Call("StepMediaMotion", 5f);
+            log.IsTrue(displayRt.localScale.x > 1.02f && MediaDisplayShadow.CutoutShownWhole == wide, "shots rig: (a whole post is up again, grown)");
+            rig.Call("ResetMediaSlot");
+            log.IsTrue(displayRt.localScale == Vector3.one && MediaDisplayShadow.CutoutShownWhole == null && displayRt.sizeDelta == new Vector2(800f, 640f) &&
+                       displayRt.anchorMin == new Vector2(0.25f, 0.5f) && !rig.Get<bool>("mediaIsFullFrame"),
+                "shots rig: after the media has gone the display is the authored side slot again, at its own scale");
+        }
+        finally
+        {
+            StagePrefs.PushIn = savedPush;
+            MediaDisplayShadow.CutoutShownWhole = null;
+            foreach (Texture2D t in made) UnityEngine.Object.DestroyImmediate(t);
+            UnityEngine.Object.DestroyImmediate(rig.Root);
+        }
     }
 
     static void BigImage_ScrollAndFullWidth_Engine(Log log)
